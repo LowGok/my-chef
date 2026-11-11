@@ -50,7 +50,8 @@ def configure_provider(env: dict[str, str], *, live: bool) -> None:
 def audit_credential_artifacts(directory: Path, state: Path, database: Path, password: str, capability: str = "") -> None:
     """Scan retained evidence while the disposable credential canaries still exist."""
     canaries = [value.encode() for value in (password, capability, "isolated-live@example.test") if value]
-    proof_link = re.compile(rb"/app/(?:signup|verify-email|change-email)#[A-Za-z0-9_-]{43}")
+    proof_link = re.compile(rb"/app/(?:signup|verify-email|change-email|reset-password)#[A-Za-z0-9_-]{43}")
+    native_authority = re.compile(rb'"(?:accessToken|refreshToken)"\s*:\s*"[a-f0-9]{64}"|"proof"\s*:\s*"[A-Za-z0-9_-]{43}"|(?i:authorization["\']?\s*[:=]\s*["\']?Bearer\s+[a-f0-9]{64})')
     session = state / "session.json"
     if session.is_file():
         cookies = json.loads(session.read_text())["cookies"]
@@ -67,7 +68,7 @@ def audit_credential_artifacts(directory: Path, state: Path, database: Path, pas
         if name in ("session.json", "trace.zip", "error-context.md") or name.endswith((".db", ".db-wal", ".db-shm", ".sqlite", ".sqlite3", ".webm")):
             raise RuntimeError("private browser or database state entered retained evidence")
         content = file.read_bytes()
-        if content.startswith(b"SQLite format 3\x00") or proof_link.search(content) or any(value in content for value in canaries):
+        if content.startswith(b"SQLite format 3\x00") or proof_link.search(content) or native_authority.search(content) or any(value in content for value in canaries):
             raise RuntimeError("credential canary found in retained evidence")
 
 

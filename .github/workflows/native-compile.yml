@@ -1,0 +1,73 @@
+name: Native verification
+
+on:
+  pull_request:
+    types: [labeled]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-verify-${{ github.event.pull_request.number }}-${{ github.event.label.name }}
+  cancel-in-progress: false
+
+jobs:
+  compile:
+    if: >-
+      github.repository == 'LowGok/my-chef' &&
+      github.repository_id == '1454481532' &&
+      github.event.repository.private == false &&
+      vars.NATIVE_VERIFICATION_PR != '' &&
+      github.event.pull_request.number == fromJSON(vars.NATIVE_VERIFICATION_PR) &&
+      github.event.pull_request.base.ref == 'main' &&
+      github.event.pull_request.head.repo.id == github.event.repository.id &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'feat/native-mobile' &&
+      github.event.sender.login == 'LowGok' &&
+      contains(fromJSON('["native-compile","native-installed","native-installed-android","native-installed-ios-simulator"]'), github.event.label.name)
+    strategy:
+      fail-fast: false
+      max-parallel: ${{ github.event.label.name == 'native-installed' && 2 || 1 }}
+      matrix:
+        platform: ${{ fromJSON(github.event.label.name == 'native-installed' && '["android","ios-simulator"]' || github.event.label.name == 'native-installed-android' && '["android"]' || github.event.label.name == 'native-installed-ios-simulator' && '["ios-simulator"]' || '["android","ios-simulator","ios-device"]') }}
+    runs-on: ${{ matrix.platform == 'android' && 'ubuntu-24.04' || 'macos-26' }}
+    timeout-minutes: 25
+    env:
+      CI: "1"
+      NATIVE_VERIFICATION_PR: ${{ vars.NATIVE_VERIFICATION_PR }}
+      NATIVE_PLATFORM: ${{ matrix.platform }}
+      NATIVE_ANDROID_JOURNEYS: "1"
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: mobile/package.json
+          no-cache: true
+      - name: Compile without tests or distribution
+        run: bun scripts/mobile-compile.ts
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        if: startsWith(github.event.label.name, 'native-installed')
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Prepare locked Android fixture tools
+        if: matrix.platform == 'android' && startsWith(github.event.label.name, 'native-installed')
+        run: python3 scripts/rewrite.py bootstrap
+      - name: Verify installed native session and relaunch
+        if: startsWith(github.event.label.name, 'native-installed')
+        run: python3 scripts/test_native_installed.py
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: native-compile-${{ matrix.platform }}-${{ github.event.pull_request.head.sha }}
+          path: |
+            mobile/.generated/artifacts/compilation.json
+            mobile/.generated/artifacts/installed-smoke.json
+            mobile/.generated/artifacts/installed-journeys.json
+          if-no-files-found: warn
+          retention-days: 1
+          include-hidden-files: false

@@ -164,7 +164,12 @@ func Restore(ctx context.Context, backup, destination string, options ...Account
 		if opts.Cleanup != nil {
 			deletion.Cleanup = func(tx *gorm.DB, u User) error { return opts.Cleanup(ctx, tx, u) }
 		}
-		return paired.ReconcileAccountDeletions(ctx, deletion)
+		if err := paired.ReconcileAccountDeletions(ctx, deletion); err != nil {
+			return err
+		}
+		// Old snapshots must never resurrect consumed refresh credentials.
+		// The trigger also removes native access actors and their anchors.
+		return copy.DB.WithContext(ctx).Exec("DELETE FROM native_families").Error
 	})
 }
 

@@ -51,7 +51,7 @@ func (g *personalUploadGate) acquire(user int64) func() {
 
 func personalActor(r *http.Request) store.PersonalActor {
 	current := info(r)
-	return store.PersonalActor{UserID: *current.Session.UserID, SessionHash: auth.Hash(current.Token)}
+	return store.PersonalActor{UserID: *current.Session.UserID, SessionHash: auth.Hash(current.Token), Native: current.Native}
 }
 func (a *API) personalPlanning(r *http.Request) store.PersonalPlanning {
 	return store.PersonalPlanning{Actor: personalActor(r), Entitlements: a.Config.PersonalEntitlements, Now: time.Now()}

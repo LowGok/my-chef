@@ -32,6 +32,7 @@ var (
 type PersonalActor struct {
 	UserID      int64
 	SessionHash string
+	Native      bool
 }
 
 type PersonalEntitlement struct {

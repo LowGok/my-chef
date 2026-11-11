@@ -3,7 +3,7 @@
   "info": {
     "title": "MyChef API",
     "version": "0.1.0",
-    "description": "Meal/account IDs and quantities are decimal strings. Personal recipe/version/entry/photo IDs are opaque 32-character lowercase hex handles; unscheduled personal snapshot and ingredient IDs use a personal: prefix. Dates are calendar dates; history uses an exclusive to date. Cookie-authenticated writes require the configured exact Origin and X-CSRF-Token. Generation is asynchronous and never automatically retries a paid provider call. Authenticated responses identify the acting session in X-MyChef-User; clients discard responses from a superseded session."
+    "description": "Meal/account IDs and quantities are decimal strings. Personal recipe/version/entry/photo IDs are opaque 32-character lowercase hex handles; unscheduled personal snapshot and ingredient IDs use a personal: prefix. Dates are calendar dates; history uses an exclusive to date. Cookie-authenticated writes require the configured exact Origin and X-CSRF-Token. Generation is asynchronous and never automatically retries a paid provider call. Authenticated responses identify the acting session in X-MyChef-User; clients discard responses from a superseded session. Native clients use /api/native/v1 equivalents with opaque access credentials, rotating refresh credentials and no browser cookies. Native bootstrap/refresh never grant Premium; account verification and server permissions are shared."
   },
   "paths": {
     "/api/v1/account/export": {
@@ -242,14 +242,41 @@
         "summary": "Accept signed email delivery events",
         "security": [],
         "parameters": [
-          {"in": "header", "name": "svix-id", "required": true, "schema": {"type": "string"}},
-          {"in": "header", "name": "svix-timestamp", "required": true, "schema": {"type": "string"}},
-          {"in": "header", "name": "svix-signature", "required": true, "schema": {"type": "string"}}
+          {
+            "in": "header",
+            "name": "svix-id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "svix-timestamp",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "svix-signature",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
         "responses": {
-          "204": {"description": "Event accepted or already processed"},
-          "400": {"description": "Invalid, stale, or oversized event"},
-          "503": {"description": "Event store unavailable"}
+          "204": {
+            "description": "Event accepted or already processed"
+          },
+          "400": {
+            "description": "Invalid, stale, or oversized event"
+          },
+          "503": {
+            "description": "Event store unavailable"
+          }
         }
       }
     },
@@ -5439,6 +5466,5678 @@
           }
         }
       }
+    },
+    "/api/native/v1/account/export": {
+      "post": {
+        "operationId": "nativeExportAccount",
+        "description": "Native bearer transport; cookies are rejected and browser Origin/CSRF fields are not used. Available to verified and unverified signed-in accounts in either tier. Re-enter the current password to stream a consistent private ZIP; no archive is stored or emailed.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccountExportRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Format-2 ZIP with JSON files, readable contents guide, every retained personal recipe version and normalized referenced photos under export-local names. No original photos or provider handles. Any unavailable or changed photo fails the export. Interrupted transfers are incomplete and must be discarded.",
+            "headers": {
+              "Content-Disposition": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "private, no-store"
+                }
+              },
+              "X-MyChef-User": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "type": "string",
+                  "const": "nosniff"
+                }
+              }
+            },
+            "content": {
+              "application/zip": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Incorrect current password, malformed input or confirmation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "An active signed-in account is required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Account verification or permissions required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many password attempts.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Account storage or its independent lifecycle journal is unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "nativeBearer": []
+          }
+        ]
+      }
+    },
+    "/api/native/v1/account/deletion": {
+      "post": {
+        "operationId": "nativeDeleteAccount",
+        "description": "Native bearer transport; cookies are rejected and browser Origin/CSRF fields are not used. Immediately and permanently remove the live account after current-password verification and exact DELETE confirmation. Revokes all sessions. The opaque operation key prevents duplicate side effects; a revoked session cannot authenticate a replay. Third-party image cleanup remains durable until resolved.",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{32}$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccountDeletionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Live account deletion committed and independent restore-prevention marker durable.",
+            "headers": {
+              "X-MyChef-User": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountDeletionResult"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicting operation key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Incorrect current password, malformed input or confirmation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "An active signed-in account is required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Account verification or permissions required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many password attempts.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Account storage or its independent lifecycle journal is unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "nativeBearer": []
+          }
+        ]
+      }
+    },
+    "/api/native/v1/session": {
+      "get": {
+        "operationId": "nativeSession",
+        "responses": {
+          "200": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeSessionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Account verification or permissions required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "nativeBearer": []
+          }
+        ],
+        "description": "Native bearer transport; cookies are rejected and browser Origin/CSRF fields are not used. "
+      },
+      "post": {
+        "operationId": "nativeStart",
+        "description": "Create anonymous native credentials only; platform metadata grants no account or Premium permission. No Cookie or Authorization header is accepted.",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NativeStartInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "No cookies; credentials and response must not be cached or logged.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeSessionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid JSON, platform or fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, expired, revoked or replayed authority.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Source request limit reached.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Storage or account services unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/native/v1/register": {
+      "post": {
+        "operationId": "nativeRegister",
+        "responses": {
+          "202": {
+            "description": "Sign-up request accepted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmailRequestAccepted"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Account verification or permissions required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Registration"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 64
+            }
+          }
+        ],
+        "description": "Native bearer transport; cookies are rejected and browser Origin/CSRF fields are not used. Request a sign-up link. The acknowledgement does not disclose whether the address exists.",
+        "security": [
+          {
+            "nativeBearer": []
+          }
+        ]
+      }
+    },
+    "/api/native/v1/login": {
+      "post": {
+        "operationId": "nativeLogin",
+        "responses": {
+          "200": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeSessionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Account verification or permissions required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Login"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 64
+            }
+          }
+        ],
+        "security": [
+          {
+            "nativeBearer": []
+          }
+        ],
+        "description": "Native bearer transport; cookies are rejected and browser Origin/CSRF fields are not used. "
+      }
+    },
+    "/api/native/v1/logout": {
+      "post": {
+        "operationId": "nativeLogout",
+        "responses": {
+          "204": {
+            "description": "Success",
+            "headers": {
+              "X-MyChef-User": {
+                "description": "Acting user ID as a decimal string.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Account verification or permissions required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "nativeBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 64
+            }
+          }
+        ],
+        "description": "Native bearer transport; cookies are rejected and browser Origin/CSRF fields are not used. "
+      }
+    },
+    "/api/native/v1/profile": {
+      "get": {
+        "operationId": "nativeProfile",
+        "responses": {
+          "200": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Profile"
+                }
+              }
+            },
+            "headers": {
+              "X-MyChef-User": {
+                "description": "Acting user ID as a decimal string.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Account verification or permissions required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "nativeBearer": []
+          }
+        ],
+        "description": "Native bearer transport; cookies are rejected and browser Origin/CSRF fields are not used. "
+      },
+      "put": {
+        "operationId": "nativeUpdateProfile",
+        "responses": {
+          "200": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Profile"
+                }
+              }
+            },
+            "headers": {
+              "X-MyChef-User": {
+                "description": "Acting user ID as a decimal string.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Account verification or permissions required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "nativeBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProfileUpdate"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 64
+            }
+          }
+        ],
+        "description": "Native bearer transport; cookies are rejected and browser Origin/CSRF fields are not used. "
+      }
+    },
+    "/api/native/v1/account/password": {
+      "put": {
+        "operationId": "nativeChangePassword",
+        "description": "Native bearer transport; cookies are rejected and browser Origin/CSRF fields are not used. Replace the password for the authenticated account, rotate its current session and revoke all previous sessions.",
+        "responses": {
+          "200": {
+            "description": "The new session and CSRF token.",
+            "headers": {
+              "X-MyChef-User": {
+                "description": "Acting user ID as a decimal string.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeSessionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid credential input or incorrect current password.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A valid authenticated session is required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Account verification or permissions required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Attempt limit reached.",
+            "headers": {
+              "Retry-After": {
+                "description": "Wait in seconds.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The transaction could not complete.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PasswordChange"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 64
+            }
+          }
+        ],
+        "security": [
+          {
+            "nativeBearer": []
+          }
+        ]
+      }
+    },
+    "/api/native/v1/generations": {
+      "post": {
+        "operationId": "nativeCreateGeneration",
+        "responses": {
+          "202": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Generation"
+                }
+              }
+            },
+            "headers": {
+              "X-MyChef-User": {
+                "description": "Acting user ID as a decimal string.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Account verification or permissions required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Generation"
+                }
+              }
+            },
+            "headers": {
+              "X-MyChef-User": {
+                "description": "Acting user ID as a decimal string.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "nativeBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MenuInput"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 100,
+              "pattern": "^[a-zA-Z0-9_-]+$"
+            }
+          }
+        ],
+        "description": "Native bearer transport; cookies are rejected and browser Origin/CSRF fields are not used. "
+      }
+    },
+    "/api/native/v1/generations/{id}": {
+      "get": {
+        "operationId": "nativeGeneration",
+        "responses": {
+          "200": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Generation"
+                }
+              }
+            },
+            "headers": {
+              "X-MyChef-User": {
+                "description": "Acting user ID as a decimal string.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Account verification or permissions required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "nativeBearer": []
+          }
+        ],
+        "description": "Native bearer transport; cookies are rejected and browser Origin/CSRF fields are not used. "
+      },
+      "parameters": [
+        {
+          "in": "path",
+          "name": "id",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,18}$"
+          }
+        }
+      ]
+    },
+    "/api/native/v1/menus": {
+      "get": {
+        "operationId": "nativeHistory",
+        "responses": {
+          "200": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecipePage"
+                }
+              }
+            },
+            "headers": {
+              "X-MyChef-User": {
+                "description": "Acting user ID as a decimal string.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Account verification or permissions required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "nativeBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "from",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000
+            }
+          }
+        ],
+        "description": "Native bearer transport; cookies are rejected and browser Origin/CSRF fields are not used. "
+      }
+    },
+    "/api/native/v1/menus/{id}": {
+      "get": {
+        "operationId": "nativeMenu",
+        "responses": {
+          "200": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Menu"
+                }
+              }
+            },
+            "headers": {
+              "X-MyChef-User": {
+                "description": "Acting user ID as a decimal string.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Account verification or permissions required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "nativeBearer": []
+          }
+        ],
+        "description": "Native bearer transport; cookies are rejected and browser Origin/CSRF fields are not used. "
+      },
+      "parameters": [
+        {
+          "in": "path",
+          "name": "id",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,18}$"
+          }
+        }
+      ]
+    },
+    "/api/native/v1/recipes/{id}": {
+      "get": {
+        "operationId": "nativeRecipe",
+        "responses": {
+          "200": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Recipe"
+                }
+              }
+            },
+            "headers": {
+              "X-MyChef-User": {
+                "description": "Acting user ID as a decimal string.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Account verification or permissions required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "nativeBearer": []
+          }
+        ],
+        "description": "Native bearer transport; cookies are rejected and browser Origin/CSRF fields are not used. "
+      },
+      "parameters": [
+        {
+          "in": "path",
+          "name": "id",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,18}$"
+          }
+        }
+      ]
+    },
+    "/api/native/v1/version": {
+      "get": {
+        "operationId": "nativeVersion",
+        "responses": {
+          "200": {
+            "description": "Go service version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "version": {
+                      "type": "string",
+                      "maxLength": 80
+                    },
+                    "runtime": {
+                      "const": "go"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "runtime"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "nativeBearer": []
+          }
+        ],
+        "description": "Native bearer transport; cookies are rejected and browser Origin/CSRF fields are not used. "
+      }
+    },
+    "/api/native/v1/shopping/{week}": {
+      "get": {
+        "operationId": "nativeGetShopping",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "week",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "description": "Monday of the shopping week"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Saved shopping list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShoppingList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Request failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Request failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Account verification or permissions required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Request failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Request failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "nativeBearer": []
+          }
+        ],
+        "description": "Native bearer transport; cookies are rejected and browser Origin/CSRF fields are not used. "
+      },
+      "put": {
+        "operationId": "nativeSaveShopping",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "week",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "description": "Monday of the shopping week"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Saved shopping list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShoppingList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Request failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Request failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Account verification or permissions required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Request failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Request failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ShoppingList"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "nativeBearer": []
+          }
+        ],
+        "description": "Native bearer transport; cookies are rejected and browser Origin/CSRF fields are not used. "
+      }
+    },
+    "/api/native/v1/favorites": {
+      "get": {
+        "operationId": "nativeFavorites",
+        "responses": {
+          "200": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecipePage"
+                }
+              }
+            },
+            "headers": {
+              "X-MyChef-User": {
+                "description": "Acting user ID as a decimal string.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Account verification or permissions required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "nativeBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50,
+              "default": 12
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000,
+              "default": 0
+            }
+          }
+        ],
+        "description": "Native bearer transport; cookies are rejected and browser Origin/CSRF fields are not used. "
+      }
+    },
+    "/api/native/v1/recipes/{id}/favorite": {
+      "put": {
+        "operationId": "nativeSaveFavorite",
+        "responses": {
+          "200": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Recipe"
+                }
+              }
+            },
+            "headers": {
+              "X-MyChef-User": {
+                "description": "Acting user ID as a decimal string.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Account verification or permissions required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "nativeBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[1-9][0-9]*$"
+            }
+          },
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "description": "Native bearer transport; cookies are rejected and browser Origin/CSRF fields are not used. "
+      },
+      "delete": {
+        "operationId": "nativeRemoveFavorite",
+        "responses": {
+          "200": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Recipe"
+                }
+              }
+            },
+            "headers": {
+              "X-MyChef-User": {
+                "description": "Acting user ID as a decimal string.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Account verification or permissions required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "nativeBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[1-9][0-9]*$"
+            }
+          },
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "description": "Native bearer transport; cookies are rejected and browser Origin/CSRF fields are not used. "
+      }
+    },
+    "/api/native/v1/favorite-weeks/{week}": {
+      "get": {
+        "operationId": "nativeFavoriteWeek",
+        "responses": {
+          "200": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FavoriteWeek"
+                }
+              }
+            },
+            "headers": {
+              "X-MyChef-User": {
+                "description": "Acting user ID as a decimal string.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Account verification or permissions required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "nativeBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "week",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          }
+        ],
+        "description": "Native bearer transport; cookies are rejected and browser Origin/CSRF fields are not used. "
+      }
+    },
+    "/api/native/v1/favorites/{id}/queue": {
+      "post": {
+        "operationId": "nativeQueueFavorite",
+        "responses": {
+          "200": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FavoriteWeek"
+                }
+              }
+            },
+            "headers": {
+              "X-MyChef-User": {
+                "description": "Acting user ID as a decimal string.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Account verification or permissions required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "nativeBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[1-9][0-9]*$"
+            }
+          },
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FavoriteQueueInput"
+              }
+            }
+          }
+        },
+        "description": "Native bearer transport; cookies are rejected and browser Origin/CSRF fields are not used. "
+      }
+    },
+    "/api/native/v1/favorites/{id}/swap": {
+      "post": {
+        "operationId": "nativeSwapFavorite",
+        "responses": {
+          "200": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Recipe"
+                }
+              }
+            },
+            "headers": {
+              "X-MyChef-User": {
+                "description": "Acting user ID as a decimal string.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Account verification or permissions required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "nativeBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[1-9][0-9]*$"
+            }
+          },
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FavoriteSwap"
+              }
+            }
+          }
+        },
+        "description": "Native bearer transport; cookies are rejected and browser Origin/CSRF fields are not used. "
+      }
+    },
+    "/api/native/v1/signup/inspect": {
+      "post": {
+        "operationId": "nativeInspectSignUp",
+        "description": "Native bearer transport; cookies are rejected and browser Origin/CSRF fields are not used. Read the profile fields from a valid sign-up proof.",
+        "responses": {
+          "200": {
+            "description": "Read the profile fields from a valid sign-up proof.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignUpProfile"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/EmailFlow400"
+          },
+          "401": {
+            "$ref": "#/components/responses/EmailFlow401"
+          },
+          "403": {
+            "$ref": "#/components/responses/EmailFlow403",
+            "description": "Account verification or permissions required."
+          },
+          "409": {
+            "$ref": "#/components/responses/EmailFlow409"
+          },
+          "429": {
+            "$ref": "#/components/responses/EmailFlow429"
+          },
+          "503": {
+            "$ref": "#/components/responses/EmailFlow503"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmailProof"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EmailFlowCSRF"
+          }
+        ],
+        "security": [
+          {
+            "nativeBearer": []
+          }
+        ]
+      }
+    },
+    "/api/native/v1/signup/complete": {
+      "post": {
+        "operationId": "nativeCompleteSignUp",
+        "description": "Native bearer transport; cookies are rejected and browser Origin/CSRF fields are not used. Create a verified account after mailbox proof. Sign in separately.",
+        "responses": {
+          "201": {
+            "description": "Create a verified account after mailbox proof. Sign in separately.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignUpCreated"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/EmailFlow400"
+          },
+          "401": {
+            "$ref": "#/components/responses/EmailFlow401"
+          },
+          "403": {
+            "$ref": "#/components/responses/EmailFlow403",
+            "description": "Account verification or permissions required."
+          },
+          "409": {
+            "$ref": "#/components/responses/EmailFlow409"
+          },
+          "429": {
+            "$ref": "#/components/responses/EmailFlow429"
+          },
+          "503": {
+            "$ref": "#/components/responses/EmailFlow503"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SignUpCompletion"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EmailFlowCSRF"
+          }
+        ],
+        "security": [
+          {
+            "nativeBearer": []
+          }
+        ]
+      }
+    },
+    "/api/native/v1/email/verification/resend": {
+      "post": {
+        "operationId": "nativeResendEmailVerification",
+        "description": "Native bearer transport; cookies are rejected and browser Origin/CSRF fields are not used. Send a new verification email for the restricted account.",
+        "responses": {
+          "202": {
+            "description": "Send a new verification email for the restricted account.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmailRequestAccepted"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/EmailFlow400"
+          },
+          "401": {
+            "$ref": "#/components/responses/EmailFlow401"
+          },
+          "403": {
+            "$ref": "#/components/responses/EmailFlow403",
+            "description": "Account verification or permissions required."
+          },
+          "409": {
+            "$ref": "#/components/responses/EmailFlow409"
+          },
+          "429": {
+            "$ref": "#/components/responses/EmailFlow429"
+          },
+          "503": {
+            "$ref": "#/components/responses/EmailFlow503"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmailVerificationResend"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EmailFlowCSRF"
+          }
+        ],
+        "security": [
+          {
+            "nativeBearer": []
+          }
+        ]
+      }
+    },
+    "/api/native/v1/email/verification/confirm": {
+      "post": {
+        "operationId": "nativeConfirmEmailVerification",
+        "description": "Native bearer transport; cookies are rejected and browser Origin/CSRF fields are not used. Verify the matching restricted session and issue a replacement cookie.",
+        "responses": {
+          "200": {
+            "description": "Verify the matching restricted session and issue a replacement cookie.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeSessionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/EmailFlow400"
+          },
+          "401": {
+            "$ref": "#/components/responses/EmailFlow401"
+          },
+          "403": {
+            "$ref": "#/components/responses/EmailFlow403",
+            "description": "Account verification or permissions required."
+          },
+          "409": {
+            "$ref": "#/components/responses/EmailFlow409"
+          },
+          "429": {
+            "$ref": "#/components/responses/EmailFlow429"
+          },
+          "503": {
+            "$ref": "#/components/responses/EmailFlow503"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmailProof"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EmailFlowCSRF"
+          }
+        ],
+        "security": [
+          {
+            "nativeBearer": []
+          }
+        ]
+      }
+    },
+    "/api/native/v1/email/change": {
+      "post": {
+        "operationId": "nativeStartEmailChange",
+        "description": "Native bearer transport; cookies are rejected and browser Origin/CSRF fields are not used. Request an email change or correction after reentering the current password.",
+        "responses": {
+          "202": {
+            "description": "Request an email change or correction after reentering the current password.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmailRequestAccepted"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/EmailFlow400"
+          },
+          "401": {
+            "$ref": "#/components/responses/EmailFlow401"
+          },
+          "403": {
+            "$ref": "#/components/responses/EmailFlow403",
+            "description": "Account verification or permissions required."
+          },
+          "409": {
+            "$ref": "#/components/responses/EmailFlow409"
+          },
+          "429": {
+            "$ref": "#/components/responses/EmailFlow429"
+          },
+          "503": {
+            "$ref": "#/components/responses/EmailFlow503"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmailChangeStart"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EmailFlowCSRF"
+          }
+        ],
+        "security": [
+          {
+            "nativeBearer": []
+          }
+        ]
+      }
+    },
+    "/api/native/v1/email/change/inspect": {
+      "post": {
+        "operationId": "nativeInspectEmailChange",
+        "description": "Native bearer transport; cookies are rejected and browser Origin/CSRF fields are not used. Read the intended address-change action without applying it.",
+        "responses": {
+          "200": {
+            "description": "Read the intended address-change action without applying it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmailChangeView"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/EmailFlow400"
+          },
+          "401": {
+            "$ref": "#/components/responses/EmailFlow401"
+          },
+          "403": {
+            "$ref": "#/components/responses/EmailFlow403",
+            "description": "Account verification or permissions required."
+          },
+          "409": {
+            "$ref": "#/components/responses/EmailFlow409"
+          },
+          "429": {
+            "$ref": "#/components/responses/EmailFlow429"
+          },
+          "503": {
+            "$ref": "#/components/responses/EmailFlow503"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmailProof"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EmailFlowCSRF"
+          }
+        ],
+        "security": [
+          {
+            "nativeBearer": []
+          }
+        ]
+      }
+    },
+    "/api/native/v1/email/change/decision": {
+      "post": {
+        "operationId": "nativeDecideEmailChange",
+        "description": "Native bearer transport; cookies are rejected and browser Origin/CSRF fields are not used. Apply an explicit inbox decision. Sign in again if this browser was signed in to the changed account.",
+        "responses": {
+          "200": {
+            "description": "Apply an explicit inbox decision. Sign in again if this browser was signed in to the changed account.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmailChangeDecision"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/EmailFlow400"
+          },
+          "401": {
+            "$ref": "#/components/responses/EmailFlow401"
+          },
+          "403": {
+            "$ref": "#/components/responses/EmailFlow403",
+            "description": "Account verification or permissions required."
+          },
+          "409": {
+            "$ref": "#/components/responses/EmailFlow409"
+          },
+          "429": {
+            "$ref": "#/components/responses/EmailFlow429"
+          },
+          "503": {
+            "$ref": "#/components/responses/EmailFlow503"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmailProof"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EmailFlowCSRF"
+          }
+        ],
+        "security": [
+          {
+            "nativeBearer": []
+          }
+        ]
+      }
+    },
+    "/api/native/v1/password-recovery/request": {
+      "post": {
+        "operationId": "nativeRequestPasswordRecovery",
+        "summary": "Request password recovery",
+        "responses": {
+          "202": {
+            "description": "The request was recorded. The response does not indicate whether an account exists.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmailRequestAccepted"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/EmailFlow400"
+          },
+          "401": {
+            "$ref": "#/components/responses/EmailFlow401"
+          },
+          "403": {
+            "$ref": "#/components/responses/EmailFlow403",
+            "description": "Account verification or permissions required."
+          },
+          "409": {
+            "$ref": "#/components/responses/EmailFlow409"
+          },
+          "429": {
+            "$ref": "#/components/responses/EmailFlow429"
+          },
+          "503": {
+            "$ref": "#/components/responses/EmailFlow503"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecoveryRequest"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EmailFlowCSRF"
+          }
+        ],
+        "security": [
+          {
+            "nativeBearer": []
+          }
+        ],
+        "description": "Native bearer transport; cookies are rejected and browser Origin/CSRF fields are not used. "
+      }
+    },
+    "/api/native/v1/password-recovery/complete": {
+      "post": {
+        "operationId": "nativeCompletePasswordRecovery",
+        "summary": "Reset a forgotten password",
+        "responses": {
+          "200": {
+            "description": "The password was reset. Sign in normally with the new password.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecoveryResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/EmailFlow400"
+          },
+          "401": {
+            "$ref": "#/components/responses/EmailFlow401"
+          },
+          "403": {
+            "$ref": "#/components/responses/EmailFlow403",
+            "description": "Account verification or permissions required."
+          },
+          "409": {
+            "$ref": "#/components/responses/EmailFlow409"
+          },
+          "429": {
+            "$ref": "#/components/responses/EmailFlow429"
+          },
+          "503": {
+            "$ref": "#/components/responses/EmailFlow503"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecoveryCompletion"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EmailFlowCSRF"
+          }
+        ],
+        "security": [
+          {
+            "nativeBearer": []
+          }
+        ],
+        "description": "Native bearer transport; cookies are rejected and browser Origin/CSRF fields are not used. "
+      }
+    },
+    "/api/native/v1/feedback/availability": {
+      "get": {
+        "operationId": "nativeFeedbackAvailability",
+        "responses": {
+          "200": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeedbackAvailability"
+                }
+              }
+            },
+            "headers": {
+              "X-MyChef-User": {
+                "description": "Acting user ID as a decimal string.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/EmailFlow401"
+          },
+          "403": {
+            "$ref": "#/components/responses/EmailFlow403",
+            "description": "Account verification or permissions required."
+          },
+          "503": {
+            "$ref": "#/components/responses/EmailFlow503"
+          }
+        },
+        "security": [
+          {
+            "nativeBearer": []
+          }
+        ],
+        "description": "Native bearer transport; cookies are rejected and browser Origin/CSRF fields are not used. "
+      }
+    },
+    "/api/native/v1/feedback": {
+      "post": {
+        "operationId": "nativeSubmitFeedback",
+        "responses": {
+          "200": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeedbackReceipt"
+                }
+              }
+            },
+            "headers": {
+              "X-MyChef-User": {
+                "description": "Acting user ID as a decimal string.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/EmailFlow400"
+          },
+          "401": {
+            "$ref": "#/components/responses/EmailFlow401"
+          },
+          "403": {
+            "$ref": "#/components/responses/EmailFlow403",
+            "description": "Account verification or permissions required."
+          },
+          "404": {
+            "description": "Resource unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "$ref": "#/components/responses/EmailFlow409"
+          },
+          "429": {
+            "$ref": "#/components/responses/EmailFlow429"
+          },
+          "503": {
+            "$ref": "#/components/responses/EmailFlow503"
+          }
+        },
+        "security": [
+          {
+            "nativeBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EmailFlowCSRF"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FeedbackInput"
+              }
+            }
+          }
+        },
+        "description": "Native bearer transport; cookies are rejected and browser Origin/CSRF fields are not used. "
+      }
+    },
+    "/api/native/v1/feedback/receipt": {
+      "post": {
+        "operationId": "nativeFeedbackReceipt",
+        "responses": {
+          "200": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeedbackReceipt"
+                }
+              }
+            },
+            "headers": {
+              "X-MyChef-User": {
+                "description": "Acting user ID as a decimal string.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/EmailFlow400"
+          },
+          "401": {
+            "$ref": "#/components/responses/EmailFlow401"
+          },
+          "403": {
+            "$ref": "#/components/responses/EmailFlow403",
+            "description": "Account verification or permissions required."
+          },
+          "404": {
+            "description": "Resource unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "$ref": "#/components/responses/EmailFlow503"
+          }
+        },
+        "security": [
+          {
+            "nativeBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EmailFlowCSRF"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FeedbackReceiptInput"
+              }
+            }
+          }
+        },
+        "description": "Native bearer transport; cookies are rejected and browser Origin/CSRF fields are not used. "
+      }
+    },
+    "/api/native/v1/recipes/{id}/rating": {
+      "parameters": [
+        {
+          "in": "path",
+          "name": "id",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,18}$"
+          }
+        }
+      ],
+      "get": {
+        "operationId": "nativeRecipeRating",
+        "responses": {
+          "200": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeedbackRating"
+                }
+              }
+            },
+            "headers": {
+              "X-MyChef-User": {
+                "description": "Acting user ID as a decimal string.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/EmailFlow400"
+          },
+          "401": {
+            "$ref": "#/components/responses/EmailFlow401"
+          },
+          "403": {
+            "$ref": "#/components/responses/EmailFlow403",
+            "description": "Account verification or permissions required."
+          },
+          "404": {
+            "description": "Resource unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "$ref": "#/components/responses/EmailFlow503"
+          }
+        },
+        "security": [
+          {
+            "nativeBearer": []
+          }
+        ],
+        "description": "Native bearer transport; cookies are rejected and browser Origin/CSRF fields are not used. "
+      },
+      "put": {
+        "operationId": "nativeSaveRecipeRating",
+        "responses": {
+          "200": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeedbackReceipt"
+                }
+              }
+            },
+            "headers": {
+              "X-MyChef-User": {
+                "description": "Acting user ID as a decimal string.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/EmailFlow400"
+          },
+          "401": {
+            "$ref": "#/components/responses/EmailFlow401"
+          },
+          "403": {
+            "$ref": "#/components/responses/EmailFlow403",
+            "description": "Account verification or permissions required."
+          },
+          "404": {
+            "description": "Resource unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "$ref": "#/components/responses/EmailFlow409"
+          },
+          "429": {
+            "$ref": "#/components/responses/EmailFlow429"
+          },
+          "503": {
+            "$ref": "#/components/responses/EmailFlow503"
+          }
+        },
+        "security": [
+          {
+            "nativeBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EmailFlowCSRF"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FeedbackRatingInput"
+              }
+            }
+          }
+        },
+        "description": "Native bearer transport; cookies are rejected and browser Origin/CSRF fields are not used. "
+      }
+    },
+    "/api/native/v1/personal-recipes/permissions": {
+      "get": {
+        "operationId": "nativePersonalPermissions",
+        "security": [
+          {
+            "nativeBearer": []
+          }
+        ],
+        "description": "Native bearer transport; cookies are rejected and browser Origin/CSRF fields are not used. Requires a verified live owner session. Writes require exact Origin and CSRF. Personal content is never logged or sent to generation; creation, edits and new assignments require server-verified Premium. All responses are no-store.",
+        "responses": {
+          "200": {
+            "description": "Owner-scoped private response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersonalPermissions"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Account verification or permissions required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/native/v1/personal-recipes/search": {
+      "post": {
+        "operationId": "nativeSearchPersonal",
+        "security": [
+          {
+            "nativeBearer": []
+          }
+        ],
+        "description": "Native bearer transport; cookies are rejected and browser Origin/CSRF fields are not used. Requires a verified live owner session. Writes require exact Origin and CSRF. Personal content is never logged or sent to generation; creation, edits and new assignments require server-verified Premium. All responses are no-store. Title search is literal and uses only the POST body, never a URL query. Default page size 12; maximum 50. Cursor is opaque.",
+        "responses": {
+          "200": {
+            "description": "Owner-scoped private response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersonalRecipePage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Account verification or permissions required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PersonalSearch"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/native/v1/personal-recipes/copy": {
+      "post": {
+        "operationId": "nativeCopyPersonal",
+        "security": [
+          {
+            "nativeBearer": []
+          }
+        ],
+        "description": "Native bearer transport; cookies are rejected and browser Origin/CSRF fields are not used. Requires a verified live owner session. Writes require exact Origin and CSRF. Personal content is never logged or sent to generation; creation, edits and new assignments require server-verified Premium. All responses are no-store.",
+        "responses": {
+          "200": {
+            "description": "Owner-scoped private response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersonalCopy"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Account verification or permissions required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PersonalCopyInput"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/native/v1/personal-recipes": {
+      "post": {
+        "operationId": "nativeCreatePersonal",
+        "security": [
+          {
+            "nativeBearer": []
+          }
+        ],
+        "description": "Native bearer transport; cookies are rejected and browser Origin/CSRF fields are not used. Requires a verified live owner session. Writes require exact Origin and CSRF. Personal content is never logged or sent to generation; creation, edits and new assignments require server-verified Premium. All responses are no-store.",
+        "responses": {
+          "201": {
+            "description": "Owner-scoped private response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersonalRecipe"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Account verification or permissions required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PersonalSaveInput"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "recipe": {
+                    "type": "string",
+                    "maxLength": 263168
+                  },
+                  "photo": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "JPEG, PNG or static WebP, at most 12 MiB, 8192 pixels per side and 20 million pixels. The recipe part is strict PersonalSaveInput JSON with photoAction replace. Text is validated before isolated normalization and private upload. No original filename or original bytes are stored."
+                  }
+                },
+                "required": [
+                  "recipe",
+                  "photo"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/native/v1/personal-recipes/{id}": {
+      "get": {
+        "operationId": "nativeReadPersonal",
+        "security": [
+          {
+            "nativeBearer": []
+          }
+        ],
+        "description": "Native bearer transport; cookies are rejected and browser Origin/CSRF fields are not used. Requires a verified live owner session. Writes require exact Origin and CSRF. Personal content is never logged or sent to generation; creation, edits and new assignments require server-verified Premium. All responses are no-store.",
+        "responses": {
+          "200": {
+            "description": "Owner-scoped private response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersonalRecipe"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Account verification or permissions required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{32}$"
+            }
+          },
+          {
+            "in": "query",
+            "name": "version",
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{32}$"
+            }
+          }
+        ]
+      },
+      "put": {
+        "operationId": "nativeUpdatePersonal",
+        "security": [
+          {
+            "nativeBearer": []
+          }
+        ],
+        "description": "Native bearer transport; cookies are rejected and browser Origin/CSRF fields are not used. Requires a verified live owner session. Writes require exact Origin and CSRF. Personal content is never logged or sent to generation; creation, edits and new assignments require server-verified Premium. All responses are no-store.",
+        "responses": {
+          "200": {
+            "description": "Owner-scoped private response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersonalRecipe"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Account verification or permissions required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{32}$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PersonalSaveInput"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "recipe": {
+                    "type": "string",
+                    "maxLength": 263168
+                  },
+                  "photo": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "JPEG, PNG or static WebP, at most 12 MiB, 8192 pixels per side and 20 million pixels. The recipe part is strict PersonalSaveInput JSON with photoAction replace. Text is validated before isolated normalization and private upload. No original filename or original bytes are stored."
+                  }
+                },
+                "required": [
+                  "recipe",
+                  "photo"
+                ]
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "nativeDeletePersonal",
+        "security": [
+          {
+            "nativeBearer": []
+          }
+        ],
+        "description": "Native bearer transport; cookies are rejected and browser Origin/CSRF fields are not used. Requires a verified live owner session. Writes require exact Origin and CSRF. Personal content is never logged or sent to generation; creation, edits and new assignments require server-verified Premium. All responses are no-store.",
+        "responses": {
+          "200": {
+            "description": "Owner-scoped private response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersonalDeleteResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Account verification or permissions required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{32}$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PersonalDeleteInput"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/native/v1/personal-recipes/{id}/queue": {
+      "post": {
+        "operationId": "nativeQueuePersonal",
+        "security": [
+          {
+            "nativeBearer": []
+          }
+        ],
+        "description": "Native bearer transport; cookies are rejected and browser Origin/CSRF fields are not used. Requires a verified live owner session. Writes require exact Origin and CSRF. Personal content is never logged or sent to generation; creation, edits and new assignments require server-verified Premium. All responses are no-store.",
+        "responses": {
+          "200": {
+            "description": "Owner-scoped private response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FavoriteWeek"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Account verification or permissions required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{32}$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PersonalQueueInput"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/native/v1/personal-recipes/{id}/swap": {
+      "post": {
+        "operationId": "nativeSwapPersonal",
+        "security": [
+          {
+            "nativeBearer": []
+          }
+        ],
+        "description": "Native bearer transport; cookies are rejected and browser Origin/CSRF fields are not used. Requires a verified live owner session. Writes require exact Origin and CSRF. Personal content is never logged or sent to generation; creation, edits and new assignments require server-verified Premium. All responses are no-store.",
+        "responses": {
+          "200": {
+            "description": "Owner-scoped private response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Recipe"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Account verification or permissions required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{32}$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PersonalSwapInput"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/native/v1/personal-queue/{id}": {
+      "delete": {
+        "operationId": "nativeRemovePersonalQueue",
+        "security": [
+          {
+            "nativeBearer": []
+          }
+        ],
+        "description": "Native bearer transport; cookies are rejected and browser Origin/CSRF fields are not used. Requires a verified live owner session. Writes require exact Origin and CSRF. Personal content is never logged or sent to generation; creation, edits and new assignments require server-verified Premium. All responses are no-store.",
+        "responses": {
+          "200": {
+            "description": "Owner-scoped private response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FavoriteWeek"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Account verification or permissions required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{32}$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PersonalQueueRemoval"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/native/v1/personal-photos/{id}": {
+      "get": {
+        "operationId": "nativeReadPersonalPhoto",
+        "security": [
+          {
+            "nativeBearer": []
+          }
+        ],
+        "description": "Native bearer transport; cookies are rejected and browser Origin/CSRF fields are not used. Requires a verified live owner session. Writes require exact Origin and CSRF. Personal content is never logged or sent to generation; creation, edits and new assignments require server-verified Premium. All responses are no-store.",
+        "responses": {
+          "200": {
+            "description": "Owner/session-authorized normalized JPEG bytes, including retained planned snapshots after library edit/deletion. No redirect, public URL, provider handle or signed URL. Cache-Control: private, no-store; Referrer-Policy: no-referrer; Cross-Origin-Resource-Policy: same-origin.",
+            "content": {
+              "image/jpeg": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Account verification or permissions required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{32}$"
+            }
+          }
+        ]
+      }
+    },
+    "/api/native/v1/recipe-imports/availability": {
+      "get": {
+        "operationId": "nativeRecipeImportAvailability",
+        "security": [
+          {
+            "nativeBearer": []
+          }
+        ],
+        "description": "Native bearer transport; cookies are rejected and browser Origin/CSRF fields are not used. Requires a verified live owner session and exact Origin/CSRF for mutations. URL/photo start, selection, explicit AI and review require current server-checked Premium. GET and cancel remain owner-scoped. Sources stay in POST bodies; responses are private no-store. No Save, library or plan mutation occurs here. A repeated request key returns its recorded operation without repeating work.",
+        "responses": {
+          "200": {
+            "description": "Owned private import state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportAvailability"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Account verification or permissions required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/native/v1/recipe-imports/url": {
+      "post": {
+        "operationId": "nativeStartURLRecipeImport",
+        "security": [
+          {
+            "nativeBearer": []
+          }
+        ],
+        "description": "Native bearer transport; cookies are rejected and browser Origin/CSRF fields are not used. Requires a verified live owner session and exact Origin/CSRF for mutations. URL/photo start, selection, explicit AI and review require current server-checked Premium. GET and cancel remain owner-scoped. Sources stay in POST bodies; responses are private no-store. No Save, library or plan mutation occurs here. A repeated request key returns its recorded operation without repeating work.",
+        "responses": {
+          "202": {
+            "description": "Owned private import state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecipeImport"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Account verification or permissions required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UrlImportInput"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/native/v1/recipe-imports/photos": {
+      "post": {
+        "operationId": "nativeStartPhotoRecipeImport",
+        "security": [
+          {
+            "nativeBearer": []
+          }
+        ],
+        "description": "Native bearer transport; cookies are rejected and browser Origin/CSRF fields are not used. Requires a verified live owner session and exact Origin/CSRF for mutations. URL/photo start, selection, explicit AI and review require current server-checked Premium. GET and cancel remain owner-scoped. Sources stay in POST bodies; responses are private no-store. No Save, library or plan mutation occurs here. A repeated request key returns its recorded operation without repeating work.",
+        "responses": {
+          "202": {
+            "description": "Owned private import state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecipeImport"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Account verification or permissions required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "description": "Stream import metadata first, then one to three photos. Aggregate originals at most 12 MiB; each at most 10 MiB. Filenames and declared MIME are never trusted. JPEG, PNG and HEIC written-recipe pages only.",
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "import": {
+                    "type": "string",
+                    "description": "JSON PhotoImportMetadata with explicit permissions."
+                  },
+                  "photos": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "binary"
+                    },
+                    "maxItems": 3
+                  }
+                },
+                "required": [
+                  "import",
+                  "photos"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/native/v1/recipe-imports/{id}": {
+      "get": {
+        "operationId": "nativeReadRecipeImport",
+        "security": [
+          {
+            "nativeBearer": []
+          }
+        ],
+        "description": "Native bearer transport; cookies are rejected and browser Origin/CSRF fields are not used. Requires a verified live owner session and exact Origin/CSRF for mutations. URL/photo start, selection, explicit AI and review require current server-checked Premium. GET and cancel remain owner-scoped. Sources stay in POST bodies; responses are private no-store. No Save, library or plan mutation occurs here. A repeated request key returns its recorded operation without repeating work.",
+        "responses": {
+          "200": {
+            "description": "Owned private import state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecipeImport"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Account verification or permissions required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{32}$"
+            }
+          }
+        ]
+      }
+    },
+    "/api/native/v1/recipe-imports/{id}/select": {
+      "post": {
+        "operationId": "nativeSelectRecipeImport",
+        "security": [
+          {
+            "nativeBearer": []
+          }
+        ],
+        "description": "Native bearer transport; cookies are rejected and browser Origin/CSRF fields are not used. Requires a verified live owner session and exact Origin/CSRF for mutations. URL/photo start, selection, explicit AI and review require current server-checked Premium. GET and cancel remain owner-scoped. Sources stay in POST bodies; responses are private no-store. No Save, library or plan mutation occurs here. A repeated request key returns its recorded operation without repeating work.",
+        "responses": {
+          "200": {
+            "description": "Owned private import state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecipeImport"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Account verification or permissions required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{32}$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImportSelectionInput"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/native/v1/recipe-imports/{id}/read-with-ai": {
+      "post": {
+        "operationId": "nativeReadRecipeImportWithAI",
+        "security": [
+          {
+            "nativeBearer": []
+          }
+        ],
+        "description": "Native bearer transport; cookies are rejected and browser Origin/CSRF fields are not used. Requires a verified live owner session and exact Origin/CSRF for mutations. URL/photo start, selection, explicit AI and review require current server-checked Premium. GET and cancel remain owner-scoped. Sources stay in POST bodies; responses are private no-store. No Save, library or plan mutation occurs here. A repeated request key returns its recorded operation without repeating work.",
+        "responses": {
+          "202": {
+            "description": "Owned private import state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecipeImport"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Account verification or permissions required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{32}$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImportAiInput"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/native/v1/recipe-imports/{id}/review": {
+      "post": {
+        "operationId": "nativeReviewImportedRecipe",
+        "security": [
+          {
+            "nativeBearer": []
+          }
+        ],
+        "description": "Native bearer transport; cookies are rejected and browser Origin/CSRF fields are not used. Requires a verified live owner session and exact Origin/CSRF for mutations. URL/photo start, selection, explicit AI and review require current server-checked Premium. GET and cancel remain owner-scoped. Sources stay in POST bodies; responses are private no-store. No Save, library or plan mutation occurs here. A repeated request key returns its recorded operation without repeating work.",
+        "responses": {
+          "200": {
+            "description": "Owned private import state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportReview"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Account verification or permissions required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{32}$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImportReviewInput"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/native/v1/recipe-imports/{id}/cancel": {
+      "post": {
+        "operationId": "nativeCancelRecipeImport",
+        "security": [
+          {
+            "nativeBearer": []
+          }
+        ],
+        "description": "Native bearer transport; cookies are rejected and browser Origin/CSRF fields are not used. Requires a verified live owner session and exact Origin/CSRF for mutations. URL/photo start, selection, explicit AI and review require current server-checked Premium. GET and cancel remain owner-scoped. Sources stay in POST bodies; responses are private no-store. No Save, library or plan mutation occurs here. A repeated request key returns its recorded operation without repeating work.",
+        "responses": {
+          "204": {
+            "description": "Owned private import state."
+          },
+          "400": {
+            "description": "Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Account verification or permissions required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{32}$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImportEmptyInput"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/native/v1/refresh": {
+      "post": {
+        "operationId": "nativeRefresh",
+        "description": "Exchange a single-use refresh credential, rotate both credentials and preserve the fixed family expiry. Replay revokes that installation. No Cookie or Authorization header is accepted.",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NativeRefreshInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "No cookies; credentials and response must not be cached or logged.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeRefreshResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid JSON, platform or fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, expired, revoked or replayed authority.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Source request limit reached.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Storage or account services unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -5447,6 +11146,11 @@
         "type": "apiKey",
         "in": "cookie",
         "name": "mychef_session"
+      },
+      "nativeBearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Opaque native access credential. Browser cookies and refresh credentials do not authenticate native API requests."
       }
     },
     "schemas": {
@@ -6041,7 +11745,11 @@
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "accountInstance": {"type":"string","pattern":"^[0-9a-f]{32}$","description":"Opaque account incarnation for isolating device caches across account deletion and fresh signup."},
+          "accountInstance": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{32}$",
+            "description": "Opaque account incarnation for isolating device caches across account deletion and fresh signup."
+          },
           "id": {
             "type": "string",
             "pattern": "^[1-9][0-9]{0,18}$"
@@ -7955,6 +13663,112 @@
           "id",
           "recipe",
           "blocked"
+        ]
+      },
+      "NativeTokens": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "accessToken": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "refreshToken": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "accessExpiresUnix": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "sessionExpiresUnix": {
+            "type": "integer",
+            "format": "int64"
+          }
+        },
+        "required": [
+          "accessToken",
+          "refreshToken",
+          "accessExpiresUnix",
+          "sessionExpiresUnix"
+        ]
+      },
+      "NativeSessionResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "user": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Profile"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "csrfToken": {
+            "type": "string",
+            "const": ""
+          },
+          "verificationRequired": {
+            "type": "boolean",
+            "description": "True for an authenticated session restricted to email verification; user is null."
+          },
+          "native": {
+            "$ref": "#/components/schemas/NativeTokens"
+          }
+        },
+        "required": [
+          "user",
+          "csrfToken"
+        ]
+      },
+      "NativeStartInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "platform": {
+            "type": "string",
+            "enum": [
+              "ios",
+              "android"
+            ]
+          }
+        },
+        "required": [
+          "platform"
+        ]
+      },
+      "NativeRefreshInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "refreshToken": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "refreshToken"
+        ]
+      },
+      "NativeRefreshResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "native": {
+            "$ref": "#/components/schemas/NativeTokens"
+          }
+        },
+        "required": [
+          "native"
         ]
       }
     },

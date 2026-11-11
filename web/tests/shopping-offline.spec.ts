@@ -9,10 +9,10 @@ import {
 
 test.use({ locale: "en-GB" });
 test.setTimeout(100_000);
-const shoppingPath = "/app/?view=shopping&week=2026-11-02";
+const shoppingFixturePage = "/app/?view=shopping&week=2026-11-02";
 async function openList(page: Page) {
   await shoppingAccount(page);
-  await page.goto(shoppingPath);
+  await page.goto(shoppingFixturePage);
   await expect(
     page.getByRole("heading", { name: "Shopping list.", exact: true }),
   ).toBeVisible();
@@ -172,6 +172,66 @@ test("a server conflict stays pending until an explicit retry converges", async 
   ).toBe("basket");
 });
 
+test("a rejected write waits for review across reconnect and reload", async ({
+  page,
+}) => {
+  await openList(page);
+  const path = "/api/v1/shopping/2026-11-02";
+  const session = await (await page.request.get("/api/v1/session")).json();
+  const headers = {
+    Origin: new URL(page.url()).origin,
+    "X-CSRF-Token": session.csrfToken,
+  };
+  let attempts = 0;
+  await page.route("**" + path, async (route) => {
+    if (route.request().method() !== "PUT") return route.continue();
+    if (++attempts === 1) {
+      const remote = await (await page.request.get(path)).json();
+      remote.items.push({
+        id: "remote-salt",
+        name: "Remote salt",
+        manual: true,
+        state: "buy",
+        contributions: [],
+      });
+      expect(
+        (await page.request.put(path, { headers, data: remote })).ok(),
+      ).toBe(true);
+    }
+    await route.continue();
+  });
+  const rejected = page.waitForResponse(
+    (response) =>
+      response.url().endsWith(path) &&
+      response.request().method() === "PUT" &&
+      response.status() === 409,
+  );
+  await openExtras(page);
+  await page.getByLabel("Extra item", { exact: true }).fill("Pending rice");
+  await page.getByRole("button", { name: "Add extra", exact: true }).click();
+  await rejected;
+  await expect(page.locator(".shopping [role=alert]")).toContainText(
+    "This list or its meals changed. Review the latest list and retry your pending changes.",
+  );
+  await expect(page.getByText("Remote salt", { exact: true })).toBeVisible();
+  await page.reload();
+  await page.evaluate(() => window.dispatchEvent(new Event("online")));
+  const retry = page.getByRole("button", {
+    name: "Reviewed latest list · Retry my changes",
+    exact: true,
+  });
+  await expect(retry).toBeVisible();
+  expect(attempts).toBe(1);
+  await retry.click();
+  await expect(page.getByText("Saved", { exact: true })).toBeVisible();
+  expect(attempts).toBe(2);
+  const saved = await (await page.request.get(path)).json();
+  for (const name of ["Remote salt", "Pending rice"])
+    expect(
+      saved.items.filter((item: { name: string }) => item.name === name),
+    ).toHaveLength(1);
+});
+
 test("confirmed expiry hides cached data and same-account sign-in recovers queued edits", async ({
   page,
   context,
@@ -218,9 +278,8 @@ test("confirmed expiry hides cached data and same-account sign-in recovers queue
     .click();
   await page
     .getByRole("button", { name: "Shopping list", exact: true })
-    .click();
-  // Sign-in selects the current week. Reopen the list holding the queued edit.
-  await page.goto(shoppingPath);
+    .waitFor();
+  await page.goto(shoppingFixturePage);
   await expect(
     page.getByText("Recover this extra", { exact: true }),
   ).toBeVisible();

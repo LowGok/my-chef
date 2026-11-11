@@ -79,6 +79,10 @@ def main() -> None:
             assert {"cmd/mychef-import-worker/main.go", "internal/imports/worker.go",
                     "internal/imports/policy.go", "internal/imports/admission.go",
                     "migrations/016_recipe_imports.sql"}.issubset(paths), "required import worker inputs were excluded"
+            assert {"internal/auth/native.go", "internal/http/native.go",
+                    "internal/store/native_schema.go", "migrations/017_native_sessions.sql",
+                    "web/src/native-platform.ts"}.issubset(paths), "required native API and web inputs were excluded"
+            assert not any(p.startswith("mobile/") for p in paths), "native projects entered the app container context"
             assert not any(any(word in p for word in ("secret", "canary", "node_modules", "test-results", ".streamlit", ".git/", "mychefApp", "_test.go")) for p in paths), "private or generated file entered the build context"
         if "MYCHEF_CONTAINER_IMAGE" not in env:
             run("build", "--provenance=false", "--file", args.dockerfile, "--build-arg", f"VERSION={expected_version}", "--tag", image, ".", cwd=ROOT)

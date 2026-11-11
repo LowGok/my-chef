@@ -58,6 +58,9 @@ func favoriteRecipe(tx *gorm.DB, user, id int64) (domain.Recipe, error) {
 func (s *Store) SetFavorite(ctx context.Context, user, id int64, save bool, options ...PersonalPlanning) (domain.Recipe, error) {
 	var out domain.Recipe
 	err := s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := nativePlanningAuthority(tx, user, options); err != nil {
+			return err
+		}
 		var meal Meal
 		err := tx.Where("creator_id=? AND meal_id=?", user, id).Preload("Ingredients").First(&meal).Error
 		if err == nil {
@@ -161,6 +164,9 @@ func (s *Store) FavoriteWeek(ctx context.Context, user int64, week string, optio
 func (s *Store) QueueFavorite(ctx context.Context, user, id int64, week string, options ...PersonalPlanning) (domain.FavoriteWeek, error) {
 	var out domain.FavoriteWeek
 	err := s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := nativePlanningAuthority(tx, user, options); err != nil {
+			return err
+		}
 		if _, err := shoppingWeek(week); err != nil {
 			return ErrFavoriteInput
 		}
@@ -213,6 +219,9 @@ func (s *Store) QueueFavorite(ctx context.Context, user, id int64, week string, 
 
 // CaptureFavorites runs in the generation-creation transaction. Its assignments are persisted with the operation.
 func CaptureFavorites(tx *gorm.DB, user int64, input domain.MenuInput, shuffle func([]string), options ...PersonalPlanning) ([]domain.PlannedFavorite, error) {
+	if err := nativePlanningAuthority(tx, user, options); err != nil {
+		return nil, err
+	}
 	out := []domain.PlannedFavorite{}
 	for _, week := range input.WeekStarts() {
 		summary, err := loadFavoriteWeek(tx, user, week, options...)
@@ -340,6 +349,9 @@ func (s *Store) swapSavedRecipe(ctx context.Context, user int64, input domain.Fa
 		return out, ErrFavoriteInput
 	}
 	err := s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := nativePlanningAuthority(tx, user, options); err != nil {
+			return err
+		}
 		var prior favoriteSwapRecord
 		err := tx.Where("user_id=? AND request_key=?", user, input.RequestKey).First(&prior).Error
 		if err == nil {

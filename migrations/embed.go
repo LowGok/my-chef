@@ -49,3 +49,6 @@ var PersonalPlanning string
 
 //go:embed 016_recipe_imports.sql
 var RecipeImports string
+
+//go:embed 017_native_sessions.sql
+var NativeSessions string

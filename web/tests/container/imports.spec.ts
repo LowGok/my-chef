@@ -34,15 +34,18 @@ test.beforeAll(() => {
 async function login(page: Page) {
   await page.goto("/app/");
   await expect(page.getByRole("heading", { name: "Welcome back.", exact: true })).toBeVisible();
-  const session = await (await page.request.get("/api/v1/session")).json();
+  const bootstrap = await page.request.get("/api/v1/session");
+  expect(bootstrap.status()).toBe(200);
+  const session = await bootstrap.json();
   const response = await page.request.post("/api/v1/login", {
     headers: {
-      Origin: new URL(page.url()).origin,
+      Origin: new URL(bootstrap.url()).origin,
       "X-CSRF-Token": session.csrfToken,
     },
     data: { email: "importcontainer@example.test", password },
   });
   expect(response.status()).toBe(200);
+  await page.goto("/app/");
 }
 async function ready(page: Page, id: string): Promise<RecipeImport> {
   let op: RecipeImport | null = null;
@@ -241,14 +244,15 @@ test("imports account deletion removes saved provenance and retained draft", asy
   });
 });
 test("imports deletion replay cannot restore the deleted account", async ({
-  page,
+  request,
 }) => {
   await privateAction(async () => {
-    await page.goto("/app/");
-    const session = await (await page.request.get("/api/v1/session")).json();
-    const response = await page.request.post("/api/v1/login", {
+    const bootstrap = await request.get("/api/v1/session");
+    expect(bootstrap.status()).toBe(200);
+    const session = await bootstrap.json();
+    const response = await request.post("/api/v1/login", {
       headers: {
-        Origin: new URL(page.url()).origin,
+        Origin: new URL(bootstrap.url()).origin,
         "X-CSRF-Token": session.csrfToken,
       },
       data: { email: "importcontainer@example.test", password },

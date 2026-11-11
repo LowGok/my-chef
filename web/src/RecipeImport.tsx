@@ -16,6 +16,7 @@ import {
 import type { ImportSeed } from "./ImportReview";
 import { Alert, Field } from "./components";
 import { focusContentTop } from "./scroll";
+import { PhotoInput } from "./PhotoInput";
 const requestKey = () => crypto.randomUUID().replaceAll("-", "");
 type Availability = Awaited<ReturnType<typeof importApi.availability>>;
 export function RecipeImport({
@@ -257,13 +258,11 @@ export function RecipeImport({
                 label="Recipe-page photos"
                 hint="Up to three JPEG, PNG or HEIC photos of one written recipe; 10 MB each and 12 MB combined. Finished-dish photos cannot be transcribed."
               >
-                <input
-                  type="file"
-                  multiple
-                  accept="image/jpeg,image/png,image/heic,.heic"
+                <PhotoInput
+                  purpose="recipe-pages"
+                  onError={setError}
                   disabled={availability?.photosAvailable !== true}
-                  onChange={(event) => {
-                    const next = Array.from(event.target.files ?? []);
+                  onFiles={(next) => {
                     if (
                       next.length > 3 ||
                       next.some((file) => file.size > 10 * 1024 * 1024) ||
@@ -273,9 +272,8 @@ export function RecipeImport({
                       setError(
                         "Choose up to three recipe pages, 10 MB each and 12 MB combined.",
                       );
-                      event.target.value = "";
                       setPages([]);
-                      return;
+                      return false;
                     }
                     setError("");
                     setPages(next);

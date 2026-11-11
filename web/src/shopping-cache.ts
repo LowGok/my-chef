@@ -2,15 +2,43 @@ import type { Profile } from "./api";
 import type { ShoppingList, QueuedShoppingEdit } from "./shopping-state";
 
 const prefix = "mychef.shopping.";
-export const signedOut = () =>
-  localStorage.getItem(prefix + "signed-out") === "1";
+export type ShoppingStorage = Pick<
+  Storage,
+  "length" | "key" | "getItem" | "setItem" | "removeItem"
+> & {
+  flush(): Promise<void>;
+  erase(): Promise<void>;
+};
+let nativeStorage: ShoppingStorage | null = null;
+let cacheEpoch = 0;
+export const shoppingCacheEpoch = () => cacheEpoch;
+export class ShoppingStorageError extends Error {
+  constructor() {
+    super("Shopping could not be saved securely on this device.");
+  }
+}
+export function setShoppingStorage(value: ShoppingStorage | null) {
+  cacheEpoch++;
+  clearPrivateShoppingCache();
+  nativeStorage = value;
+}
+const storage = () => nativeStorage ?? localStorage;
+export const flushShoppingCache = () =>
+  nativeStorage?.flush() ?? Promise.resolve();
+export function forgetShoppingDevice() {
+  cacheEpoch++;
+  clearPrivateShoppingCache();
+  return nativeStorage?.erase() ?? Promise.resolve();
+}
+export const signedOut = () => storage().getItem(prefix + "signed-out") === "1";
 export const shoppingLogoutIntentKey = prefix + "logout-pending";
 export const pendingLogoutIntent = () =>
-  localStorage.getItem(shoppingLogoutIntentKey);
+  storage().getItem(shoppingLogoutIntentKey);
 export const logoutPending = () => pendingLogoutIntent() !== null;
 export type ShoppingCache = {
   base: ShoppingList;
   queue: QueuedShoppingEdit[];
+  reviewRequired?: true;
   privateImports?: true;
 };
 const privateLists = new Map<
@@ -33,7 +61,7 @@ function privateList(owner: string, week: string): ShoppingCache | null {
 export type CachedOwner = { profile: Profile; week: string; verified?: true };
 function read<T>(key: string): T | null {
   try {
-    return JSON.parse(localStorage.getItem(prefix + key) ?? "null") as T | null;
+    return JSON.parse(storage().getItem(prefix + key) ?? "null") as T | null;
   } catch {
     return null;
   }
@@ -49,34 +77,45 @@ export function cachedOwner(): CachedOwner | null {
 export function offlineOwner(): CachedOwner | null {
   const owner = cachedOwner();
   return !signedOut() &&
-    localStorage.getItem(prefix + "suspended") !== "1" &&
+    storage().getItem(prefix + "suspended") !== "1" &&
     owner?.verified === true
     ? owner
     : null;
 }
 export function suspendShoppingOwner() {
-  localStorage.setItem(prefix + "suspended", "1");
+  storage().setItem(prefix + "suspended", "1");
 }
 export function resumeShoppingOwner(owner: string) {
   const saved = cachedOwner();
   if (saved?.profile.id !== owner) return;
   if (saved.verified !== true)
-    localStorage.setItem(
+    storage().setItem(
       prefix + "owner",
       JSON.stringify({ ...saved, verified: true }),
     );
-  localStorage.removeItem(prefix + "suspended");
+  storage().removeItem(prefix + "suspended");
 }
-export function rememberShoppingOwner(profile: Profile, week: string) {
+export function rememberShoppingOwner(
+  profile: Profile,
+  week: string,
+  expectedEpoch?: number,
+) {
+  if (expectedEpoch !== undefined && expectedEpoch !== cacheEpoch) return;
   if (signedOut()) return;
   const current = cachedOwner();
   if (current && current.profile.id !== profile.id)
     throw new Error("Sign out before switching accounts.");
-  localStorage.setItem(
+  if (
+    nativeStorage &&
+    current &&
+    current.profile.accountInstance !== profile.accountInstance
+  )
+    throw new ShoppingStorageError();
+  storage().setItem(
     prefix + "owner",
     JSON.stringify({ profile, week, verified: true }),
   );
-  localStorage.removeItem(prefix + "suspended");
+  storage().removeItem(prefix + "suspended");
 }
 export function loadShoppingCache(
   owner: string,
@@ -94,8 +133,16 @@ export function saveShoppingCache(
   owner: string,
   week: string,
   value: ShoppingCache,
+  accountInstance?: string,
+  expectedEpoch?: number,
 ) {
+  if (expectedEpoch !== undefined && expectedEpoch !== cacheEpoch) return;
   if (signedOut() || cachedOwner()?.profile.id !== owner) return;
+  if (
+    accountInstance &&
+    cachedOwner()?.profile.accountInstance !== accountInstance
+  )
+    return;
   const key = privateKey(owner, week);
   const keepPrivate =
     value.base.privateImports ||
@@ -106,13 +153,10 @@ export function saveShoppingCache(
       instance: cachedOwner()?.profile.accountInstance,
       value: structuredClone({ ...value, privateImports: true as const }),
     });
-    localStorage.removeItem(prefix + `list.${owner}.${week}`);
+    storage().removeItem(prefix + `list.${owner}.${week}`);
   } else {
     privateLists.delete(key);
-    localStorage.setItem(
-      prefix + `list.${owner}.${week}`,
-      JSON.stringify(value),
-    );
+    storage().setItem(prefix + `list.${owner}.${week}`, JSON.stringify(value));
   }
   window.dispatchEvent(new Event("mychef-shopping-cache"));
 }
@@ -124,8 +168,8 @@ export function pendingShoppingWeeks(owner: string): string[] {
     if (privateList(owner, week)?.queue.length) weeks.push(week);
   }
   const ownerPrefix = prefix + `list.${owner}.`;
-  for (let index = 0; index < localStorage.length; index++) {
-    const key = localStorage.key(index);
+  for (let index = 0; index < storage().length; index++) {
+    const key = storage().key(index);
     if (!key?.startsWith(ownerPrefix)) continue;
     const week = key.slice(ownerPrefix.length);
     if (
@@ -145,11 +189,11 @@ export function hasPendingShopping(owner: string): boolean {
     )
   )
     return true;
-  for (let i = 0; i < localStorage.length; i++) {
-    const key = localStorage.key(i);
+  for (let i = 0; i < storage().length; i++) {
+    const key = storage().key(i);
     if (key?.startsWith(prefix + `list.${owner}.`)) {
       try {
-        if (JSON.parse(localStorage.getItem(key) ?? "null")?.queue?.length)
+        if (JSON.parse(storage().getItem(key) ?? "null")?.queue?.length)
           return true;
       } catch {
         /* A broken cache must not be silently discarded. */ return true;
@@ -159,32 +203,36 @@ export function hasPendingShopping(owner: string): boolean {
   return false;
 }
 export function localShoppingSignOut(preserveCache = false) {
+  if (nativeStorage) {
+    void forgetShoppingDevice().catch(() => undefined);
+    preserveCache = false;
+  }
   clearPrivateShoppingCache();
   // This marker is durable before private state disappears from the UI.
-  localStorage.setItem(prefix + "signed-out", "1");
+  storage().setItem(prefix + "signed-out", "1");
   const intent = Array.from(crypto.getRandomValues(new Uint32Array(4)), (n) =>
     n.toString(16).padStart(8, "0"),
   ).join("");
-  localStorage.setItem(shoppingLogoutIntentKey, intent);
+  storage().setItem(shoppingLogoutIntentKey, intent);
   if (preserveCache) {
     suspendShoppingOwner();
     return;
   }
   const remove: string[] = [];
-  for (let i = 0; i < localStorage.length; i++) {
-    const key = localStorage.key(i);
+  for (let i = 0; i < storage().length; i++) {
+    const key = storage().key(i);
     if (key?.startsWith(prefix + "list.")) remove.push(key);
   }
-  for (const key of remove) localStorage.removeItem(key);
-  localStorage.removeItem(prefix + "owner");
-  localStorage.removeItem(prefix + "suspended");
+  for (const key of remove) storage().removeItem(key);
+  storage().removeItem(prefix + "owner");
+  storage().removeItem(prefix + "suspended");
 }
 export function serverLogoutCompleted(intent: string) {
   if (pendingLogoutIntent() === intent)
-    localStorage.removeItem(shoppingLogoutIntentKey);
+    storage().removeItem(shoppingLogoutIntentKey);
 }
 export function explicitShoppingSignIn(restricted = false) {
   if (restricted) suspendShoppingOwner();
-  else localStorage.removeItem(prefix + "suspended");
-  localStorage.removeItem(prefix + "signed-out");
+  else storage().removeItem(prefix + "suspended");
+  storage().removeItem(prefix + "signed-out");
 }
