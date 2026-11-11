@@ -114,7 +114,8 @@ export function App() {
   activeAccount.current = user;
   const [offlineOnly, setOfflineOnly] = useState(false),
     [deviceSigningOut, setDeviceSigningOut] = useState(false),
-    [discardDialog, setDiscardDialog] = useState(false);
+    [discardDialog, setDiscardDialog] = useState(false),
+    [draftBackOpen, setDraftBackOpen] = useState(false);
   const [search, setSearch] = useState(
     () => new URLSearchParams(location.search),
   );
@@ -132,12 +133,17 @@ export function App() {
     [imagePolls, setImagePolls] = useState(0);
   const [planningInput, setPlanningInput] = useState<MenuInput | null>(null);
   const signOutDialog = useRef<HTMLDialogElement>(null);
+  const draftBackDialog = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     if (discardDialog && !signOutDialog.current?.open)
       signOutDialog.current?.showModal();
     if (!discardDialog && signOutDialog.current?.open)
       signOutDialog.current.close();
   }, [discardDialog]);
+  useEffect(() => {
+    const dialog = draftBackDialog.current;
+    if (draftBackOpen && dialog && !dialog.open) dialog.showModal();
+  }, [draftBackOpen]);
   const swipeTransition = useRef<ViewTransition | null>(null);
   const swipeAnimation = useRef<Animation | null>(null);
   const swipeStart = useRef<{ x: number; y: number; time: number } | null>(
@@ -252,6 +258,7 @@ export function App() {
   function clearPrivateState() {
     forgetNativeProof();
     personalDirty.current = false;
+    setDraftBackOpen(false);
     swipeTransition.current?.skipTransition();
     swipeAnimation.current?.cancel();
     setRecipes([]);
@@ -303,6 +310,10 @@ export function App() {
     setUser(value.user);
     navigate({});
   }
+  function leaveCurrentView() {
+    if (Number(history.state?._mychefDepth) > 0) history.back();
+    else if (location.pathname !== "/app/" || location.search) navigate({});
+  }
   useEffect(() => {
     const receive = () => {
       const entry = takeNativeProof();
@@ -340,8 +351,8 @@ export function App() {
         field.blur();
         return;
       }
-      if (Number(history.state?._mychefDepth) > 0) history.back();
-      else if (location.pathname !== "/app/" || location.search) navigate({});
+      if (personalDirty.current) setDraftBackOpen(true);
+      else leaveCurrentView();
     };
     window.addEventListener(nativeProofEvent, receive);
     window.addEventListener(nativeBackEvent, back);
@@ -900,6 +911,33 @@ export function App() {
   return (
     <>
       {discardPrompt}
+      {draftBackOpen && (
+        <dialog
+          ref={draftBackDialog}
+          className="replacement-dialog"
+          aria-labelledby="draft-back-title"
+          onCancel={() => setDraftBackOpen(false)}
+        >
+          <h2 id="draft-back-title">Discard unsaved recipe changes?</h2>
+          <button
+            className="button primary"
+            autoFocus
+            onClick={() => setDraftBackOpen(false)}
+          >
+            Keep editing
+          </button>{" "}
+          <button
+            className="button"
+            onClick={() => {
+              personalDirty.current = false;
+              setDraftBackOpen(false);
+              leaveCurrentView();
+            }}
+          >
+            Discard changes
+          </button>
+        </dialog>
+      )}
       <header className="app-header">
         <Brand
           disabled={offlineOnly}

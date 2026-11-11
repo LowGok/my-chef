@@ -175,17 +175,20 @@ test("native back asks before discarding a recipe draft and preserves it when ca
     const title = page.getByLabel("Title", { exact: true });
     await title.fill("A private unsaved dish");
     await title.blur();
-    let prompts = 0;
-    page.on("dialog", async (dialog) => {
-      prompts++;
-      if (prompts === 1) await dialog.dismiss();
-      else await dialog.accept();
+    const route = page.url();
+    const prompt = page.getByRole("dialog", {
+      name: "Discard unsaved recipe changes?",
+      exact: true,
     });
     await os.runtime({ back: true });
-    await expect.poll(() => prompts).toBe(1);
+    await expect(prompt).toBeVisible();
+    await expect(page).toHaveURL(route);
+    await prompt.getByRole("button", { name: "Keep editing" }).click();
+    await expect(prompt).not.toBeVisible();
     await expect(title).toHaveValue("A private unsaved dish");
     await os.runtime({ back: true });
-    await expect.poll(() => prompts).toBe(2);
+    await expect(prompt).toBeVisible();
+    await prompt.getByRole("button", { name: "Discard changes" }).click();
     await expect(
       page.getByRole("heading", { name: "Your profile.", exact: true }),
     ).toBeVisible();
