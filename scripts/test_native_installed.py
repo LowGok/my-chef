@@ -371,14 +371,20 @@ def android(state, stack, ca, apk):
 
 def ios(state, stack, ca, package):
     print("Booting iPhone simulator", flush=True)
-    sim = lambda *args: command("xcrun", "simctl", *args, timeout=150)
+    def sim(*args, timeout=150):
+        return command("xcrun", "simctl", *args, timeout=timeout)
+
     runtimes = json.loads(sim("list", "devices", "available", "-j"))["devices"]
     runtime, device = next((runtime, device) for runtime, devices in runtimes.items()
                            if runtime.endswith("iOS-26-5") for device in devices if device["name"] == "iPhone 17")
     identifier = device["udid"]
     sim("boot", identifier)
     stack.callback(lambda: sim("shutdown", identifier))
-    sim("bootstatus", identifier, "-b")
+    try:
+        sim("bootstatus", identifier, "-b", timeout=300)
+    except subprocess.TimeoutExpired:
+        print("iPhone simulator did not finish booting within 300 seconds.", flush=True)
+        raise
     sim("keychain", identifier, "add-root-cert", ca)
 
     # Install the exact simulator package with its link-time fixture identity.

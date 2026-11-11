@@ -542,6 +542,7 @@ try {
     const title = page.getByLabel("Title", { exact: true });
     await title.fill("Unsaved native dish");
     await title.blur();
+    const draftURL = page.url();
     if (keyboardShown()) {
       adb("shell", "input", "keyevent", "4");
       await expect.poll(keyboardShown).toBe(false);
@@ -551,7 +552,13 @@ try {
     const first = await cancel;
     expect(first.type()).toBe("confirm");
     await first.dismiss();
+    // Android can finish dismissing the OS prompt after the dialog reply.
+    // Wait for the restored history entry and focused WebView before the next Back.
+    await expect(page).toHaveURL(draftURL);
     await expect(title).toHaveValue("Unsaved native dish");
+    await title.blur();
+    await expect.poll(() => page.evaluate(() => document.hasFocus())).toBe(true);
+    await expect.poll(keyboardShown).toBe(false);
     const discard = page.waitForEvent("dialog");
     adb("shell", "input", "keyevent", "4");
     const second = await discard;
