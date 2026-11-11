@@ -5,6 +5,7 @@ import {
   _android,
   expect as playwrightExpect,
   type AndroidDevice,
+  type Dialog,
   type Locator,
   type Page,
 } from "../web/node_modules/@playwright/test";
@@ -547,23 +548,61 @@ try {
       adb("shell", "input", "keyevent", "4");
       await expect.poll(keyboardShown).toBe(false);
     }
-    const cancel = page.waitForEvent("dialog");
-    adb("shell", "input", "keyevent", "4");
-    const first = await cancel;
-    expect(first.type()).toBe("confirm");
-    await first.dismiss();
-    // Android can finish dismissing the OS prompt after the dialog reply.
-    // Wait for the restored history entry and focused WebView before the next Back.
-    await expect(page).toHaveURL(draftURL);
-    await expect(title).toHaveValue("Unsaved native dish");
-    await title.blur();
-    await expect.poll(() => page.evaluate(() => document.hasFocus())).toBe(true);
-    await expect.poll(keyboardShown).toBe(false);
-    const discard = page.waitForEvent("dialog");
-    adb("shell", "input", "keyevent", "4");
-    const second = await discard;
-    expect(second.type()).toBe("confirm");
-    await second.accept();
+    const dialogs: Dialog[] = [];
+    const recordDialog = (dialog: Dialog) => {
+      dialogs.push(dialog);
+    };
+    page.on("dialog", recordDialog);
+    // Register once for both dialogs. A browser round trip lets Playwright
+    // apply the subscription before ADB sends the first Back event.
+    const signals = await page.evaluateHandle(() => {
+      const counts = { nativeBack: 0, popstate: 0 };
+      const back = () => counts.nativeBack++;
+      const pop = () => counts.popstate++;
+      window.addEventListener("mychef-native-back", back);
+      window.addEventListener("popstate", pop);
+      return {
+        counts,
+        stop() {
+          window.removeEventListener("mychef-native-back", back);
+          window.removeEventListener("popstate", pop);
+        },
+      };
+    });
+    try {
+      adb("shell", "input", "keyevent", "4");
+      await expect.poll(() => dialogs.length).toBe(1);
+      expect(dialogs[0].type()).toBe("confirm");
+      await dialogs[0].dismiss();
+      // Wait for the restored route and focused WebView after Cancel.
+      await expect(page).toHaveURL(draftURL);
+      await expect(title).toHaveValue("Unsaved native dish");
+      await title.blur();
+      await expect
+        .poll(() => page.evaluate(() => document.hasFocus()))
+        .toBe(true);
+      await expect.poll(keyboardShown).toBe(false);
+      adb("shell", "input", "keyevent", "4");
+      await expect.poll(() => dialogs.length).toBe(2);
+      expect(dialogs[1].type()).toBe("confirm");
+      await dialogs[1].accept();
+    } catch (error) {
+      const counts = await Promise.race([
+        signals.evaluate(({ counts }) => counts).catch(() => null),
+        Bun.sleep(1000).then(() => null),
+      ]);
+      console.error(
+        "Disposable Back signals: " +
+          JSON.stringify({
+            dialogs: dialogs.length,
+            ...counts,
+          }),
+      );
+      throw error;
+    } finally {
+      page.off("dialog", recordDialog);
+      void signals.evaluate((signal) => signal.stop()).catch(() => undefined);
+    }
     await expect(
       page.getByRole("heading", { name: "Your profile.", exact: true }),
     ).toBeVisible();

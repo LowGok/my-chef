@@ -377,13 +377,26 @@ def ios(state, stack, ca, package):
     runtimes = json.loads(sim("list", "devices", "available", "-j"))["devices"]
     runtime, device = next((runtime, device) for runtime, devices in runtimes.items()
                            if runtime.endswith("iOS-26-5") for device in devices if device["name"] == "iPhone 17")
-    identifier = device["udid"]
+    identifier = sim("create", "MyChef fixture", device["deviceTypeIdentifier"], runtime)
+    if not re.fullmatch(r"[0-9A-Fa-f]{8}(?:-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}", identifier):
+        raise RuntimeError("CoreSimulator did not return a device identifier")
+
+    def cleanup():
+        for operation in ("shutdown", "delete"):
+            subprocess.run(["xcrun", "simctl", operation, identifier], env=ENV,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=45)
+
+    stack.callback(cleanup)
     sim("boot", identifier)
-    stack.callback(lambda: sim("shutdown", identifier))
     try:
-        sim("bootstatus", identifier, "-b", timeout=300)
-    except subprocess.TimeoutExpired:
-        print("iPhone simulator did not finish booting within 300 seconds.", flush=True)
+        sim("bootstatus", identifier, timeout=300)
+    except subprocess.TimeoutExpired as error:
+        output = error.stdout or b""
+        if isinstance(output, bytes):
+            output = output.decode(errors="replace")
+        phases = re.findall(r"\bStatus=(\d{1,3}),\s*isTerminal=(?:YES|NO)", output)
+        print("iPhone simulator did not finish booting. CoreSimulator status: "
+              + (phases[-1] if phases else "unreported"), flush=True)
         raise
     sim("keychain", identifier, "add-root-cert", ca)
 
