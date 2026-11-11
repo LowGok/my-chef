@@ -1,0 +1,210 @@
+name: Delivery
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: delivery-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  checks:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      CGO_ENABLED: '0'
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          fetch-tags: true
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: web/package.json
+      - name: Build embedded frontend
+        working-directory: web
+        run: bun install --frozen-lockfile && bun run build
+      - name: Shared Go checks
+        uses: michielvha/go-ci-action@ab14d6420148179e8d20ecc0b7cb89760193cb37 # v0.1.0
+      - name: Install verified tools for repeatable local and CI commands
+        run: python3 scripts/rewrite.py bootstrap
+      - name: Verify contract and frontend checks
+        run: |
+          python3 scripts/rewrite.py generate
+          git diff --exit-code -- web/src/api.generated.ts
+          python3 scripts/rewrite.py test
+          python3 scripts/rewrite.py audit
+      - name: Check concurrent persistence and workers with the race detector
+        env:
+          CGO_ENABLED: '1'
+        run: go test -race ./...
+      - name: Rehearse read-only PostgreSQL import
+        run: python3 scripts/test_postgres_import.py
+      - name: Install browser and build candidate binaries
+        run: |
+          cd web
+          bun --bun ./node_modules/@playwright/test/cli.js install --with-deps chromium
+          cd ..
+          python3 scripts/rewrite.py build
+      - name: Exercise account, menu, failures and real process restart without paid APIs
+        run: |
+          python3 scripts/rewrite.py e2e
+          python3 scripts/test_rewrite_menu.py
+      - name: Preserve existing SQLite data through upgrade and restore
+        run: python3 scripts/test_sqlite_upgrade.py
+
+  tooling-checks:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version-file: .python-version
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: '0.13.7'
+      - run: uv sync --locked
+      - run: uv pip check
+      - run: uv run --locked pytest
+      - run: uv run --locked python scripts/audit_dependencies.py
+
+  container:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - run: python3 scripts/rewrite.py bootstrap
+      - name: Install locked browser test dependencies
+        run: |
+          .test-artifacts/rewrite-tools/bun-linux-x64/bun install --frozen-lockfile --cwd web
+          cd web
+          ../.test-artifacts/rewrite-tools/bun-linux-x64/bun --bun ./node_modules/@playwright/test/cli.js install --with-deps chromium
+      - name: Build and exercise the final image without publishing
+        run: python3 scripts/test_rewrite_container.py --scan
+
+  version-preview:
+    if: github.event_name == 'pull_request'
+    needs: [checks, tooling-checks, container]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+      - name: Calculate version without writing tags
+        uses: michielvha/gitversion-tag-action@4850134062c7a1ccbb28a99cd122345127e80fd3 # reviewed main revision
+        with:
+          dry-run: 'true'
+          configFilePath: gitversion.yml
+
+  release:
+    if: github.repository == 'LowGok/my-chef' && github.ref == 'refs/heads/main' && github.event_name == 'push'
+    needs: [checks, tooling-checks, container]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+      attestations: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version-file: .python-version
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: '0.13.7'
+      - run: uv sync --locked
+      - name: Calculate version and create its exact tag
+        id: version
+        uses: michielvha/gitversion-tag-action@4850134062c7a1ccbb28a99cd122345127e80fd3 # reviewed main revision
+        with:
+          dry-run: 'false'
+          configFilePath: gitversion.yml
+      - name: Check tag ownership and unused registry version
+        id: preflight
+        env:
+          MYCHEF_RELEASE_VERSION: ${{ steps.version.outputs.semVer }}
+        run: uv run --locked python scripts/container_release.py preflight
+      - name: Publish the same calculated version
+        if: steps.preflight.outputs.publish == 'true'
+        id: publish
+        uses: michielvha/docker-release-action@8b89bc6484d5cf1d1e298b61109ca65836e52c2c # reviewed PR 12; unreleased
+        with:
+          registry: ghcr.io
+          username: lowgok
+          password: ${{ github.token }}
+          project: my-chef
+          version: ${{ steps.version.outputs.semVer }}
+          platforms: linux/amd64
+          context: .
+          build-args: VERSION=${{ steps.version.outputs.semVer }}
+          trivy-scan: 'true'
+          trivy-severity: HIGH,CRITICAL
+          trivy-exit-code: '1'
+          trivy-format: table
+          # Mandatory keyless signing runs below with bounded Rekor conflict retries.
+          cosign-sign: 'false'
+          sbom: 'true'
+          attest-provenance: 'true'
+          attest-sbom: 'true'
+      - name: Install the pinned keyless signer
+        if: steps.preflight.outputs.publish == 'true'
+        uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
+        with:
+          cosign-release: v3.1.4
+      - name: Sign the published digest with bounded Rekor retries
+        if: steps.preflight.outputs.publish == 'true'
+        env:
+          MYCHEF_RELEASE_VERSION: ${{ steps.version.outputs.semVer }}
+          MYCHEF_RELEASE_DIGEST: ${{ steps.publish.outputs.release-digest }}
+        run: uv run --locked python scripts/container_release.py sign
+      - name: Verify signature and generated SBOM
+        if: steps.preflight.outputs.publish == 'true'
+        env:
+          MYCHEF_RELEASE_VERSION: ${{ steps.version.outputs.semVer }}
+          MYCHEF_RELEASE_DIGEST: ${{ steps.publish.outputs.release-digest }}
+        run: uv run --locked python scripts/container_release.py verify
+      - if: steps.preflight.outputs.publish == 'true'
+        run: |
+          python3 scripts/rewrite.py bootstrap
+          .test-artifacts/rewrite-tools/bun-linux-x64/bun install --frozen-lockfile --cwd web
+          cd web
+          ../.test-artifacts/rewrite-tools/bun-linux-x64/bun --bun ./node_modules/@playwright/test/cli.js install --with-deps chromium
+      - name: Exercise the published digest
+        if: steps.preflight.outputs.publish == 'true'
+        env:
+          MYCHEF_CONTAINER_IMAGE: ghcr.io/lowgok/my-chef@${{ steps.publish.outputs.release-digest }}
+          MYCHEF_RELEASE_VERSION: ${{ steps.version.outputs.semVer }}
+        run: python3 scripts/test_rewrite_container.py
+      - name: Record the verified image
+        if: steps.preflight.outputs.publish == 'true'
+        env:
+          MYCHEF_RELEASE_VERSION: ${{ steps.version.outputs.semVer }}
+          MYCHEF_RELEASE_DIGEST: ${{ steps.publish.outputs.release-digest }}
+        run: uv run --locked python scripts/container_release.py record
+      - if: steps.preflight.outputs.publish == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: container-release
+          path: ${{ runner.temp }}/container-release.json
+          if-no-files-found: error

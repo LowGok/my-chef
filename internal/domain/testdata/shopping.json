@@ -1,0 +1,175 @@
+[
+  {
+    "id": "1",
+    "title": "Synthetic fixture 1",
+    "ingredients": [
+      {
+        "name": "carrot",
+        "quantity": "150",
+        "unit": "g"
+      },
+      {
+        "name": "garlic",
+        "quantity": "10",
+        "unit": "g"
+      },
+      {
+        "name": "olive oil",
+        "quantity": "25",
+        "unit": "ml"
+      },
+      {
+        "name": "test ingredient 00",
+        "quantity": "1",
+        "unit": "g"
+      },
+      {
+        "name": "test ingredient 01",
+        "quantity": "1",
+        "unit": "g"
+      },
+      {
+        "name": "test ingredient 02",
+        "quantity": "1",
+        "unit": "g"
+      },
+      {
+        "name": "test ingredient 03",
+        "quantity": "1",
+        "unit": "g"
+      },
+      {
+        "name": "test ingredient 04",
+        "quantity": "1",
+        "unit": "g"
+      },
+      {
+        "name": "test ingredient 05",
+        "quantity": "1",
+        "unit": "g"
+      },
+      {
+        "name": "test ingredient 06",
+        "quantity": "1",
+        "unit": "g"
+      },
+      {
+        "name": "test ingredient 07",
+        "quantity": "1",
+        "unit": "g"
+      },
+      {
+        "name": "test ingredient 08",
+        "quantity": "1",
+        "unit": "g"
+      },
+      {
+        "name": "test ingredient 09",
+        "quantity": "1",
+        "unit": "g"
+      },
+      {
+        "name": "test ingredient 10",
+        "quantity": "1",
+        "unit": "g"
+      },
+      {
+        "name": "test ingredient 11",
+        "quantity": "1",
+        "unit": "g"
+      },
+      {
+        "name": "test ingredient 12",
+        "quantity": "1",
+        "unit": "g"
+      },
+      {
+        "name": "test ingredient 13",
+        "quantity": "1",
+        "unit": "g"
+      },
+      {
+        "name": "test ingredient 14",
+        "quantity": "1",
+        "unit": "g"
+      },
+      {
+        "name": "test ingredient 15",
+        "quantity": "1",
+        "unit": "g"
+      },
+      {
+        "name": "test ingredient 16",
+        "quantity": "1",
+        "unit": "g"
+      },
+      {
+        "name": "test ingredient 17",
+        "quantity": "1",
+        "unit": "g"
+      },
+      {
+        "name": "test ingredient 18",
+        "quantity": "1",
+        "unit": "g"
+      },
+      {
+        "name": "test ingredient 19",
+        "quantity": "1",
+        "unit": "g"
+      },
+      {
+        "name": "test ingredient 20",
+        "quantity": "1",
+        "unit": "g"
+      },
+      {
+        "name": "test ingredient 21",
+        "quantity": "1",
+        "unit": "g"
+      }
+    ]
+  },
+  {
+    "id": "2",
+    "title": "Synthetic fixture 2",
+    "ingredients": [
+      {
+        "name": "carrot",
+        "quantity": "150",
+        "unit": "g"
+      },
+      {
+        "name": "garlic",
+        "quantity": "10",
+        "unit": "g"
+      },
+      {
+        "name": "olive oil",
+        "quantity": "25",
+        "unit": "ml"
+      }
+    ]
+  },
+  {
+    "id": "3",
+    "title": "Synthetic fixture 3",
+    "ingredients": [
+      {
+        "name": "carrot",
+        "quantity": "150",
+        "unit": "g"
+      },
+      {
+        "name": "garlic",
+        "quantity": "10",
+        "unit": "g"
+      },
+      {
+        "name": "olive oil",
+        "quantity": "25",
+        "unit": "ml"
+      }
+    ]
+  }
+]

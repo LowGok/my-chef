@@ -1,0 +1,32 @@
+{
+  "name": "mychef-web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "packageManager": "bun@1.4.4",
+  "scripts": {
+    "dev": "bun --bun vite --host 127.0.0.1",
+    "build": "bun --bun ./node_modules/typescript/bin/tsc --noEmit && bun --bun vite build --base=/app/ --outDir dist/app && bun ../scripts/build-entry.ts",
+    "test": "bun test src",
+    "e2e": "bun --bun ./node_modules/@playwright/test/cli.js test",
+    "generate": "bun generate.ts"
+  },
+  "dependencies": {
+    "@fontsource/montserrat": "5.3.0",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.65.0",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "bun-types": "1.4.4",
+    "prettier": "3.9.10",
+    "typescript": "5.9.3",
+    "vite": "8.3.6",
+    "@hey-api/openapi-ts": "0.99.0"
+  },
+  "overrides": {
+    "js-yaml": "4.3.2"
+  }
+}

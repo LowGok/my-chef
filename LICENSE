@@ -1,0 +1,62 @@
+MyChef Proprietary Source-Available License 1.0
+
+Copyright (c) 2026 Louis Gokelaere. All rights reserved.
+
+1. Scope
+
+Louis Gokelaere is the licensor of the original MyChef code made available
+under these terms, to the extent he holds the necessary rights. These terms
+apply to that code and accompanying original documentation, collectively the
+Software. Third-party components are governed by their own licenses.
+
+2. Limited evaluation permission
+
+Subject to these terms, the licensor grants you a non-exclusive,
+non-transferable, royalty-free permission to inspect, download, build and run
+the Software solely for your own private, non-production evaluation. You may
+make private modifications solely for that evaluation. Keep this license and
+all applicable copyright, attribution and third-party notices with your copies.
+
+3. Uses requiring written permission
+
+Prior written permission from Louis Gokelaere is required to use the Software
+or a modified version for commercial purposes or production operation, to
+offer it to third parties as a hosted or managed service, or to use it to
+develop or operate a competing product or service. Prior written permission
+is also required to sell, sublicense, redistribute or otherwise make the
+Software or modified versions available to third parties, except for the
+platform rights described below. Requests may be directed to the repository
+owner at https://github.com/LowGok.
+
+4. Platform and statutory rights
+
+When the Software is published on GitHub, the rights required by GitHub's
+applicable terms, including viewing and forking through GitHub, remain
+available. Those platform rights do not expand the evaluation permission
+into permission for commercial or production use. Rights that applicable
+law makes mandatory remain available.
+
+5. Intellectual property
+
+All rights beyond the permissions expressly stated here are reserved. No
+license to MyChef names, logos or trademarks is granted. No patent license
+is granted by these terms. The rights of third-party authors and other
+contributors remain with their respective holders. These terms neither
+relicense third-party components nor assign another contributor's rights.
+
+6. Termination
+
+Permissions under these terms terminate if you materially breach them. On
+termination, stop the uses that relied on these permissions and delete the
+copies you hold under them, subject to mandatory law, surviving third-party
+rights and applicable GitHub platform terms. A separate written agreement
+with the licensor may grant additional rights.
+
+7. Warranty and liability
+
+To the extent permitted by applicable law, the Software is provided as is,
+without warranties of any kind, including merchantability, fitness for a
+particular purpose, title or non-infringement. To that same extent, the
+licensor and contributors disclaim liability for claims, damages or other
+loss arising from the Software or its use. Mandatory legal protections
+remain applicable.
