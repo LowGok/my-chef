@@ -294,21 +294,77 @@ async function stagePhoto(
   path: string,
   name: "native-dish.png" | "native-page.png",
 ) {
-  const destination = "/sdcard/Download/" + name;
-  adb("push", path, destination);
-  const indexed = adb(
+  // Seed through Android's Downloads provider as the emulator's shell user;
+  // the app itself does not own the file or receive any extra permissions.
+  const downloads = "content://media/external_primary/downloads";
+  adb(
     "shell",
     "content",
-    "call",
+    "insert",
     "--uri",
-    "content://media",
-    "--method",
-    "scan_file",
-    "--arg",
-    destination,
+    downloads,
+    "--bind",
+    "_display_name:s:" + name,
+    "--bind",
+    "mime_type:s:image/png",
+    "--bind",
+    "relative_path:s:Download/",
   );
-  if (!/content:\/\/media\/external(?:_primary)?\/[^\s}\]]+/.test(indexed))
-    throw new Error("Synthetic photo is missing from Android MediaStore.");
+  const rows = adb(
+    "shell",
+    "content",
+    "query",
+    "--uri",
+    downloads,
+    "--projection",
+    "_id:_display_name",
+  )
+    .split("\n")
+    .map((line) =>
+      line.match(
+        /\b_id=([1-9]\d*),\s*_display_name=(native-(?:dish|page)\.png)\s*$/,
+      ),
+    )
+    .filter((row) => row?.[2] === name);
+  if (rows.length !== 1)
+    throw new Error("Android Downloads did not register one synthetic photo.");
+  const item = downloads + "/" + rows[0]![1];
+  const bytes = Buffer.from(await Bun.file(path).arrayBuffer());
+  const written = Bun.spawnSync(
+    [
+      adbBinary,
+      "-s",
+      "emulator-5554",
+      "shell",
+      "-T",
+      "content",
+      "write",
+      "--uri",
+      item,
+    ],
+    { stdin: bytes, stdout: "ignore", stderr: "ignore" },
+  );
+  if (written.exitCode)
+    throw new Error(
+      "Could not write the synthetic photo to Android Downloads.",
+    );
+  const received = Bun.spawnSync(
+    [
+      adbBinary,
+      "-s",
+      "emulator-5554",
+      "exec-out",
+      "content",
+      "read",
+      "--uri",
+      item,
+    ],
+    { stdout: "pipe", stderr: "ignore" },
+  );
+  if (received.exitCode || !received.stdout.equals(bytes))
+    throw new Error(
+      "Android Downloads did not retain the exact synthetic photo bytes.",
+    );
 }
 async function extras(name: string) {
   const disclosure = page.locator(".shopping-add");
