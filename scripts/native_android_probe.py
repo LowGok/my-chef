@@ -121,24 +121,29 @@ def picker(filename):
     adb, snapshot = _adb, _snapshot
     deadline = time.monotonic() + 35
 
-    def returned_to_app(cancel=False):
+    def returned_to_app():
         while time.monotonic() < deadline:
-            nodes = snapshot()
-            if any(node.get("package") == APP for node in nodes):
+            owner = picker_focus()
+            if owner == "app":
                 return
-            if cancel and any(node.get("package") in SYSTEM_PICKERS for node in nodes):
+            if filename == "CANCEL" and owner == "documents":
                 # The first Back can dismiss the filename keyboard alone.
                 adb("shell", "input", "keyevent", "4")
             time.sleep(.5)
         raise RuntimeError("Synthetic OS picker did not return to MyChef")
 
     while time.monotonic() < deadline:
-        nodes = snapshot()
+        if picker_focus() != "documents":
+            time.sleep(.5)
+            continue
         if filename == "CANCEL":
-            if any(node.get("package") in SYSTEM_PICKERS for node in nodes):
-                adb("shell", "input", "keyevent", "4")
-                returned_to_app(cancel=True)
-                return
+            adb("shell", "input", "keyevent", "4")
+            returned_to_app()
+            return
+        try:
+            nodes = [node for node in snapshot() if node.get("package") in SYSTEM_PICKERS]
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+            # UiAutomator can report an unavailable hierarchy during transitions.
             time.sleep(.5)
             continue
         wanted = [n for n in nodes if n.get("text", "").casefold() == filename.casefold()
@@ -149,7 +154,7 @@ def picker(filename):
                 wanted = [n for n in nodes if n.get("content-desc") == "Show roots"]
         if wanted:
             bounds = re.fullmatch(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]", wanted[-1].get("bounds", ""))
-            if bounds:
+            if bounds and picker_focus() == "documents":
                 x1, y1, x2, y2 = map(int, bounds.groups())
                 adb("shell", "input", "tap", str((x1 + x2) // 2), str((y1 + y2) // 2))
                 if wanted[-1].get("text", "").casefold() == filename.casefold() or wanted[-1].get("content-desc", "").casefold() == filename.casefold():

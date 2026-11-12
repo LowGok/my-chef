@@ -286,53 +286,56 @@ class NativeSystemPickerTest(unittest.TestCase):
         self.assertEqual(len(reads), 2)
 
     def test_cancel_repeats_back_only_while_the_system_picker_is_still_active(self):
-        packages = iter(['com.android.documentsui', 'com.android.documentsui', probe.APP])
+        windows = iter(['com.android.documentsui/.Pick', '', 'com.android.documentsui/.Pick', probe.APP + '/.Main'])
         commands = []
 
-        def output(argv, **kwargs):
+        def output(*argv):
             commands.append(argv)
-            if 'cat' in argv:
-                return '<?xml version="1.0"?><hierarchy><node package="' + next(packages) + '"/></hierarchy>'
+            if 'dumpsys' in argv:
+                window = next(windows)
+                return f'mCurrentFocus=Window{{42 u0 {window}}}' if window else 'mCurrentFocus=null'
             return ''
 
-        with patch.object(probe.subprocess, 'check_output', side_effect=output), patch.object(probe.time, 'sleep'):
+        with patch.object(probe, '_adb', side_effect=output), patch.object(probe.time, 'sleep'), \
+                patch.object(probe, '_snapshot', side_effect=probe.subprocess.CalledProcessError(1, 'dump')) as dump:
             probe.picker('CANCEL')
-        self.assertEqual(sum(argv[-3:] == ['input', 'keyevent', '4'] for argv in commands), 2)
+        self.assertEqual(sum(argv[-3:] == ('input', 'keyevent', '4') for argv in commands), 2)
+        dump.assert_not_called()
 
     def test_cancel_waits_for_the_system_picker_then_returns_to_mychef(self):
-        packages = iter([probe.APP, 'com.android.documentsui', probe.APP])
+        windows = iter([probe.APP + '/.Main', 'com.google.android.documentsui/.Pick', probe.APP + '/.Main'])
         commands = []
 
-        def output(argv, **kwargs):
+        def output(*argv):
             commands.append(argv)
-            if 'cat' in argv:
-                return '<?xml version="1.0"?><hierarchy><node package="' + next(packages) + '"/></hierarchy>'
+            if 'dumpsys' in argv:
+                return f'mCurrentFocus=Window{{42 u0 {next(windows)}}}'
             return ''
 
-        with patch.object(probe.subprocess, 'check_output', side_effect=output), patch.object(probe.time, 'sleep'):
+        with patch.object(probe, '_adb', side_effect=output), patch.object(probe.time, 'sleep'):
             probe.picker('CANCEL')
-        back = next(i for i, argv in enumerate(commands) if argv[-3:] == ['input', 'keyevent', '4'])
-        self.assertEqual(sum('cat' in argv for argv in commands[:back]), 2)
-        self.assertEqual(sum('cat' in argv for argv in commands[back:]), 1)
+        back = next(i for i, argv in enumerate(commands) if argv[-3:] == ('input', 'keyevent', '4'))
+        self.assertEqual(sum('dumpsys' in argv for argv in commands[:back]), 2)
+        self.assertEqual(sum('dumpsys' in argv for argv in commands[back:]), 1)
 
     def test_save_waits_for_the_system_dialog_to_return_to_mychef(self):
-        windows = iter([
-            '<node package="com.android.documentsui" text="SAVE" bounds="[0,0][20,20]"/>',
-            '<node package="com.android.documentsui"/>',
-            '<node package="' + probe.APP + '"/>',
-        ])
+        documents = 'com.android.documentsui/.Pick'
+        windows = iter([documents, documents, documents, documents, probe.APP + '/.Main'])
         commands = []
 
-        def output(argv, **kwargs):
+        def output(*argv):
             commands.append(argv)
-            if 'cat' in argv:
-                return '<?xml version="1.0"?><hierarchy>' + next(windows) + '</hierarchy>'
+            if 'dumpsys' in argv:
+                return f'mCurrentFocus=Window{{42 u0 {next(windows)}}}'
             return ''
 
-        with patch.object(probe.subprocess, 'check_output', side_effect=output), patch.object(probe.time, 'sleep'):
+        save = probe.ET.fromstring('<node package="com.android.documentsui" text="SAVE" bounds="[0,0][20,20]"/>')
+        with patch.object(probe, '_adb', side_effect=output), patch.object(probe.time, 'sleep'), \
+                patch.object(probe, '_snapshot', side_effect=[probe.subprocess.CalledProcessError(1, 'dump'), [save]]) as dump:
             probe.picker('SAVE')
-        self.assertEqual(sum('cat' in argv for argv in commands), 3)
-        self.assertTrue(any(argv[-4:] == ['input', 'tap', '10', '10'] for argv in commands))
+        self.assertEqual(dump.call_count, 2)
+        tap = next(i for i, argv in enumerate(commands) if argv[-4:] == ('input', 'tap', '10', '10'))
+        self.assertEqual(sum('dumpsys' in argv for argv in commands[tap:]), 2)
 
 
 if __name__ == "__main__":
