@@ -581,9 +581,19 @@ export function AccountLifecycle({
           controller.signal.aborted
         )
           return;
-        saveAccountDownload(result);
+        const saved = await saveAccountDownload(result);
+        if (
+          before !== revision.current ||
+          epoch !== sessionEpoch() ||
+          controller.signal.aborted
+        )
+          return;
         close();
-        setNotice("Your download is ready. Keep the ZIP private.");
+        setNotice(
+          saved
+            ? "Your download is ready. Keep the ZIP private."
+            : "Download cancelled.",
+        );
       }
     } catch (error) {
       if (

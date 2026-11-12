@@ -210,11 +210,11 @@ test("a real reset signs out a second device and keeps its unsent shopping edits
     lastName: "Cook",
     password: "the fixture password before recovery",
   };
-  const week = "2026-11-02";
-  const listPath = "/api/v1/shopping/" + week;
-  const shoppingPath = "/app/?view=shopping&week=" + week;
+  const fixtureWeek = "2026-11-02";
+  const listPath = `/api/v1/shopping/${fixtureWeek}`;
+  const shoppingPage = `/app/?view=shopping&week=${fixtureWeek}`;
   const session = await registerFixture(page, account);
-  await page.goto(shoppingPath);
+  await page.goto(shoppingPage);
   await expect(page.getByText("Saved", { exact: true })).toBeVisible();
   await expect
     .poll(() => page.evaluate(() => !!navigator.serviceWorker.controller))
@@ -348,9 +348,9 @@ test("a real reset signs out a second device and keeps its unsent shopping edits
     await signIn(password);
     await page
       .getByRole("button", { name: "Shopping list", exact: true })
-      .click();
-    // Sign-in selects the current week. Inspect the fixture's original list.
-    await page.goto(shoppingPath);
+      .waitFor();
+    // Sign-in opens the current week; verify the edit in its original week.
+    await page.goto(shoppingPage);
     await expect(
       page.getByText("Pending fixture oats", { exact: true }),
     ).toBeVisible();

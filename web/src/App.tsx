@@ -1,5 +1,14 @@
+import {
+  takeNativeProof,
+  peekNativeProof,
+  forgetNativeProof,
+  nativeProofEvent,
+  nativeBackEvent,
+  nativeResumeEvent,
+} from "./native-runtime";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
+import { isNativeTransport, completePlatformErasure } from "./platform";
 import {
   api,
   browserSignInKey,
@@ -60,7 +69,15 @@ import {
 import { Shopping, BackgroundShoppingSync } from "./Shopping";
 import { validDate } from "./validation";
 
-const readProofEntry = () => readRecoveryProof() ?? readEmailProof();
+const readProofEntry = () =>
+  peekNativeProof() ?? readRecoveryProof() ?? readEmailProof();
+
+function pushAppHistory(url: string) {
+  const state = isNativeTransport()
+    ? { _mychefDepth: (Number(history.state?._mychefDepth) || 0) + 1 }
+    : {};
+  history.pushState(state, "", url);
+}
 
 type Pending = { key: string; input: MenuInput; id?: string };
 export function App() {
@@ -69,14 +86,18 @@ export function App() {
   const [proofEntry, setProofEntry] = useState(readProofEntry);
   const [proofRevision, setProofRevision] = useState(0);
   useLayoutEffect(() => {
+    if (peekNativeProof()) {
+      forgetNativeProof();
+      history.replaceState(history.state, "", "/app/" + proofEntry!.kind);
+    }
     if (proofEntry && location.hash)
       history.replaceState(history.state, "", location.pathname);
   }, [proofEntry]);
   useLayoutEffect(() => {
-    if (proofEntry?.kind !== "reset-password") return;
+    if (!proofEntry) return;
     const leave = () => {
       viewEpoch.current++;
-      flushSync(() => setProofEntry({ kind: "reset-password", proof: "" }));
+      flushSync(() => setProofEntry({ kind: proofEntry.kind, proof: "" }));
     };
     window.addEventListener("pagehide", leave);
     return () => window.removeEventListener("pagehide", leave);
@@ -85,9 +106,16 @@ export function App() {
     [booting, setBooting] = useState(true),
     [error, setError] = useState("");
   const activeAccount = useRef<Profile | null>(null);
+  useEffect(() => {
+    const failed = () => setError("This link could not be opened.");
+    window.addEventListener("mychef-native-link-error", failed);
+    return () => window.removeEventListener("mychef-native-link-error", failed);
+  }, []);
   activeAccount.current = user;
   const [offlineOnly, setOfflineOnly] = useState(false),
-    [discardDialog, setDiscardDialog] = useState(false);
+    [deviceSigningOut, setDeviceSigningOut] = useState(false),
+    [discardDialog, setDiscardDialog] = useState(false),
+    [draftBackOpen, setDraftBackOpen] = useState(false);
   const [search, setSearch] = useState(
     () => new URLSearchParams(location.search),
   );
@@ -105,12 +133,17 @@ export function App() {
     [imagePolls, setImagePolls] = useState(0);
   const [planningInput, setPlanningInput] = useState<MenuInput | null>(null);
   const signOutDialog = useRef<HTMLDialogElement>(null);
+  const draftBackDialog = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     if (discardDialog && !signOutDialog.current?.open)
       signOutDialog.current?.showModal();
     if (!discardDialog && signOutDialog.current?.open)
       signOutDialog.current.close();
   }, [discardDialog]);
+  useEffect(() => {
+    const dialog = draftBackDialog.current;
+    if (draftBackOpen && dialog && !dialog.open) dialog.showModal();
+  }, [draftBackOpen]);
   const swipeTransition = useRef<ViewTransition | null>(null);
   const swipeAnimation = useRef<Animation | null>(null);
   const swipeStart = useRef<{ x: number; y: number; time: number } | null>(
@@ -165,7 +198,8 @@ export function App() {
     Object.entries(values).forEach(([k, v]) => {
       if (v) params.set(k, v);
     });
-    history.pushState({}, "", params.size ? `/app/?${params}` : "/app/");
+    const query = params.toString();
+    pushAppHistory(query ? `/app/?${query}` : "/app/");
     setSearch(params);
     setProofEntry(null);
     setError("");
@@ -222,7 +256,9 @@ export function App() {
     }
   }
   function clearPrivateState() {
+    forgetNativeProof();
     personalDirty.current = false;
+    setDraftBackOpen(false);
     swipeTransition.current?.skipTransition();
     swipeAnimation.current?.cancel();
     setRecipes([]);
@@ -274,13 +310,64 @@ export function App() {
     setUser(value.user);
     navigate({});
   }
+  function leaveCurrentView() {
+    if (Number(history.state?._mychefDepth) > 0) history.back();
+    else if (location.pathname !== "/app/" || location.search) navigate({});
+  }
+  useEffect(() => {
+    const receive = () => {
+      const entry = takeNativeProof();
+      if (!entry) return;
+      if (
+        personalDirty.current &&
+        !window.confirm("Discard your unsaved recipe changes?")
+      )
+        return;
+      personalDirty.current = false;
+      viewEpoch.current++;
+      morePending.current = false;
+      setProofRevision((value) => value + 1);
+      setProofEntry(entry);
+      // Only the non-secret route reaches history; the proof stays in memory.
+      pushAppHistory("/app/" + entry.kind);
+      setSearch(new URLSearchParams());
+      window.scrollTo({ top: 0, left: 0, behavior: "instant" });
+    };
+    const back = () => {
+      const dialog = [
+        ...document.querySelectorAll<HTMLDialogElement>("dialog[open]"),
+      ].at(-1);
+      if (dialog) {
+        const cancel = new Event("cancel", { cancelable: true });
+        if (dialog.dispatchEvent(cancel)) dialog.close();
+        return;
+      }
+      const field = document.activeElement;
+      if (
+        field instanceof HTMLInputElement ||
+        field instanceof HTMLTextAreaElement ||
+        field instanceof HTMLSelectElement
+      ) {
+        field.blur();
+        return;
+      }
+      if (personalDirty.current) setDraftBackOpen(true);
+      else leaveCurrentView();
+    };
+    window.addEventListener(nativeProofEvent, receive);
+    window.addEventListener(nativeBackEvent, back);
+    return () => {
+      window.removeEventListener(nativeProofEvent, receive);
+      window.removeEventListener(nativeBackEvent, back);
+    };
+  }, []);
   useEffect(() => {
     const pop = () => {
       if (
         personalDirty.current &&
         !window.confirm("Discard your unsaved recipe changes?")
       ) {
-        history.pushState({}, "", activeURL.current);
+        pushAppHistory(activeURL.current);
         return;
       }
       personalDirty.current = false;
@@ -463,9 +550,11 @@ export function App() {
       }
     };
     window.addEventListener("online", online);
+    window.addEventListener(nativeResumeEvent, online);
     return () => {
       active = false;
       window.removeEventListener("online", online);
+      window.removeEventListener(nativeResumeEvent, online);
     };
   }, []);
   function reviewChangedWeek(input: MenuInput) {
@@ -648,7 +737,7 @@ export function App() {
       setDiscardDialog(false);
       setError("");
     });
-    location.replace("/landing/");
+    location.replace(isNativeTransport() ? "/app/" : "/landing/");
   }
   async function logout(discard = false) {
     const owner = user?.id ?? cachedOwner()?.profile.id;
@@ -663,6 +752,17 @@ export function App() {
     }
     localShoppingSignOut(verificationRequired);
     forgetSession();
+    if (isNativeTransport()) {
+      setDeviceSigningOut(true);
+      try {
+        await completePlatformErasure();
+      } catch {
+        setError("Device sign-out did not finish. Tap Sign out to retry.");
+        return;
+      } finally {
+        setDeviceSigningOut(false);
+      }
+    }
     sessionStorage.removeItem(key);
     clearPrivateState();
     setUser(null);
@@ -726,6 +826,7 @@ export function App() {
         morePending.current = false;
     }
   }
+  if (deviceSigningOut) return <Startup message="Signing out…" />;
   if (booting) return <Startup />;
   if (recoveryView)
     return (
@@ -810,6 +911,33 @@ export function App() {
   return (
     <>
       {discardPrompt}
+      {draftBackOpen && (
+        <dialog
+          ref={draftBackDialog}
+          className="replacement-dialog"
+          aria-labelledby="draft-back-title"
+          onCancel={() => setDraftBackOpen(false)}
+        >
+          <h2 id="draft-back-title">Discard unsaved recipe changes?</h2>
+          <button
+            className="button primary"
+            autoFocus
+            onClick={() => setDraftBackOpen(false)}
+          >
+            Keep editing
+          </button>{" "}
+          <button
+            className="button"
+            onClick={() => {
+              personalDirty.current = false;
+              setDraftBackOpen(false);
+              leaveCurrentView();
+            }}
+          >
+            Discard changes
+          </button>
+        </dialog>
+      )}
       <header className="app-header">
         <Brand
           disabled={offlineOnly}
@@ -908,6 +1036,7 @@ export function App() {
             cachedOwner()?.profile.id === user.id &&
             hasPendingShopping(user.id) && (
               <BackgroundShoppingSync
+                key={`${user.id}/${user.accountInstance}`}
                 profile={user}
                 week={cachedOwner()!.week}
                 onOpen={(next) => navigate({ view: "shopping", week: next })}
@@ -947,7 +1076,7 @@ export function App() {
             )}
           {shoppingView ? (
             <Shopping
-              key={`${user.id}/${week}`}
+              key={`${user.id}/${user.accountInstance}/${week}`}
               profile={user}
               offlineOnly={offlineOnly}
               week={week}

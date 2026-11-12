@@ -184,7 +184,7 @@ def main():
                 original.backup(candidate)
             migrate(CACHE / "mychef-migrate", "up", "--db", upgraded)
             with sqlite3.connect(upgraded) as candidate:
-                assert candidate.execute("SELECT version,dirty FROM schema_migrations").fetchone() == (16, 0)
+                assert candidate.execute("SELECT version,dirty FROM schema_migrations").fetchone() == (17, 0)
                 assert {"personal_recipes", "personal_recipe_versions", "personal_photo_assets", "personal_recipe_queue"}.issubset(
                     {row[0] for row in candidate.execute("SELECT name FROM sqlite_master WHERE type='table'")})
             with sqlite3.connect(str(upgraded) + ".lifecycle") as journal:

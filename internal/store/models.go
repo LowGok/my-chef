@@ -83,6 +83,24 @@ type Session struct {
 	ExpiresUnix int64
 }
 
+type NativeFamily struct {
+	ID          string `gorm:"primaryKey"`
+	AnchorHash  string
+	Platform    string
+	ExpiresUnix int64
+}
+
+type NativeAccess struct {
+	Hash     string `gorm:"primaryKey"`
+	FamilyID string
+}
+
+type NativeRefresh struct {
+	Hash         string `gorm:"primaryKey"`
+	FamilyID     string
+	ConsumedUnix *int64
+}
+
 type Profile struct {
 	AccountInstance string             `json:"accountInstance,omitempty"`
 	ID              string             `json:"id"`

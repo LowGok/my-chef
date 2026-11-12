@@ -578,6 +578,35 @@ export type QueuedRecipe = {
     blocked: boolean;
 };
 
+export type NativeTokens = {
+    accessToken: string;
+    refreshToken: string;
+    accessExpiresUnix: number;
+    sessionExpiresUnix: number;
+};
+
+export type NativeSessionResponse = {
+    user: Profile | null;
+    csrfToken: '';
+    /**
+     * True for an authenticated session restricted to email verification; user is null.
+     */
+    verificationRequired?: boolean;
+    native?: NativeTokens;
+};
+
+export type NativeStartInput = {
+    platform: 'ios' | 'android';
+};
+
+export type NativeRefreshInput = {
+    refreshToken: string;
+};
+
+export type NativeRefreshResponse = {
+    native: NativeTokens;
+};
+
 export type ImportEmptyInputWritable = {
     [key: string]: never;
 };
@@ -3402,6 +3431,2849 @@ export type CancelRecipeImportResponses = {
 
 export type CancelRecipeImportResponse = CancelRecipeImportResponses[keyof CancelRecipeImportResponses];
 
+export type NativeExportAccountData = {
+    body: AccountExportRequest;
+    path?: never;
+    query?: never;
+    url: '/api/native/v1/account/export';
+};
+
+export type NativeExportAccountErrors = {
+    /**
+     * Incorrect current password, malformed input or confirmation.
+     */
+    400: Error;
+    /**
+     * An active signed-in account is required.
+     */
+    401: Error;
+    /**
+     * Account verification or permissions required.
+     */
+    403: Error;
+    /**
+     * Too many password attempts.
+     */
+    429: Error;
+    /**
+     * Account storage or its independent lifecycle journal is unavailable.
+     */
+    503: Error;
+};
+
+export type NativeExportAccountError = NativeExportAccountErrors[keyof NativeExportAccountErrors];
+
+export type NativeExportAccountResponses = {
+    /**
+     * Format-2 ZIP with JSON files, readable contents guide, every retained personal recipe version and normalized referenced photos under export-local names. No original photos or provider handles. Any unavailable or changed photo fails the export. Interrupted transfers are incomplete and must be discarded.
+     */
+    200: Blob | File;
+};
+
+export type NativeExportAccountResponse = NativeExportAccountResponses[keyof NativeExportAccountResponses];
+
+export type NativeDeleteAccountData = {
+    body: AccountDeletionRequestWritable;
+    headers: {
+        'Idempotency-Key': string;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/native/v1/account/deletion';
+};
+
+export type NativeDeleteAccountErrors = {
+    /**
+     * Incorrect current password, malformed input or confirmation.
+     */
+    400: Error;
+    /**
+     * An active signed-in account is required.
+     */
+    401: Error;
+    /**
+     * Account verification or permissions required.
+     */
+    403: Error;
+    /**
+     * Conflicting operation key.
+     */
+    409: Error;
+    /**
+     * Too many password attempts.
+     */
+    429: Error;
+    /**
+     * Account storage or its independent lifecycle journal is unavailable.
+     */
+    503: Error;
+};
+
+export type NativeDeleteAccountError = NativeDeleteAccountErrors[keyof NativeDeleteAccountErrors];
+
+export type NativeDeleteAccountResponses = {
+    /**
+     * Live account deletion committed and independent restore-prevention marker durable.
+     */
+    200: AccountDeletionResult;
+};
+
+export type NativeDeleteAccountResponse = NativeDeleteAccountResponses[keyof NativeDeleteAccountResponses];
+
+export type NativeSessionData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/native/v1/session';
+};
+
+export type NativeSessionErrors = {
+    /**
+     * Response
+     */
+    400: Error;
+    /**
+     * Response
+     */
+    401: Error;
+    /**
+     * Account verification or permissions required.
+     */
+    403: Error;
+    /**
+     * Response
+     */
+    404: Error;
+    /**
+     * Response
+     */
+    409: Error;
+    /**
+     * Response
+     */
+    429: Error;
+    /**
+     * Response
+     */
+    503: Error;
+};
+
+export type NativeSessionError = NativeSessionErrors[keyof NativeSessionErrors];
+
+export type NativeSessionResponses = {
+    /**
+     * Response
+     */
+    200: NativeSessionResponse;
+};
+
+export type NativeSessionResponse2 = NativeSessionResponses[keyof NativeSessionResponses];
+
+export type NativeStartData = {
+    body: NativeStartInput;
+    path?: never;
+    query?: never;
+    url: '/api/native/v1/session';
+};
+
+export type NativeStartErrors = {
+    /**
+     * Invalid JSON, platform or fields.
+     */
+    400: Error;
+    /**
+     * Missing, expired, revoked or replayed authority.
+     */
+    401: Error;
+    /**
+     * Source request limit reached.
+     */
+    429: Error;
+    /**
+     * Storage or account services unavailable.
+     */
+    503: Error;
+};
+
+export type NativeStartError = NativeStartErrors[keyof NativeStartErrors];
+
+export type NativeStartResponses = {
+    /**
+     * No cookies; credentials and response must not be cached or logged.
+     */
+    201: NativeSessionResponse;
+};
+
+export type NativeStartResponse = NativeStartResponses[keyof NativeStartResponses];
+
+export type NativeRegisterData = {
+    body: Registration;
+    headers: {
+        'X-CSRF-Token': string;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/native/v1/register';
+};
+
+export type NativeRegisterErrors = {
+    /**
+     * Response
+     */
+    400: Error;
+    /**
+     * Response
+     */
+    401: Error;
+    /**
+     * Account verification or permissions required.
+     */
+    403: Error;
+    /**
+     * Response
+     */
+    404: Error;
+    /**
+     * Response
+     */
+    409: Error;
+    /**
+     * Response
+     */
+    429: Error;
+    /**
+     * Response
+     */
+    503: Error;
+};
+
+export type NativeRegisterError = NativeRegisterErrors[keyof NativeRegisterErrors];
+
+export type NativeRegisterResponses = {
+    /**
+     * Sign-up request accepted.
+     */
+    202: EmailRequestAccepted;
+};
+
+export type NativeRegisterResponse = NativeRegisterResponses[keyof NativeRegisterResponses];
+
+export type NativeLoginData = {
+    body: Login;
+    headers: {
+        'X-CSRF-Token': string;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/native/v1/login';
+};
+
+export type NativeLoginErrors = {
+    /**
+     * Response
+     */
+    400: Error;
+    /**
+     * Response
+     */
+    401: Error;
+    /**
+     * Account verification or permissions required.
+     */
+    403: Error;
+    /**
+     * Response
+     */
+    404: Error;
+    /**
+     * Response
+     */
+    409: Error;
+    /**
+     * Response
+     */
+    429: Error;
+    /**
+     * Response
+     */
+    503: Error;
+};
+
+export type NativeLoginError = NativeLoginErrors[keyof NativeLoginErrors];
+
+export type NativeLoginResponses = {
+    /**
+     * Response
+     */
+    200: NativeSessionResponse;
+};
+
+export type NativeLoginResponse = NativeLoginResponses[keyof NativeLoginResponses];
+
+export type NativeLogoutData = {
+    body?: never;
+    headers: {
+        'X-CSRF-Token': string;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/native/v1/logout';
+};
+
+export type NativeLogoutErrors = {
+    /**
+     * Response
+     */
+    400: Error;
+    /**
+     * Response
+     */
+    401: Error;
+    /**
+     * Account verification or permissions required.
+     */
+    403: Error;
+    /**
+     * Response
+     */
+    404: Error;
+    /**
+     * Response
+     */
+    409: Error;
+    /**
+     * Response
+     */
+    429: Error;
+    /**
+     * Response
+     */
+    503: Error;
+};
+
+export type NativeLogoutError = NativeLogoutErrors[keyof NativeLogoutErrors];
+
+export type NativeLogoutResponses = {
+    /**
+     * Success
+     */
+    204: void;
+};
+
+export type NativeLogoutResponse = NativeLogoutResponses[keyof NativeLogoutResponses];
+
+export type NativeProfileData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/native/v1/profile';
+};
+
+export type NativeProfileErrors = {
+    /**
+     * Response
+     */
+    400: Error;
+    /**
+     * Response
+     */
+    401: Error;
+    /**
+     * Account verification or permissions required.
+     */
+    403: Error;
+    /**
+     * Response
+     */
+    404: Error;
+    /**
+     * Response
+     */
+    409: Error;
+    /**
+     * Response
+     */
+    429: Error;
+    /**
+     * Response
+     */
+    503: Error;
+};
+
+export type NativeProfileError = NativeProfileErrors[keyof NativeProfileErrors];
+
+export type NativeProfileResponses = {
+    /**
+     * Response
+     */
+    200: Profile;
+};
+
+export type NativeProfileResponse = NativeProfileResponses[keyof NativeProfileResponses];
+
+export type NativeUpdateProfileData = {
+    body: ProfileUpdate;
+    headers: {
+        'X-CSRF-Token': string;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/native/v1/profile';
+};
+
+export type NativeUpdateProfileErrors = {
+    /**
+     * Response
+     */
+    400: Error;
+    /**
+     * Response
+     */
+    401: Error;
+    /**
+     * Account verification or permissions required.
+     */
+    403: Error;
+    /**
+     * Response
+     */
+    404: Error;
+    /**
+     * Response
+     */
+    409: Error;
+    /**
+     * Response
+     */
+    429: Error;
+    /**
+     * Response
+     */
+    503: Error;
+};
+
+export type NativeUpdateProfileError = NativeUpdateProfileErrors[keyof NativeUpdateProfileErrors];
+
+export type NativeUpdateProfileResponses = {
+    /**
+     * Response
+     */
+    200: Profile;
+};
+
+export type NativeUpdateProfileResponse = NativeUpdateProfileResponses[keyof NativeUpdateProfileResponses];
+
+export type NativeChangePasswordData = {
+    body: PasswordChange;
+    headers: {
+        'X-CSRF-Token': string;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/native/v1/account/password';
+};
+
+export type NativeChangePasswordErrors = {
+    /**
+     * Invalid credential input or incorrect current password.
+     */
+    400: Error;
+    /**
+     * A valid authenticated session is required.
+     */
+    401: Error;
+    /**
+     * Account verification or permissions required.
+     */
+    403: Error;
+    /**
+     * Attempt limit reached.
+     */
+    429: Error;
+    /**
+     * The transaction could not complete.
+     */
+    503: Error;
+};
+
+export type NativeChangePasswordError = NativeChangePasswordErrors[keyof NativeChangePasswordErrors];
+
+export type NativeChangePasswordResponses = {
+    /**
+     * The new session and CSRF token.
+     */
+    200: NativeSessionResponse;
+};
+
+export type NativeChangePasswordResponse = NativeChangePasswordResponses[keyof NativeChangePasswordResponses];
+
+export type NativeCreateGenerationData = {
+    body: MenuInput;
+    headers: {
+        'X-CSRF-Token': string;
+        'Idempotency-Key': string;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/native/v1/generations';
+};
+
+export type NativeCreateGenerationErrors = {
+    /**
+     * Response
+     */
+    400: Error;
+    /**
+     * Response
+     */
+    401: Error;
+    /**
+     * Account verification or permissions required.
+     */
+    403: Error;
+    /**
+     * Response
+     */
+    404: Error;
+    /**
+     * Response
+     */
+    409: Error;
+    /**
+     * Response
+     */
+    429: Error;
+    /**
+     * Response
+     */
+    503: Error;
+};
+
+export type NativeCreateGenerationError = NativeCreateGenerationErrors[keyof NativeCreateGenerationErrors];
+
+export type NativeCreateGenerationResponses = {
+    /**
+     * Response
+     */
+    200: Generation;
+    /**
+     * Response
+     */
+    202: Generation;
+};
+
+export type NativeCreateGenerationResponse = NativeCreateGenerationResponses[keyof NativeCreateGenerationResponses];
+
+export type NativeGenerationData = {
+    body?: never;
+    path: {
+        id: string;
+    };
+    query?: never;
+    url: '/api/native/v1/generations/{id}';
+};
+
+export type NativeGenerationErrors = {
+    /**
+     * Response
+     */
+    400: Error;
+    /**
+     * Response
+     */
+    401: Error;
+    /**
+     * Account verification or permissions required.
+     */
+    403: Error;
+    /**
+     * Response
+     */
+    404: Error;
+    /**
+     * Response
+     */
+    409: Error;
+    /**
+     * Response
+     */
+    429: Error;
+    /**
+     * Response
+     */
+    503: Error;
+};
+
+export type NativeGenerationError = NativeGenerationErrors[keyof NativeGenerationErrors];
+
+export type NativeGenerationResponses = {
+    /**
+     * Response
+     */
+    200: Generation;
+};
+
+export type NativeGenerationResponse = NativeGenerationResponses[keyof NativeGenerationResponses];
+
+export type NativeHistoryData = {
+    body?: never;
+    path?: never;
+    query: {
+        from: string;
+        to: string;
+        limit?: number;
+        offset?: number;
+    };
+    url: '/api/native/v1/menus';
+};
+
+export type NativeHistoryErrors = {
+    /**
+     * Response
+     */
+    400: Error;
+    /**
+     * Response
+     */
+    401: Error;
+    /**
+     * Account verification or permissions required.
+     */
+    403: Error;
+    /**
+     * Response
+     */
+    404: Error;
+    /**
+     * Response
+     */
+    409: Error;
+    /**
+     * Response
+     */
+    429: Error;
+    /**
+     * Response
+     */
+    503: Error;
+};
+
+export type NativeHistoryError = NativeHistoryErrors[keyof NativeHistoryErrors];
+
+export type NativeHistoryResponses = {
+    /**
+     * Response
+     */
+    200: RecipePage;
+};
+
+export type NativeHistoryResponse = NativeHistoryResponses[keyof NativeHistoryResponses];
+
+export type NativeMenuData = {
+    body?: never;
+    path: {
+        id: string;
+    };
+    query?: never;
+    url: '/api/native/v1/menus/{id}';
+};
+
+export type NativeMenuErrors = {
+    /**
+     * Response
+     */
+    400: Error;
+    /**
+     * Response
+     */
+    401: Error;
+    /**
+     * Account verification or permissions required.
+     */
+    403: Error;
+    /**
+     * Response
+     */
+    404: Error;
+    /**
+     * Response
+     */
+    409: Error;
+    /**
+     * Response
+     */
+    429: Error;
+    /**
+     * Response
+     */
+    503: Error;
+};
+
+export type NativeMenuError = NativeMenuErrors[keyof NativeMenuErrors];
+
+export type NativeMenuResponses = {
+    /**
+     * Response
+     */
+    200: Menu;
+};
+
+export type NativeMenuResponse = NativeMenuResponses[keyof NativeMenuResponses];
+
+export type NativeRecipeData = {
+    body?: never;
+    path: {
+        id: string;
+    };
+    query?: never;
+    url: '/api/native/v1/recipes/{id}';
+};
+
+export type NativeRecipeErrors = {
+    /**
+     * Response
+     */
+    400: Error;
+    /**
+     * Response
+     */
+    401: Error;
+    /**
+     * Account verification or permissions required.
+     */
+    403: Error;
+    /**
+     * Response
+     */
+    404: Error;
+    /**
+     * Response
+     */
+    409: Error;
+    /**
+     * Response
+     */
+    429: Error;
+    /**
+     * Response
+     */
+    503: Error;
+};
+
+export type NativeRecipeError = NativeRecipeErrors[keyof NativeRecipeErrors];
+
+export type NativeRecipeResponses = {
+    /**
+     * Response
+     */
+    200: Recipe;
+};
+
+export type NativeRecipeResponse = NativeRecipeResponses[keyof NativeRecipeResponses];
+
+export type NativeVersionData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/native/v1/version';
+};
+
+export type NativeVersionResponses = {
+    /**
+     * Go service version
+     */
+    200: {
+        version: string;
+        runtime: 'go';
+    };
+};
+
+export type NativeVersionResponse = NativeVersionResponses[keyof NativeVersionResponses];
+
+export type NativeGetShoppingData = {
+    body?: never;
+    path: {
+        /**
+         * Monday of the shopping week
+         */
+        week: string;
+    };
+    query?: never;
+    url: '/api/native/v1/shopping/{week}';
+};
+
+export type NativeGetShoppingErrors = {
+    /**
+     * Request failed
+     */
+    400: Error;
+    /**
+     * Request failed
+     */
+    401: Error;
+    /**
+     * Account verification or permissions required.
+     */
+    403: Error;
+    /**
+     * Request failed
+     */
+    409: Error;
+    /**
+     * Request failed
+     */
+    503: Error;
+};
+
+export type NativeGetShoppingError = NativeGetShoppingErrors[keyof NativeGetShoppingErrors];
+
+export type NativeGetShoppingResponses = {
+    /**
+     * Saved shopping list
+     */
+    200: ShoppingList;
+};
+
+export type NativeGetShoppingResponse = NativeGetShoppingResponses[keyof NativeGetShoppingResponses];
+
+export type NativeSaveShoppingData = {
+    body: ShoppingListWritable;
+    path: {
+        /**
+         * Monday of the shopping week
+         */
+        week: string;
+    };
+    query?: never;
+    url: '/api/native/v1/shopping/{week}';
+};
+
+export type NativeSaveShoppingErrors = {
+    /**
+     * Request failed
+     */
+    400: Error;
+    /**
+     * Request failed
+     */
+    401: Error;
+    /**
+     * Account verification or permissions required.
+     */
+    403: Error;
+    /**
+     * Request failed
+     */
+    409: Error;
+    /**
+     * Request failed
+     */
+    503: Error;
+};
+
+export type NativeSaveShoppingError = NativeSaveShoppingErrors[keyof NativeSaveShoppingErrors];
+
+export type NativeSaveShoppingResponses = {
+    /**
+     * Saved shopping list
+     */
+    200: ShoppingList;
+};
+
+export type NativeSaveShoppingResponse = NativeSaveShoppingResponses[keyof NativeSaveShoppingResponses];
+
+export type NativeFavoritesData = {
+    body?: never;
+    path?: never;
+    query?: {
+        limit?: number;
+        offset?: number;
+    };
+    url: '/api/native/v1/favorites';
+};
+
+export type NativeFavoritesErrors = {
+    /**
+     * Response
+     */
+    400: Error;
+    /**
+     * Response
+     */
+    401: Error;
+    /**
+     * Account verification or permissions required.
+     */
+    403: Error;
+    /**
+     * Response
+     */
+    404: Error;
+    /**
+     * Response
+     */
+    409: Error;
+    /**
+     * Response
+     */
+    429: Error;
+    /**
+     * Response
+     */
+    503: Error;
+};
+
+export type NativeFavoritesError = NativeFavoritesErrors[keyof NativeFavoritesErrors];
+
+export type NativeFavoritesResponses = {
+    /**
+     * Response
+     */
+    200: RecipePage;
+};
+
+export type NativeFavoritesResponse = NativeFavoritesResponses[keyof NativeFavoritesResponses];
+
+export type NativeRemoveFavoriteData = {
+    body?: never;
+    headers: {
+        'X-CSRF-Token': string;
+    };
+    path: {
+        id: string;
+    };
+    query?: never;
+    url: '/api/native/v1/recipes/{id}/favorite';
+};
+
+export type NativeRemoveFavoriteErrors = {
+    /**
+     * Response
+     */
+    400: Error;
+    /**
+     * Response
+     */
+    401: Error;
+    /**
+     * Account verification or permissions required.
+     */
+    403: Error;
+    /**
+     * Response
+     */
+    404: Error;
+    /**
+     * Response
+     */
+    409: Error;
+    /**
+     * Response
+     */
+    429: Error;
+    /**
+     * Response
+     */
+    503: Error;
+};
+
+export type NativeRemoveFavoriteError = NativeRemoveFavoriteErrors[keyof NativeRemoveFavoriteErrors];
+
+export type NativeRemoveFavoriteResponses = {
+    /**
+     * Response
+     */
+    200: Recipe;
+};
+
+export type NativeRemoveFavoriteResponse = NativeRemoveFavoriteResponses[keyof NativeRemoveFavoriteResponses];
+
+export type NativeSaveFavoriteData = {
+    body?: never;
+    headers: {
+        'X-CSRF-Token': string;
+    };
+    path: {
+        id: string;
+    };
+    query?: never;
+    url: '/api/native/v1/recipes/{id}/favorite';
+};
+
+export type NativeSaveFavoriteErrors = {
+    /**
+     * Response
+     */
+    400: Error;
+    /**
+     * Response
+     */
+    401: Error;
+    /**
+     * Account verification or permissions required.
+     */
+    403: Error;
+    /**
+     * Response
+     */
+    404: Error;
+    /**
+     * Response
+     */
+    409: Error;
+    /**
+     * Response
+     */
+    429: Error;
+    /**
+     * Response
+     */
+    503: Error;
+};
+
+export type NativeSaveFavoriteError = NativeSaveFavoriteErrors[keyof NativeSaveFavoriteErrors];
+
+export type NativeSaveFavoriteResponses = {
+    /**
+     * Response
+     */
+    200: Recipe;
+};
+
+export type NativeSaveFavoriteResponse = NativeSaveFavoriteResponses[keyof NativeSaveFavoriteResponses];
+
+export type NativeFavoriteWeekData = {
+    body?: never;
+    path: {
+        week: string;
+    };
+    query?: never;
+    url: '/api/native/v1/favorite-weeks/{week}';
+};
+
+export type NativeFavoriteWeekErrors = {
+    /**
+     * Response
+     */
+    400: Error;
+    /**
+     * Response
+     */
+    401: Error;
+    /**
+     * Account verification or permissions required.
+     */
+    403: Error;
+    /**
+     * Response
+     */
+    404: Error;
+    /**
+     * Response
+     */
+    409: Error;
+    /**
+     * Response
+     */
+    429: Error;
+    /**
+     * Response
+     */
+    503: Error;
+};
+
+export type NativeFavoriteWeekError = NativeFavoriteWeekErrors[keyof NativeFavoriteWeekErrors];
+
+export type NativeFavoriteWeekResponses = {
+    /**
+     * Response
+     */
+    200: FavoriteWeek;
+};
+
+export type NativeFavoriteWeekResponse = NativeFavoriteWeekResponses[keyof NativeFavoriteWeekResponses];
+
+export type NativeQueueFavoriteData = {
+    body: FavoriteQueueInput;
+    headers: {
+        'X-CSRF-Token': string;
+    };
+    path: {
+        id: string;
+    };
+    query?: never;
+    url: '/api/native/v1/favorites/{id}/queue';
+};
+
+export type NativeQueueFavoriteErrors = {
+    /**
+     * Response
+     */
+    400: Error;
+    /**
+     * Response
+     */
+    401: Error;
+    /**
+     * Account verification or permissions required.
+     */
+    403: Error;
+    /**
+     * Response
+     */
+    404: Error;
+    /**
+     * Response
+     */
+    409: Error;
+    /**
+     * Response
+     */
+    429: Error;
+    /**
+     * Response
+     */
+    503: Error;
+};
+
+export type NativeQueueFavoriteError = NativeQueueFavoriteErrors[keyof NativeQueueFavoriteErrors];
+
+export type NativeQueueFavoriteResponses = {
+    /**
+     * Response
+     */
+    200: FavoriteWeek;
+};
+
+export type NativeQueueFavoriteResponse = NativeQueueFavoriteResponses[keyof NativeQueueFavoriteResponses];
+
+export type NativeSwapFavoriteData = {
+    body: FavoriteSwap;
+    headers: {
+        'X-CSRF-Token': string;
+    };
+    path: {
+        id: string;
+    };
+    query?: never;
+    url: '/api/native/v1/favorites/{id}/swap';
+};
+
+export type NativeSwapFavoriteErrors = {
+    /**
+     * Response
+     */
+    400: Error;
+    /**
+     * Response
+     */
+    401: Error;
+    /**
+     * Account verification or permissions required.
+     */
+    403: Error;
+    /**
+     * Response
+     */
+    404: Error;
+    /**
+     * Response
+     */
+    409: Error;
+    /**
+     * Response
+     */
+    429: Error;
+    /**
+     * Response
+     */
+    503: Error;
+};
+
+export type NativeSwapFavoriteError = NativeSwapFavoriteErrors[keyof NativeSwapFavoriteErrors];
+
+export type NativeSwapFavoriteResponses = {
+    /**
+     * Response
+     */
+    200: Recipe;
+};
+
+export type NativeSwapFavoriteResponse = NativeSwapFavoriteResponses[keyof NativeSwapFavoriteResponses];
+
+export type NativeInspectSignUpData = {
+    body: EmailProof;
+    headers: {
+        'X-CSRF-Token': string;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/native/v1/signup/inspect';
+};
+
+export type NativeInspectSignUpErrors = {
+    /**
+     * Response
+     */
+    400: Error;
+    /**
+     * Response
+     */
+    401: Error;
+    /**
+     * Response
+     */
+    403: Error;
+    /**
+     * Response
+     */
+    409: Error;
+    /**
+     * Response
+     */
+    429: Error;
+    /**
+     * Response
+     */
+    503: Error;
+};
+
+export type NativeInspectSignUpError = NativeInspectSignUpErrors[keyof NativeInspectSignUpErrors];
+
+export type NativeInspectSignUpResponses = {
+    /**
+     * Read the profile fields from a valid sign-up proof.
+     */
+    200: SignUpProfile;
+};
+
+export type NativeInspectSignUpResponse = NativeInspectSignUpResponses[keyof NativeInspectSignUpResponses];
+
+export type NativeCompleteSignUpData = {
+    body: SignUpCompletion;
+    headers: {
+        'X-CSRF-Token': string;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/native/v1/signup/complete';
+};
+
+export type NativeCompleteSignUpErrors = {
+    /**
+     * Response
+     */
+    400: Error;
+    /**
+     * Response
+     */
+    401: Error;
+    /**
+     * Response
+     */
+    403: Error;
+    /**
+     * Response
+     */
+    409: Error;
+    /**
+     * Response
+     */
+    429: Error;
+    /**
+     * Response
+     */
+    503: Error;
+};
+
+export type NativeCompleteSignUpError = NativeCompleteSignUpErrors[keyof NativeCompleteSignUpErrors];
+
+export type NativeCompleteSignUpResponses = {
+    /**
+     * Create a verified account after mailbox proof. Sign in separately.
+     */
+    201: SignUpCreated;
+};
+
+export type NativeCompleteSignUpResponse = NativeCompleteSignUpResponses[keyof NativeCompleteSignUpResponses];
+
+export type NativeResendEmailVerificationData = {
+    body: EmailVerificationResendWritable;
+    headers: {
+        'X-CSRF-Token': string;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/native/v1/email/verification/resend';
+};
+
+export type NativeResendEmailVerificationErrors = {
+    /**
+     * Response
+     */
+    400: Error;
+    /**
+     * Response
+     */
+    401: Error;
+    /**
+     * Response
+     */
+    403: Error;
+    /**
+     * Response
+     */
+    409: Error;
+    /**
+     * Response
+     */
+    429: Error;
+    /**
+     * Response
+     */
+    503: Error;
+};
+
+export type NativeResendEmailVerificationError = NativeResendEmailVerificationErrors[keyof NativeResendEmailVerificationErrors];
+
+export type NativeResendEmailVerificationResponses = {
+    /**
+     * Send a new verification email for the restricted account.
+     */
+    202: EmailRequestAccepted;
+};
+
+export type NativeResendEmailVerificationResponse = NativeResendEmailVerificationResponses[keyof NativeResendEmailVerificationResponses];
+
+export type NativeConfirmEmailVerificationData = {
+    body: EmailProof;
+    headers: {
+        'X-CSRF-Token': string;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/native/v1/email/verification/confirm';
+};
+
+export type NativeConfirmEmailVerificationErrors = {
+    /**
+     * Response
+     */
+    400: Error;
+    /**
+     * Response
+     */
+    401: Error;
+    /**
+     * Response
+     */
+    403: Error;
+    /**
+     * Response
+     */
+    409: Error;
+    /**
+     * Response
+     */
+    429: Error;
+    /**
+     * Response
+     */
+    503: Error;
+};
+
+export type NativeConfirmEmailVerificationError = NativeConfirmEmailVerificationErrors[keyof NativeConfirmEmailVerificationErrors];
+
+export type NativeConfirmEmailVerificationResponses = {
+    /**
+     * Verify the matching restricted session and issue a replacement cookie.
+     */
+    200: NativeSessionResponse;
+};
+
+export type NativeConfirmEmailVerificationResponse = NativeConfirmEmailVerificationResponses[keyof NativeConfirmEmailVerificationResponses];
+
+export type NativeStartEmailChangeData = {
+    body: EmailChangeStart;
+    headers: {
+        'X-CSRF-Token': string;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/native/v1/email/change';
+};
+
+export type NativeStartEmailChangeErrors = {
+    /**
+     * Response
+     */
+    400: Error;
+    /**
+     * Response
+     */
+    401: Error;
+    /**
+     * Response
+     */
+    403: Error;
+    /**
+     * Response
+     */
+    409: Error;
+    /**
+     * Response
+     */
+    429: Error;
+    /**
+     * Response
+     */
+    503: Error;
+};
+
+export type NativeStartEmailChangeError = NativeStartEmailChangeErrors[keyof NativeStartEmailChangeErrors];
+
+export type NativeStartEmailChangeResponses = {
+    /**
+     * Request an email change or correction after reentering the current password.
+     */
+    202: EmailRequestAccepted;
+};
+
+export type NativeStartEmailChangeResponse = NativeStartEmailChangeResponses[keyof NativeStartEmailChangeResponses];
+
+export type NativeInspectEmailChangeData = {
+    body: EmailProof;
+    headers: {
+        'X-CSRF-Token': string;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/native/v1/email/change/inspect';
+};
+
+export type NativeInspectEmailChangeErrors = {
+    /**
+     * Response
+     */
+    400: Error;
+    /**
+     * Response
+     */
+    401: Error;
+    /**
+     * Response
+     */
+    403: Error;
+    /**
+     * Response
+     */
+    409: Error;
+    /**
+     * Response
+     */
+    429: Error;
+    /**
+     * Response
+     */
+    503: Error;
+};
+
+export type NativeInspectEmailChangeError = NativeInspectEmailChangeErrors[keyof NativeInspectEmailChangeErrors];
+
+export type NativeInspectEmailChangeResponses = {
+    /**
+     * Read the intended address-change action without applying it.
+     */
+    200: EmailChangeView;
+};
+
+export type NativeInspectEmailChangeResponse = NativeInspectEmailChangeResponses[keyof NativeInspectEmailChangeResponses];
+
+export type NativeDecideEmailChangeData = {
+    body: EmailProof;
+    headers: {
+        'X-CSRF-Token': string;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/native/v1/email/change/decision';
+};
+
+export type NativeDecideEmailChangeErrors = {
+    /**
+     * Response
+     */
+    400: Error;
+    /**
+     * Response
+     */
+    401: Error;
+    /**
+     * Response
+     */
+    403: Error;
+    /**
+     * Response
+     */
+    409: Error;
+    /**
+     * Response
+     */
+    429: Error;
+    /**
+     * Response
+     */
+    503: Error;
+};
+
+export type NativeDecideEmailChangeError = NativeDecideEmailChangeErrors[keyof NativeDecideEmailChangeErrors];
+
+export type NativeDecideEmailChangeResponses = {
+    /**
+     * Apply an explicit inbox decision. Sign in again if this browser was signed in to the changed account.
+     */
+    200: EmailChangeDecision;
+};
+
+export type NativeDecideEmailChangeResponse = NativeDecideEmailChangeResponses[keyof NativeDecideEmailChangeResponses];
+
+export type NativeRequestPasswordRecoveryData = {
+    body: RecoveryRequest;
+    headers: {
+        'X-CSRF-Token': string;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/native/v1/password-recovery/request';
+};
+
+export type NativeRequestPasswordRecoveryErrors = {
+    /**
+     * Response
+     */
+    400: Error;
+    /**
+     * Response
+     */
+    401: Error;
+    /**
+     * Response
+     */
+    403: Error;
+    /**
+     * Response
+     */
+    409: Error;
+    /**
+     * Response
+     */
+    429: Error;
+    /**
+     * Response
+     */
+    503: Error;
+};
+
+export type NativeRequestPasswordRecoveryError = NativeRequestPasswordRecoveryErrors[keyof NativeRequestPasswordRecoveryErrors];
+
+export type NativeRequestPasswordRecoveryResponses = {
+    /**
+     * The request was recorded. The response does not indicate whether an account exists.
+     */
+    202: EmailRequestAccepted;
+};
+
+export type NativeRequestPasswordRecoveryResponse = NativeRequestPasswordRecoveryResponses[keyof NativeRequestPasswordRecoveryResponses];
+
+export type NativeCompletePasswordRecoveryData = {
+    body: RecoveryCompletion;
+    headers: {
+        'X-CSRF-Token': string;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/native/v1/password-recovery/complete';
+};
+
+export type NativeCompletePasswordRecoveryErrors = {
+    /**
+     * Response
+     */
+    400: Error;
+    /**
+     * Response
+     */
+    401: Error;
+    /**
+     * Response
+     */
+    403: Error;
+    /**
+     * Response
+     */
+    409: Error;
+    /**
+     * Response
+     */
+    429: Error;
+    /**
+     * Response
+     */
+    503: Error;
+};
+
+export type NativeCompletePasswordRecoveryError = NativeCompletePasswordRecoveryErrors[keyof NativeCompletePasswordRecoveryErrors];
+
+export type NativeCompletePasswordRecoveryResponses = {
+    /**
+     * The password was reset. Sign in normally with the new password.
+     */
+    200: RecoveryResult;
+};
+
+export type NativeCompletePasswordRecoveryResponse = NativeCompletePasswordRecoveryResponses[keyof NativeCompletePasswordRecoveryResponses];
+
+export type NativeFeedbackAvailabilityData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/native/v1/feedback/availability';
+};
+
+export type NativeFeedbackAvailabilityErrors = {
+    /**
+     * Response
+     */
+    401: Error;
+    /**
+     * Response
+     */
+    403: Error;
+    /**
+     * Response
+     */
+    503: Error;
+};
+
+export type NativeFeedbackAvailabilityError = NativeFeedbackAvailabilityErrors[keyof NativeFeedbackAvailabilityErrors];
+
+export type NativeFeedbackAvailabilityResponses = {
+    /**
+     * Response
+     */
+    200: FeedbackAvailability;
+};
+
+export type NativeFeedbackAvailabilityResponse = NativeFeedbackAvailabilityResponses[keyof NativeFeedbackAvailabilityResponses];
+
+export type NativeSubmitFeedbackData = {
+    body: FeedbackInput;
+    headers: {
+        'X-CSRF-Token': string;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/native/v1/feedback';
+};
+
+export type NativeSubmitFeedbackErrors = {
+    /**
+     * Response
+     */
+    400: Error;
+    /**
+     * Response
+     */
+    401: Error;
+    /**
+     * Response
+     */
+    403: Error;
+    /**
+     * Resource unavailable
+     */
+    404: Error;
+    /**
+     * Response
+     */
+    409: Error;
+    /**
+     * Response
+     */
+    429: Error;
+    /**
+     * Response
+     */
+    503: Error;
+};
+
+export type NativeSubmitFeedbackError = NativeSubmitFeedbackErrors[keyof NativeSubmitFeedbackErrors];
+
+export type NativeSubmitFeedbackResponses = {
+    /**
+     * Response
+     */
+    200: FeedbackReceipt;
+};
+
+export type NativeSubmitFeedbackResponse = NativeSubmitFeedbackResponses[keyof NativeSubmitFeedbackResponses];
+
+export type NativeFeedbackReceiptData = {
+    body: FeedbackReceiptInput;
+    headers: {
+        'X-CSRF-Token': string;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/native/v1/feedback/receipt';
+};
+
+export type NativeFeedbackReceiptErrors = {
+    /**
+     * Response
+     */
+    400: Error;
+    /**
+     * Response
+     */
+    401: Error;
+    /**
+     * Response
+     */
+    403: Error;
+    /**
+     * Resource unavailable
+     */
+    404: Error;
+    /**
+     * Response
+     */
+    503: Error;
+};
+
+export type NativeFeedbackReceiptError = NativeFeedbackReceiptErrors[keyof NativeFeedbackReceiptErrors];
+
+export type NativeFeedbackReceiptResponses = {
+    /**
+     * Response
+     */
+    200: FeedbackReceipt;
+};
+
+export type NativeFeedbackReceiptResponse = NativeFeedbackReceiptResponses[keyof NativeFeedbackReceiptResponses];
+
+export type NativeRecipeRatingData = {
+    body?: never;
+    path: {
+        id: string;
+    };
+    query?: never;
+    url: '/api/native/v1/recipes/{id}/rating';
+};
+
+export type NativeRecipeRatingErrors = {
+    /**
+     * Response
+     */
+    400: Error;
+    /**
+     * Response
+     */
+    401: Error;
+    /**
+     * Response
+     */
+    403: Error;
+    /**
+     * Resource unavailable
+     */
+    404: Error;
+    /**
+     * Response
+     */
+    503: Error;
+};
+
+export type NativeRecipeRatingError = NativeRecipeRatingErrors[keyof NativeRecipeRatingErrors];
+
+export type NativeRecipeRatingResponses = {
+    /**
+     * Response
+     */
+    200: FeedbackRating;
+};
+
+export type NativeRecipeRatingResponse = NativeRecipeRatingResponses[keyof NativeRecipeRatingResponses];
+
+export type NativeSaveRecipeRatingData = {
+    body: FeedbackRatingInput;
+    headers: {
+        'X-CSRF-Token': string;
+    };
+    path: {
+        id: string;
+    };
+    query?: never;
+    url: '/api/native/v1/recipes/{id}/rating';
+};
+
+export type NativeSaveRecipeRatingErrors = {
+    /**
+     * Response
+     */
+    400: Error;
+    /**
+     * Response
+     */
+    401: Error;
+    /**
+     * Response
+     */
+    403: Error;
+    /**
+     * Resource unavailable
+     */
+    404: Error;
+    /**
+     * Response
+     */
+    409: Error;
+    /**
+     * Response
+     */
+    429: Error;
+    /**
+     * Response
+     */
+    503: Error;
+};
+
+export type NativeSaveRecipeRatingError = NativeSaveRecipeRatingErrors[keyof NativeSaveRecipeRatingErrors];
+
+export type NativeSaveRecipeRatingResponses = {
+    /**
+     * Response
+     */
+    200: FeedbackReceipt;
+};
+
+export type NativeSaveRecipeRatingResponse = NativeSaveRecipeRatingResponses[keyof NativeSaveRecipeRatingResponses];
+
+export type NativePersonalPermissionsData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/native/v1/personal-recipes/permissions';
+};
+
+export type NativePersonalPermissionsErrors = {
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    400: Error;
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    401: Error;
+    /**
+     * Account verification or permissions required.
+     */
+    403: Error;
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    404: Error;
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    409: Error;
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    413: Error;
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    429: Error;
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    503: Error;
+};
+
+export type NativePersonalPermissionsError = NativePersonalPermissionsErrors[keyof NativePersonalPermissionsErrors];
+
+export type NativePersonalPermissionsResponses = {
+    /**
+     * Owner-scoped private response.
+     */
+    200: PersonalPermissions;
+};
+
+export type NativePersonalPermissionsResponse = NativePersonalPermissionsResponses[keyof NativePersonalPermissionsResponses];
+
+export type NativeSearchPersonalData = {
+    body: PersonalSearch;
+    path?: never;
+    query?: never;
+    url: '/api/native/v1/personal-recipes/search';
+};
+
+export type NativeSearchPersonalErrors = {
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    400: Error;
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    401: Error;
+    /**
+     * Account verification or permissions required.
+     */
+    403: Error;
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    404: Error;
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    409: Error;
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    413: Error;
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    429: Error;
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    503: Error;
+};
+
+export type NativeSearchPersonalError = NativeSearchPersonalErrors[keyof NativeSearchPersonalErrors];
+
+export type NativeSearchPersonalResponses = {
+    /**
+     * Owner-scoped private response.
+     */
+    200: PersonalRecipePage;
+};
+
+export type NativeSearchPersonalResponse = NativeSearchPersonalResponses[keyof NativeSearchPersonalResponses];
+
+export type NativeCopyPersonalData = {
+    body: PersonalCopyInput;
+    path?: never;
+    query?: never;
+    url: '/api/native/v1/personal-recipes/copy';
+};
+
+export type NativeCopyPersonalErrors = {
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    400: Error;
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    401: Error;
+    /**
+     * Account verification or permissions required.
+     */
+    403: Error;
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    404: Error;
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    409: Error;
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    413: Error;
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    429: Error;
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    503: Error;
+};
+
+export type NativeCopyPersonalError = NativeCopyPersonalErrors[keyof NativeCopyPersonalErrors];
+
+export type NativeCopyPersonalResponses = {
+    /**
+     * Owner-scoped private response.
+     */
+    200: PersonalCopy;
+};
+
+export type NativeCopyPersonalResponse = NativeCopyPersonalResponses[keyof NativeCopyPersonalResponses];
+
+export type NativeCreatePersonalData = {
+    body: PersonalSaveInput;
+    path?: never;
+    query?: never;
+    url: '/api/native/v1/personal-recipes';
+};
+
+export type NativeCreatePersonalErrors = {
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    400: Error;
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    401: Error;
+    /**
+     * Account verification or permissions required.
+     */
+    403: Error;
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    404: Error;
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    409: Error;
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    413: Error;
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    429: Error;
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    503: Error;
+};
+
+export type NativeCreatePersonalError = NativeCreatePersonalErrors[keyof NativeCreatePersonalErrors];
+
+export type NativeCreatePersonalResponses = {
+    /**
+     * Owner-scoped private response.
+     */
+    201: PersonalRecipe;
+};
+
+export type NativeCreatePersonalResponse = NativeCreatePersonalResponses[keyof NativeCreatePersonalResponses];
+
+export type NativeDeletePersonalData = {
+    body: PersonalDeleteInput;
+    path: {
+        id: string;
+    };
+    query?: never;
+    url: '/api/native/v1/personal-recipes/{id}';
+};
+
+export type NativeDeletePersonalErrors = {
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    400: Error;
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    401: Error;
+    /**
+     * Account verification or permissions required.
+     */
+    403: Error;
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    404: Error;
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    409: Error;
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    413: Error;
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    429: Error;
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    503: Error;
+};
+
+export type NativeDeletePersonalError = NativeDeletePersonalErrors[keyof NativeDeletePersonalErrors];
+
+export type NativeDeletePersonalResponses = {
+    /**
+     * Owner-scoped private response.
+     */
+    200: PersonalDeleteResult;
+};
+
+export type NativeDeletePersonalResponse = NativeDeletePersonalResponses[keyof NativeDeletePersonalResponses];
+
+export type NativeReadPersonalData = {
+    body?: never;
+    path: {
+        id: string;
+    };
+    query?: {
+        version?: string;
+    };
+    url: '/api/native/v1/personal-recipes/{id}';
+};
+
+export type NativeReadPersonalErrors = {
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    400: Error;
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    401: Error;
+    /**
+     * Account verification or permissions required.
+     */
+    403: Error;
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    404: Error;
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    409: Error;
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    413: Error;
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    429: Error;
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    503: Error;
+};
+
+export type NativeReadPersonalError = NativeReadPersonalErrors[keyof NativeReadPersonalErrors];
+
+export type NativeReadPersonalResponses = {
+    /**
+     * Owner-scoped private response.
+     */
+    200: PersonalRecipe;
+};
+
+export type NativeReadPersonalResponse = NativeReadPersonalResponses[keyof NativeReadPersonalResponses];
+
+export type NativeUpdatePersonalData = {
+    body: PersonalSaveInput;
+    path: {
+        id: string;
+    };
+    query?: never;
+    url: '/api/native/v1/personal-recipes/{id}';
+};
+
+export type NativeUpdatePersonalErrors = {
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    400: Error;
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    401: Error;
+    /**
+     * Account verification or permissions required.
+     */
+    403: Error;
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    404: Error;
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    409: Error;
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    413: Error;
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    429: Error;
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    503: Error;
+};
+
+export type NativeUpdatePersonalError = NativeUpdatePersonalErrors[keyof NativeUpdatePersonalErrors];
+
+export type NativeUpdatePersonalResponses = {
+    /**
+     * Owner-scoped private response.
+     */
+    200: PersonalRecipe;
+};
+
+export type NativeUpdatePersonalResponse = NativeUpdatePersonalResponses[keyof NativeUpdatePersonalResponses];
+
+export type NativeQueuePersonalData = {
+    body: PersonalQueueInput;
+    path: {
+        id: string;
+    };
+    query?: never;
+    url: '/api/native/v1/personal-recipes/{id}/queue';
+};
+
+export type NativeQueuePersonalErrors = {
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    400: Error;
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    401: Error;
+    /**
+     * Account verification or permissions required.
+     */
+    403: Error;
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    404: Error;
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    409: Error;
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    413: Error;
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    429: Error;
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    503: Error;
+};
+
+export type NativeQueuePersonalError = NativeQueuePersonalErrors[keyof NativeQueuePersonalErrors];
+
+export type NativeQueuePersonalResponses = {
+    /**
+     * Owner-scoped private response.
+     */
+    200: FavoriteWeek;
+};
+
+export type NativeQueuePersonalResponse = NativeQueuePersonalResponses[keyof NativeQueuePersonalResponses];
+
+export type NativeSwapPersonalData = {
+    body: PersonalSwapInput;
+    path: {
+        id: string;
+    };
+    query?: never;
+    url: '/api/native/v1/personal-recipes/{id}/swap';
+};
+
+export type NativeSwapPersonalErrors = {
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    400: Error;
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    401: Error;
+    /**
+     * Account verification or permissions required.
+     */
+    403: Error;
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    404: Error;
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    409: Error;
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    413: Error;
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    429: Error;
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    503: Error;
+};
+
+export type NativeSwapPersonalError = NativeSwapPersonalErrors[keyof NativeSwapPersonalErrors];
+
+export type NativeSwapPersonalResponses = {
+    /**
+     * Owner-scoped private response.
+     */
+    200: Recipe;
+};
+
+export type NativeSwapPersonalResponse = NativeSwapPersonalResponses[keyof NativeSwapPersonalResponses];
+
+export type NativeRemovePersonalQueueData = {
+    body: PersonalQueueRemoval;
+    path: {
+        id: string;
+    };
+    query?: never;
+    url: '/api/native/v1/personal-queue/{id}';
+};
+
+export type NativeRemovePersonalQueueErrors = {
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    400: Error;
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    401: Error;
+    /**
+     * Account verification or permissions required.
+     */
+    403: Error;
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    404: Error;
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    409: Error;
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    413: Error;
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    429: Error;
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    503: Error;
+};
+
+export type NativeRemovePersonalQueueError = NativeRemovePersonalQueueErrors[keyof NativeRemovePersonalQueueErrors];
+
+export type NativeRemovePersonalQueueResponses = {
+    /**
+     * Owner-scoped private response.
+     */
+    200: FavoriteWeek;
+};
+
+export type NativeRemovePersonalQueueResponse = NativeRemovePersonalQueueResponses[keyof NativeRemovePersonalQueueResponses];
+
+export type NativeReadPersonalPhotoData = {
+    body?: never;
+    path: {
+        id: string;
+    };
+    query?: never;
+    url: '/api/native/v1/personal-photos/{id}';
+};
+
+export type NativeReadPersonalPhotoErrors = {
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    400: Error;
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    401: Error;
+    /**
+     * Account verification or permissions required.
+     */
+    403: Error;
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    404: Error;
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    409: Error;
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    413: Error;
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    429: Error;
+    /**
+     * Request rejected without partial recipe changes. Validation includes field errors; an owner conflict includes the current saved version and changed field names. Busy/limit responses include Retry-After.
+     */
+    503: Error;
+};
+
+export type NativeReadPersonalPhotoError = NativeReadPersonalPhotoErrors[keyof NativeReadPersonalPhotoErrors];
+
+export type NativeReadPersonalPhotoResponses = {
+    /**
+     * Owner/session-authorized normalized JPEG bytes, including retained planned snapshots after library edit/deletion. No redirect, public URL, provider handle or signed URL. Cache-Control: private, no-store; Referrer-Policy: no-referrer; Cross-Origin-Resource-Policy: same-origin.
+     */
+    200: Blob | File;
+};
+
+export type NativeReadPersonalPhotoResponse = NativeReadPersonalPhotoResponses[keyof NativeReadPersonalPhotoResponses];
+
+export type NativeRecipeImportAvailabilityData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/native/v1/recipe-imports/availability';
+};
+
+export type NativeRecipeImportAvailabilityErrors = {
+    /**
+     * Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.
+     */
+    400: Error;
+    /**
+     * Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.
+     */
+    401: Error;
+    /**
+     * Account verification or permissions required.
+     */
+    403: Error;
+    /**
+     * Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.
+     */
+    404: Error;
+    /**
+     * Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.
+     */
+    409: Error;
+    /**
+     * Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.
+     */
+    503: Error;
+};
+
+export type NativeRecipeImportAvailabilityError = NativeRecipeImportAvailabilityErrors[keyof NativeRecipeImportAvailabilityErrors];
+
+export type NativeRecipeImportAvailabilityResponses = {
+    /**
+     * Owned private import state.
+     */
+    200: ImportAvailability;
+};
+
+export type NativeRecipeImportAvailabilityResponse = NativeRecipeImportAvailabilityResponses[keyof NativeRecipeImportAvailabilityResponses];
+
+export type NativeStartUrlRecipeImportData = {
+    body: UrlImportInput;
+    path?: never;
+    query?: never;
+    url: '/api/native/v1/recipe-imports/url';
+};
+
+export type NativeStartUrlRecipeImportErrors = {
+    /**
+     * Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.
+     */
+    400: Error;
+    /**
+     * Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.
+     */
+    401: Error;
+    /**
+     * Account verification or permissions required.
+     */
+    403: Error;
+    /**
+     * Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.
+     */
+    404: Error;
+    /**
+     * Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.
+     */
+    409: Error;
+    /**
+     * Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.
+     */
+    503: Error;
+};
+
+export type NativeStartUrlRecipeImportError = NativeStartUrlRecipeImportErrors[keyof NativeStartUrlRecipeImportErrors];
+
+export type NativeStartUrlRecipeImportResponses = {
+    /**
+     * Owned private import state.
+     */
+    202: RecipeImport;
+};
+
+export type NativeStartUrlRecipeImportResponse = NativeStartUrlRecipeImportResponses[keyof NativeStartUrlRecipeImportResponses];
+
+export type NativeStartPhotoRecipeImportData = {
+    /**
+     * Stream import metadata first, then one to three photos. Aggregate originals at most 12 MiB; each at most 10 MiB. Filenames and declared MIME are never trusted. JPEG, PNG and HEIC written-recipe pages only.
+     */
+    body: {
+        /**
+         * JSON PhotoImportMetadata with explicit permissions.
+         */
+        import: string;
+        photos: Array<Blob | File>;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/native/v1/recipe-imports/photos';
+};
+
+export type NativeStartPhotoRecipeImportErrors = {
+    /**
+     * Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.
+     */
+    400: Error;
+    /**
+     * Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.
+     */
+    401: Error;
+    /**
+     * Account verification or permissions required.
+     */
+    403: Error;
+    /**
+     * Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.
+     */
+    404: Error;
+    /**
+     * Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.
+     */
+    409: Error;
+    /**
+     * Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.
+     */
+    503: Error;
+};
+
+export type NativeStartPhotoRecipeImportError = NativeStartPhotoRecipeImportErrors[keyof NativeStartPhotoRecipeImportErrors];
+
+export type NativeStartPhotoRecipeImportResponses = {
+    /**
+     * Owned private import state.
+     */
+    202: RecipeImport;
+};
+
+export type NativeStartPhotoRecipeImportResponse = NativeStartPhotoRecipeImportResponses[keyof NativeStartPhotoRecipeImportResponses];
+
+export type NativeReadRecipeImportData = {
+    body?: never;
+    path: {
+        id: string;
+    };
+    query?: never;
+    url: '/api/native/v1/recipe-imports/{id}';
+};
+
+export type NativeReadRecipeImportErrors = {
+    /**
+     * Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.
+     */
+    400: Error;
+    /**
+     * Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.
+     */
+    401: Error;
+    /**
+     * Account verification or permissions required.
+     */
+    403: Error;
+    /**
+     * Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.
+     */
+    404: Error;
+    /**
+     * Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.
+     */
+    409: Error;
+    /**
+     * Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.
+     */
+    503: Error;
+};
+
+export type NativeReadRecipeImportError = NativeReadRecipeImportErrors[keyof NativeReadRecipeImportErrors];
+
+export type NativeReadRecipeImportResponses = {
+    /**
+     * Owned private import state.
+     */
+    200: RecipeImport;
+};
+
+export type NativeReadRecipeImportResponse = NativeReadRecipeImportResponses[keyof NativeReadRecipeImportResponses];
+
+export type NativeSelectRecipeImportData = {
+    body: ImportSelectionInput;
+    path: {
+        id: string;
+    };
+    query?: never;
+    url: '/api/native/v1/recipe-imports/{id}/select';
+};
+
+export type NativeSelectRecipeImportErrors = {
+    /**
+     * Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.
+     */
+    400: Error;
+    /**
+     * Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.
+     */
+    401: Error;
+    /**
+     * Account verification or permissions required.
+     */
+    403: Error;
+    /**
+     * Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.
+     */
+    404: Error;
+    /**
+     * Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.
+     */
+    409: Error;
+    /**
+     * Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.
+     */
+    503: Error;
+};
+
+export type NativeSelectRecipeImportError = NativeSelectRecipeImportErrors[keyof NativeSelectRecipeImportErrors];
+
+export type NativeSelectRecipeImportResponses = {
+    /**
+     * Owned private import state.
+     */
+    200: RecipeImport;
+};
+
+export type NativeSelectRecipeImportResponse = NativeSelectRecipeImportResponses[keyof NativeSelectRecipeImportResponses];
+
+export type NativeReadRecipeImportWithAiData = {
+    body: ImportAiInput;
+    path: {
+        id: string;
+    };
+    query?: never;
+    url: '/api/native/v1/recipe-imports/{id}/read-with-ai';
+};
+
+export type NativeReadRecipeImportWithAiErrors = {
+    /**
+     * Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.
+     */
+    400: Error;
+    /**
+     * Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.
+     */
+    401: Error;
+    /**
+     * Account verification or permissions required.
+     */
+    403: Error;
+    /**
+     * Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.
+     */
+    404: Error;
+    /**
+     * Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.
+     */
+    409: Error;
+    /**
+     * Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.
+     */
+    503: Error;
+};
+
+export type NativeReadRecipeImportWithAiError = NativeReadRecipeImportWithAiErrors[keyof NativeReadRecipeImportWithAiErrors];
+
+export type NativeReadRecipeImportWithAiResponses = {
+    /**
+     * Owned private import state.
+     */
+    202: RecipeImport;
+};
+
+export type NativeReadRecipeImportWithAiResponse = NativeReadRecipeImportWithAiResponses[keyof NativeReadRecipeImportWithAiResponses];
+
+export type NativeReviewImportedRecipeData = {
+    body: ImportReviewInput;
+    path: {
+        id: string;
+    };
+    query?: never;
+    url: '/api/native/v1/recipe-imports/{id}/review';
+};
+
+export type NativeReviewImportedRecipeErrors = {
+    /**
+     * Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.
+     */
+    400: Error;
+    /**
+     * Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.
+     */
+    401: Error;
+    /**
+     * Account verification or permissions required.
+     */
+    403: Error;
+    /**
+     * Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.
+     */
+    404: Error;
+    /**
+     * Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.
+     */
+    409: Error;
+    /**
+     * Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.
+     */
+    503: Error;
+};
+
+export type NativeReviewImportedRecipeError = NativeReviewImportedRecipeErrors[keyof NativeReviewImportedRecipeErrors];
+
+export type NativeReviewImportedRecipeResponses = {
+    /**
+     * Owned private import state.
+     */
+    200: ImportReview;
+};
+
+export type NativeReviewImportedRecipeResponse = NativeReviewImportedRecipeResponses[keyof NativeReviewImportedRecipeResponses];
+
+export type NativeCancelRecipeImportData = {
+    body: ImportEmptyInputWritable;
+    path: {
+        id: string;
+    };
+    query?: never;
+    url: '/api/native/v1/recipe-imports/{id}/cancel';
+};
+
+export type NativeCancelRecipeImportErrors = {
+    /**
+     * Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.
+     */
+    400: Error;
+    /**
+     * Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.
+     */
+    401: Error;
+    /**
+     * Account verification or permissions required.
+     */
+    403: Error;
+    /**
+     * Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.
+     */
+    404: Error;
+    /**
+     * Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.
+     */
+    409: Error;
+    /**
+     * Safe error without source content or partial saves. Unavailable AI offers manual entry and no paid substitution.
+     */
+    503: Error;
+};
+
+export type NativeCancelRecipeImportError = NativeCancelRecipeImportErrors[keyof NativeCancelRecipeImportErrors];
+
+export type NativeCancelRecipeImportResponses = {
+    /**
+     * Owned private import state.
+     */
+    204: void;
+};
+
+export type NativeCancelRecipeImportResponse = NativeCancelRecipeImportResponses[keyof NativeCancelRecipeImportResponses];
+
+export type NativeRefreshData = {
+    body: NativeRefreshInput;
+    path?: never;
+    query?: never;
+    url: '/api/native/v1/refresh';
+};
+
+export type NativeRefreshErrors = {
+    /**
+     * Invalid JSON, platform or fields.
+     */
+    400: Error;
+    /**
+     * Missing, expired, revoked or replayed authority.
+     */
+    401: Error;
+    /**
+     * Source request limit reached.
+     */
+    429: Error;
+    /**
+     * Storage or account services unavailable.
+     */
+    503: Error;
+};
+
+export type NativeRefreshError = NativeRefreshErrors[keyof NativeRefreshErrors];
+
+export type NativeRefreshResponses = {
+    /**
+     * No cookies; credentials and response must not be cached or logged.
+     */
+    200: NativeRefreshResponse;
+};
+
+export type NativeRefreshResponse2 = NativeRefreshResponses[keyof NativeRefreshResponses];
+
 export interface components {
   schemas: {
     "PersonalImportSaveInput": PersonalImportSaveInput;
@@ -3480,5 +6352,10 @@ export interface components {
     "PersonalQueueRemoval": PersonalQueueRemoval;
     "RecipeSource": RecipeSource;
     "QueuedRecipe": QueuedRecipe;
+    "NativeTokens": NativeTokens;
+    "NativeSessionResponse": NativeSessionResponse;
+    "NativeStartInput": NativeStartInput;
+    "NativeRefreshInput": NativeRefreshInput;
+    "NativeRefreshResponse": NativeRefreshResponse;
   };
 }

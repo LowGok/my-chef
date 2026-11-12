@@ -9,7 +9,7 @@ import (
 )
 
 func (a *API) shopping(w http.ResponseWriter, r *http.Request) {
-	list, err := a.Store.Shopping(r.Context(), *info(r).Session.UserID, r.PathValue("week"))
+	list, err := a.Store.Shopping(r.Context(), *info(r).Session.UserID, r.PathValue("week"), personalActor(r))
 	if err != nil {
 		a.shoppingError(w, r, err)
 		return
@@ -21,7 +21,7 @@ func (a *API) saveShopping(w http.ResponseWriter, r *http.Request) {
 	if !a.decode(w, r, &input) {
 		return
 	}
-	list, err := a.Store.SaveShopping(r.Context(), *info(r).Session.UserID, r.PathValue("week"), input)
+	list, err := a.Store.SaveShopping(r.Context(), *info(r).Session.UserID, r.PathValue("week"), input, personalActor(r))
 	if err != nil {
 		a.shoppingError(w, r, err)
 		return

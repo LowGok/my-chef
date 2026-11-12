@@ -39,4 +39,11 @@ PRD.md
 docs/
 catalogue/
 img/
-mobile/
+/mobile/codemagic-signing/
+/mobile/.generated/
+*.apk
+*.aab
+*.ipa
+*.app.zip
+*.xcarchive
+*.xcarchive.zip

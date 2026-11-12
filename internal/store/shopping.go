@@ -113,13 +113,16 @@ func persistShopping(tx *gorm.DB, owner int64, list domain.ShoppingList) error {
 	}
 	return tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "user_id"}, {Name: "week"}}, DoUpdates: clause.AssignmentColumns([]string{"revision", "body"})}).Create(&shoppingRecord{UserID: owner, Week: list.Week, Revision: list.Revision, Body: string(body)}).Error
 }
-func (s *Store) Shopping(ctx context.Context, owner int64, week string) (domain.ShoppingList, error) {
+func (s *Store) Shopping(ctx context.Context, owner int64, week string, actors ...PersonalActor) (domain.ShoppingList, error) {
 	end, err := shoppingWeek(week)
 	if err != nil {
 		return domain.ShoppingList{}, err
 	}
 	var result domain.ShoppingList
 	err = s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := nativeActorAuthority(tx, owner, actors...); err != nil {
+			return err
+		}
 		old, err := loadShopping(tx, owner, week)
 		if err != nil {
 			return err
@@ -140,13 +143,16 @@ func (s *Store) Shopping(ctx context.Context, owner int64, week string) (domain.
 func validShoppingState(state string) bool {
 	return state == "buy" || state == "basket" || state == "home"
 }
-func (s *Store) SaveShopping(ctx context.Context, owner int64, week string, input domain.ShoppingList) (domain.ShoppingList, error) {
+func (s *Store) SaveShopping(ctx context.Context, owner int64, week string, input domain.ShoppingList, actors ...PersonalActor) (domain.ShoppingList, error) {
 	end, err := shoppingWeek(week)
 	if err != nil || input.Week != week || len(input.Items) > 1000 {
 		return domain.ShoppingList{}, ErrShoppingInput
 	}
 	var result domain.ShoppingList
 	err = s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := nativeActorAuthority(tx, owner, actors...); err != nil {
+			return err
+		}
 		old, err := loadShopping(tx, owner, week)
 		if err != nil {
 			return err

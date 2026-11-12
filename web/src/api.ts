@@ -7,8 +7,20 @@ import {
   logoutPending,
   pendingLogoutIntent,
   serverLogoutCompleted,
+  ShoppingStorageError,
 } from "./shopping-cache";
 import type { components, DeleteAccountData } from "./api.generated";
+import {
+  platformRequest,
+  forgetPlatformSession,
+  isNativeTransport,
+  PlatformStorageError,
+} from "./platform";
+import {
+  mediaPlatform,
+  clearPlatformMedia,
+  NativeMediaError,
+} from "./platform-media";
 
 export type Profile = components["schemas"]["Profile"];
 export type Session = components["schemas"]["Session"];
@@ -146,6 +158,8 @@ export const sessionEpoch = (): number => epoch;
 export const isStale = (error: unknown): boolean =>
   error instanceof APIError && error.code === "stale_session";
 export function forgetSession(): void {
+  clearPlatformMedia();
+  forgetPlatformSession();
   clearPrivateShoppingCache();
   clearOtherFeedbackPointers(null);
   feedbackDraft = null;
@@ -167,7 +181,7 @@ export class APIError extends Error {
     super(message);
   }
 }
-export function acceptSession(value: Session): void {
+export function acceptSession(value: Session, rotated = false): void {
   const saved = cachedOwner();
   if (
     value.user?.accountInstance &&
@@ -185,12 +199,14 @@ export function acceptSession(value: Session): void {
     verificationRequired ? null : (value.user?.id ?? null),
   );
   if (
+    rotated ||
     csrf !== value.csrfToken ||
     identity !== (value.user?.id ?? null) ||
     accountInstance !== (value.user?.accountInstance ?? null) ||
     restricted !== verificationRequired
   ) {
     epoch++;
+    clearPlatformMedia();
     feedbackDraft = null;
   }
   csrf = value.csrfToken;
@@ -278,14 +294,24 @@ export async function api<T>(
     headers.set("X-CSRF-Token", csrf);
   let response: Response;
   try {
-    response = await fetch(`/api/v1${path}`, {
+    response = await platformRequest(`/api/v1${path}`, {
       ...options,
       headers,
       credentials: "same-origin",
       cache: "no-store",
     });
-  } catch {
+  } catch (error) {
     if (started !== epoch) throw new APIError("", "stale_session", 409);
+    if (
+      error instanceof PlatformStorageError ||
+      error instanceof ShoppingStorageError ||
+      error instanceof NativeMediaError
+    )
+      throw new APIError(
+        "Secure storage is unavailable. Unlock your device and try again.",
+        "device_storage",
+        503,
+      );
     throw new APIError(
       "The connection was interrupted. Check the request status before starting another menu.",
       "network_uncertain",
@@ -364,7 +390,7 @@ export function getSession(): Promise<Session> {
   return sessionPromise;
 }
 export const message = (error: unknown): string =>
-  error instanceof APIError
+  error instanceof APIError || error instanceof NativeMediaError
     ? error.message
     : "The request could not be completed. Please try again.";
 
@@ -419,7 +445,7 @@ export function signIn(body: string): Promise<Session> {
       !saved ||
       saved.profile.id === value.user?.id
     ) {
-      acceptSession(value);
+      acceptSession(value, isNativeTransport());
       explicitShoppingSignIn(value.verificationRequired);
     }
     notifyBrowserSignIn();
@@ -452,12 +478,12 @@ export function confirmEmailVerification(proof: string): Promise<Session> {
     }
     if (!value.user || started !== epoch || signedOut())
       throw new APIError("", "stale_session", 409);
-    acceptSession(value);
+    acceptSession(value, isNativeTransport());
     return value;
   });
 }
 
-export const canChangePassword = () => !!navigator.locks;
+export const canChangePassword = () => isNativeTransport() || !!navigator.locks;
 
 export function changePassword(
   body: components["schemas"]["PasswordChange"],
@@ -486,7 +512,7 @@ export function changePassword(
       value.user?.id !== owner
     )
       throw new APIError("", "stale_session", 409);
-    acceptSession(value);
+    acceptSession(value, isNativeTransport());
     return value;
   }).finally(() => {
     if (pendingPasswordChange === operation) pendingPasswordChange = null;
@@ -535,7 +561,11 @@ export function requestAccountExport(
   );
 }
 
-export function saveAccountDownload(value: AccountDownload): void {
+export async function saveAccountDownload(
+  value: AccountDownload,
+): Promise<boolean> {
+  const port = mediaPlatform();
+  if (port) return port.saveExport(value);
   const url = URL.createObjectURL(value.blob);
   const link = document.createElement("a");
   link.href = url;
@@ -548,6 +578,7 @@ export function saveAccountDownload(value: AccountDownload): void {
     // Allow Safari to start its download before releasing the memory-only URL.
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
+  return true;
 }
 
 export function deleteOwnAccount(

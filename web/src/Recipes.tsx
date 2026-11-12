@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { FavoriteToggle } from "./Favorites";
 import type { Recipe } from "./api";
 import { Icon } from "./components";
 import { dateLabel, today } from "./dates";
-import { recipeImage } from "./PersonalRecipes";
+import { RecipeImage } from "./RecipeImage";
 import { ImportSourceLink } from "./ImportReview";
 
 export function RecipeCard({
@@ -18,8 +18,6 @@ export function RecipeCard({
     undefined,
     { weekday: "long", timeZone: "UTC" },
   );
-  const [imageFailed, setImageFailed] = useState(false);
-  useEffect(() => setImageFailed(false), [recipe.imageUrl]);
   const titleRef = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
     const title = titleRef.current;
@@ -41,16 +39,15 @@ export function RecipeCard({
       aria-current={isToday ? "date" : undefined}
     >
       <div className="recipe-image">
-        {!imageFailed && recipeImage(recipe.imageUrl) ? (
-          <img
-            src={recipe.imageUrl!}
-            alt=""
-            loading="lazy"
-            onError={() => setImageFailed(true)}
-          />
-        ) : (
-          <span className="food-placeholder recipe-plate" aria-hidden="true" />
-        )}
+        <RecipeImage
+          url={recipe.imageUrl}
+          fallback={
+            <span
+              className="food-placeholder recipe-plate"
+              aria-hidden="true"
+            />
+          }
+        />
       </div>
       <div className="recipe-card-body">
         <time className="recipe-schedule" dateTime={recipe.date}>

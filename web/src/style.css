@@ -1756,10 +1756,12 @@ small {
   }
   .sidebar nav button {
     flex: 1;
+    min-width: 0;
     justify-content: center;
-    padding: 10px;
+    padding: 10px 8px;
     font-size: 13px;
     gap: 8px;
+    text-align: center;
   }
   .sidebar nav svg {
     width: 18px;
@@ -2634,7 +2636,8 @@ html[data-swipe-direction="right"]::view-transition-new(page-content) {
 .recipe-card {
   position: relative;
   display: grid;
-  --recipe-image-width: clamp(100px, 26vw, 108px);
+  /* Allow a wrapped weekday/date and two description lines at normal size. */
+  --recipe-image-width: clamp(7.375rem, 26vw, 7.75rem);
   grid-template-columns: var(--recipe-image-width) minmax(0, 1fr);
   gap: 14px;
   background: transparent;
@@ -3080,3 +3083,19 @@ html[data-swipe-direction="right"]::view-transition-new(page-content) {
 .icon::before { content: '•'; }
 .icon-plus::before { content: '+'; }
 @media (max-width: 390px) { .review-actions > button { flex-basis: 100%; } }
+
+/* Packaged clients retain pinch zoom and use the OS safe-area insets. */
+.native-startup-failure {
+  padding: max(24px, env(safe-area-inset-top))
+    max(24px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom))
+    max(24px, env(safe-area-inset-left));
+}
+html[data-native="true"] body {
+  padding: env(safe-area-inset-top) env(safe-area-inset-right)
+    env(safe-area-inset-bottom) env(safe-area-inset-left);
+  min-height: 100dvh;
+  overscroll-behavior-y: none;
+}
+html[data-native="true"] :is(input, select, textarea) {
+  font-size: max(16px, 1rem);
+}

@@ -138,6 +138,8 @@ func (a *API) deleteAccount(w http.ResponseWriter, r *http.Request) {
 		a.accountActionError(w, r, err)
 		return
 	}
-	http.SetCookie(w, &http.Cookie{Name: "mychef_session", Path: "/", HttpOnly: true, Secure: a.Config.Secure, SameSite: http.SameSiteLaxMode, MaxAge: -1})
+	if !info(r).Native {
+		http.SetCookie(w, &http.Cookie{Name: "mychef_session", Path: "/", HttpOnly: true, Secure: a.Config.Secure, SameSite: http.SameSiteLaxMode, MaxAge: -1})
+	}
 	a.write(w, 200, map[string]string{"status": "deleted", "operation": result.Operation})
 }
