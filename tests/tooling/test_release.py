@@ -30,6 +30,47 @@ def test_only_original_repository_main_can_publish():
             release.validate_context(ref, repo)
 
 
+REVIEWED_SHA = "a" * 40
+
+
+def package_plan(**overrides):
+    args = dict(event="workflow_dispatch", actor="LowGok", triggering_actor="LowGok",
+                sha=REVIEWED_SHA, state="initializing", request="initialize",
+                expected_sha=REVIEWED_SHA, approved_sha=REVIEWED_SHA, attempt="1")
+    return release.plan_package_operation(**(args | overrides))
+
+
+def test_main_push_waits_for_package_activation():
+    for state in ("", "initializing", "unexpected"):
+        assert package_plan(event="push", state=state) == "hold"
+    assert package_plan(event="push", state="ready") == "release"
+
+
+def test_only_the_owner_can_initialize_and_release_at_the_approved_main_sha():
+    assert package_plan() == "initialize"
+    assert package_plan(request="release") == "release"
+    for overrides in ({"actor": "other"}, {"triggering_actor": "other"}, {"event": "pull_request"},
+                      {"sha": "b" * 40}, {"expected_sha": "b" * 40}, {"approved_sha": ""},
+                      {"sha": ""}, {"attempt": "2"}, {"request": "invalid"},
+                      {"state": ""}, {"state": "ready"}):
+        with pytest.raises(ValueError):
+            package_plan(**overrides)
+
+
+def test_initialization_context_contains_only_an_inert_oci_marker(tmp_path):
+    context = release.create_marker_context(tmp_path, REVIEWED_SHA)
+    assert context.is_relative_to(tmp_path)
+    assert [p.name for p in context.iterdir()] == ["Dockerfile"]
+    assert (context / "Dockerfile").read_text().splitlines() == [
+        "FROM scratch",
+        'LABEL org.opencontainers.image.source="https://github.com/LowGok/my-chef"',
+        f'LABEL org.opencontainers.image.revision="{REVIEWED_SHA}"',
+        'LABEL org.opencontainers.image.description="MyChef package initialization marker"',
+    ]
+    with pytest.raises(ValueError):
+        release.create_marker_context(tmp_path, "not a commit")
+
+
 @pytest.mark.parametrize("status,body,allowed", [
     (404, {"errors": [{"code": "MANIFEST_UNKNOWN"}]}, True),
     (404, {"errors": [{"code": "NAME_UNKNOWN"}]}, True),
@@ -43,7 +84,9 @@ def test_only_original_repository_main_can_publish():
 def test_only_confirmed_missing_registry_versions_allow_publication(status, body, allowed):
     def handler(request):
         if request.url.path == "/token":
+            assert request.url.params["scope"] == "repository:lowgok/my-chef-app:pull"
             return httpx.Response(200, json={"token": "synthetic-registry-token"})
+        assert request.url.path == "/v2/lowgok/my-chef-app/manifests/1.2.3"
         assert request.headers["Authorization"] == "Bearer synthetic-registry-token"
         return httpx.Response(status, json=body)
     with httpx.Client(transport=httpx.MockTransport(handler)) as client:
@@ -65,7 +108,7 @@ def test_missing_final_digest_cannot_be_recorded_as_a_release():
         with pytest.raises(ValueError):
             release.image_reference(value)
     digest = "sha256:" + "a" * 64
-    assert release.image_reference(digest) == "ghcr.io/lowgok/my-chef@" + digest
+    assert release.image_reference(digest) == "ghcr.io/lowgok/my-chef-app@" + digest
 
 
 def test_signature_verification_remains_enabled_without_github_attestations(tmp_path, monkeypatch):

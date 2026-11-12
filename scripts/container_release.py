@@ -9,11 +9,9 @@ import subprocess
 import sys
 import time
 
-import httpx
-
-
-IMAGE = "ghcr.io/lowgok/my-chef"
+IMAGE = "ghcr.io/lowgok/my-chef-app"
 REPOSITORY = "LowGok/my-chef"
+OWNER = "LowGok"
 
 
 def validate_version(version):
@@ -25,6 +23,41 @@ def validate_version(version):
 def validate_context(ref, repository):
     if ref != "refs/heads/main" or repository != REPOSITORY:
         raise ValueError("Container publication is restricted to this repository's main branch")
+
+
+def plan_package_operation(*, event, actor, triggering_actor, sha, state,
+                           request, expected_sha, approved_sha, attempt):
+    if event == "push":
+        return "release" if state == "ready" else "hold"
+    if event != "workflow_dispatch" or actor != OWNER or triggering_actor != OWNER:
+        raise ValueError("Manual package operations require owner dispatch")
+    if state != "initializing" or not re.fullmatch(r"[0-9a-f]{40}", sha):
+        raise ValueError("Manual package operations require initialization at an exact commit")
+    if sha != expected_sha or sha != approved_sha:
+        raise ValueError("The dispatch must identify the approved main commit")
+    if request not in {"initialize", "release"} or attempt != "1":
+        raise ValueError("Use a new authorized dispatch for this package operation")
+    return request
+
+
+def create_marker_context(runner_temp, sha):
+    if not re.fullmatch(r"[0-9a-f]{40}", sha):
+        raise ValueError("The package marker requires an exact source commit")
+    context = runner_temp / "mychef-package-marker"
+    context.mkdir()
+    (context / "Dockerfile").write_text(
+        "FROM scratch\n"
+        f'LABEL org.opencontainers.image.source="https://github.com/{REPOSITORY}"\n'
+        f'LABEL org.opencontainers.image.revision="{sha}"\n'
+        'LABEL org.opencontainers.image.description="MyChef package initialization marker"\n',
+    )
+    return context
+
+
+def write_outputs(**values):
+    with Path(os.environ["GITHUB_OUTPUT"]).open("a") as output:
+        for key, value in values.items():
+            output.write(f"{key}={value}\n")
 
 
 def confirm_version_available(client, version, password):
@@ -91,20 +124,35 @@ def verify(reference):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("preflight", "sign", "verify", "record"))
+    parser.add_argument("command", choices=("plan", "marker", "preflight", "sign", "verify", "record"))
     args = parser.parse_args()
     validate_context(os.environ["GITHUB_REF"], os.environ["GITHUB_REPOSITORY"])
+    if args.command == "plan":
+        operation = plan_package_operation(
+            event=os.environ["GITHUB_EVENT_NAME"], actor=os.environ["GITHUB_ACTOR"],
+            triggering_actor=os.environ["GITHUB_TRIGGERING_ACTOR"], sha=os.environ["GITHUB_SHA"],
+            state=os.environ.get("PACKAGE_STATE", ""), request=os.environ.get("PACKAGE_OPERATION", ""),
+            expected_sha=os.environ.get("PACKAGE_EXPECTED_SHA", ""),
+            approved_sha=os.environ.get("PACKAGE_APPROVED_SHA", ""), attempt=os.environ["GITHUB_RUN_ATTEMPT"],
+        )
+        write_outputs(operation=operation, project=IMAGE.rsplit("/", 1)[1], image=IMAGE)
+        print(f"Package operation: {operation}")
+        return
+    if args.command == "marker":
+        context = create_marker_context(Path(os.environ["RUNNER_TEMP"]), os.environ["GITHUB_SHA"])
+        write_outputs(context=context)
+        return
     version = validate_version(os.environ["MYCHEF_RELEASE_VERSION"])
     if args.command == "preflight":
         if not tag_matches_commit(version, os.environ["GITHUB_SHA"]):
-            with Path(os.environ["GITHUB_OUTPUT"]).open("a") as output:
-                output.write("publish=false\n")
+            write_outputs(publish="false")
             print("No new software version: its existing tag identifies an earlier commit")
             return
+        import httpx
+
         with httpx.Client(timeout=20) as client:
             confirm_version_available(client, version, os.environ["GH_TOKEN"])
-        with Path(os.environ["GITHUB_OUTPUT"]).open("a") as output:
-            output.write("publish=true\n")
+        write_outputs(publish="true")
         print(f"Release preflight passed for {IMAGE}:{version}")
         return
     reference = image_reference(os.environ["MYCHEF_RELEASE_DIGEST"])
