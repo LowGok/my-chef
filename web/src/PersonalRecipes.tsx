@@ -25,6 +25,9 @@ import { addDays, monday, today } from "./dates";
 import { focusContentTop } from "./scroll";
 import { DurationPicker } from "./DurationPicker";
 import { RecipeImport } from "./RecipeImport";
+import { RecipeImage } from "./RecipeImage";
+import { PhotoInput } from "./PhotoInput";
+export { recipeImage } from "./RecipeImage";
 import {
   ImportReview,
   ImportSourceLink,
@@ -33,19 +36,8 @@ import {
 } from "./ImportReview";
 
 const requestKey = () => crypto.randomUUID().replaceAll("-", "");
-export const recipeImage = (url: string | null | undefined) =>
-  !!url &&
-  (url.startsWith("https://") ||
-    /^\/api\/v1\/personal-photos\/[0-9a-f]{32}$/.test(url));
-
 function Dish({ url }: { url: string | null }) {
-  const [failed, setFailed] = useState(false);
-  useEffect(() => setFailed(false), [url]);
-  return !failed && recipeImage(url) ? (
-    <img src={url!} alt="" loading="lazy" onError={() => setFailed(true)} />
-  ) : (
-    <FoodPlaceholder />
-  );
+  return <RecipeImage url={url} />;
 }
 export function MyRecipesSection({ onOpen }: { onOpen: () => void }) {
   return (
@@ -1356,19 +1348,18 @@ function PersonalEditor({
               : "Add photo"}
           </button>
           <Field label="Choose recipe photo" hint={errorHint("photo")}>
-            <input
-              ref={photoInput}
-              data-personal-field="photo"
-              type="file"
-              accept="image/jpeg,image/png,image/webp"
+            <PhotoInput
+              inputRef={photoInput}
+              field="photo"
+              purpose="dish"
+              onError={setError}
               disabled={!photoEnabled}
-              onChange={(event) => {
-                const file = event.target.files?.[0];
+              onFiles={(files) => {
+                const file = files[0];
                 if (!file) return;
                 if (file.size > 12 * 1024 * 1024) {
                   setError("Choose a photo up to 12 MB.");
-                  event.target.value = "";
-                  return;
+                  return false;
                 }
                 changed(false);
                 setPhoto(file);

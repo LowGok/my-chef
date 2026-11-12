@@ -21,6 +21,7 @@ export function Shopping({
     tabOnly,
     error,
     busy,
+    savingOnDevice,
     offline,
     conflict,
     notice,
@@ -185,11 +186,13 @@ export function Shopping({
                   ready
                 </span>
                 <span role="status">
-                  {pending
-                    ? `Pending sync · ${pending} change${pending === 1 ? "" : "s"}`
-                    : busy
-                      ? "Checking…"
-                      : "Saved"}
+                  {savingOnDevice
+                    ? "Saving on device…"
+                    : pending
+                      ? `Pending sync · ${pending} change${pending === 1 ? "" : "s"}`
+                      : busy
+                        ? "Checking…"
+                        : "Saved"}
                 </span>
                 <progress
                   value={counts.basket + counts.home}

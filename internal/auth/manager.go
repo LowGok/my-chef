@@ -40,7 +40,9 @@ func (m *Manager) Load(ctx context.Context, token string) (store.Session, error)
 		return store.Session{}, ErrSession
 	}
 	var session store.Session
-	err := m.Store.DB.WithContext(ctx).Where("hash = ? AND expires_unix > ?", Hash(token), time.Now().UTC().Unix()).First(&session).Error
+	err := m.Store.DB.WithContext(ctx).Where(`hash = ? AND expires_unix > ?
+AND NOT EXISTS (SELECT 1 FROM native_accesses n WHERE n.hash=sessions.hash)
+AND NOT EXISTS (SELECT 1 FROM native_families f WHERE f.anchor_hash=sessions.hash)`, Hash(token), time.Now().UTC().Unix()).First(&session).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return session, ErrSession
 	}
@@ -233,7 +235,10 @@ type ProfileUpdate struct {
 	Preferences domain.Preferences `json:"preferences"`
 }
 
-func (m *Manager) Update(ctx context.Context, id int64, p ProfileUpdate) (store.Profile, error) {
+func (m *Manager) Update(ctx context.Context, id int64, p ProfileUpdate, tokens ...string) (store.Profile, error) {
+	if len(tokens) > 1 || len(tokens) == 1 && !nativeToken(tokens[0]) {
+		return store.Profile{}, ErrSession
+	}
 	if !ValidName(p.Username, 80) || !ValidName(p.FirstName, 100) || !ValidName(p.LastName, 100) || p.Sex != nil && len(*p.Sex) > 80 || len(p.Preferences.Effort) > 120 {
 		return store.Profile{}, ErrInput
 	}
@@ -254,7 +259,11 @@ func (m *Manager) Update(ctx context.Context, id int64, p ProfileUpdate) (store.
 		}
 	}
 	prefs, _ := json.Marshal(p.Preferences)
-	result := m.Store.DB.WithContext(ctx).Model(&store.User{}).Where("user_id = ?", id).Updates(map[string]any{"firstname": p.FirstName, "lastname": p.LastName, "username": p.Username, "birthdate": p.Birthdate, "sex": p.Sex, "preferences_json": string(prefs), "haspref": true})
+	query := m.Store.DB.WithContext(ctx).Model(&store.User{}).Where("user_id = ?", id)
+	if len(tokens) == 1 {
+		query = query.Where("EXISTS (SELECT 1 FROM sessions s WHERE s.user_id=users.user_id AND s.hash=? AND s.expires_unix>unixepoch())", Hash(tokens[0]))
+	}
+	result := query.Updates(map[string]any{"firstname": p.FirstName, "lastname": p.LastName, "username": p.Username, "birthdate": p.Birthdate, "sex": p.Sex, "preferences_json": string(prefs), "haspref": true})
 	if errors.Is(result.Error, sqlite3.CONSTRAINT_UNIQUE) {
 		return store.Profile{}, ErrConflict
 	}
@@ -262,6 +271,9 @@ func (m *Manager) Update(ctx context.Context, id int64, p ProfileUpdate) (store.
 		return store.Profile{}, result.Error
 	}
 	if result.RowsAffected != 1 {
+		if len(tokens) == 1 {
+			return store.Profile{}, ErrSession
+		}
 		return store.Profile{}, gorm.ErrRecordNotFound
 	}
 	var user store.User

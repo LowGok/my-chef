@@ -19,6 +19,16 @@ Start `.test-artifacts/rewrite-tools/mychef` with `MYCHEF_DB=/tmp/mychef-demo.db
 Keep credentials outside source control. Fixture mode uses synthetic providers.
 Production provider configuration requires separate operator setup.
 
+## Native clients
+
+The [Capacitor projects](mobile/) package the same React interface for Android
+and iOS. The [Native verification workflow](.github/workflows/native-compile.yml)
+compiles from the selected pull request commit with an isolated HTTPS fixture.
+Installed checks run separately on an Android emulator and iPhone simulator.
+They publish JSON receipts for the exact source and artifact, without publishing
+the packages or using store credentials. Simulator results do not cover an
+iPhone installation through TestFlight.
+
 ## Container
 
 Run `docker build -t my-chef:local .`. The image contains the app and
@@ -42,7 +52,10 @@ their respective licenses and notices. Licensing requests may be directed to
 
 Delivery runs the retained app, dependency, browser, database and container checks
 for pull requests and main. PR version previews run without publication.
-Canonical main pushes can publish a new exact-version GHCR image after checks.
+Canonical main pushes can publish a new exact-version image to the private
+`ghcr.io/lowgok/my-chef-app` package after its access is verified and automatic
+publication is enabled. First publication uses a separate owner dispatch at the
+approved main commit. Normal pushes cannot initialize the package.
 The release uses Conventional Commit versioning, a clean-history floor of 0.16.1,
 blocking vulnerability scans, an SPDX SBOM, keyless signing and attestations.
 The shared publisher pushes its image before scanning, so a failed scan can leave

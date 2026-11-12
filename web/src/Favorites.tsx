@@ -12,23 +12,12 @@ import {
 import type { components } from "./api.generated";
 import { Alert, FoodPlaceholder, Icon } from "./components";
 import { addDays, dateLabel, monday, today } from "./dates";
-import { PersonalCopyAction, recipeImage } from "./PersonalRecipes";
+import { PersonalCopyAction } from "./PersonalRecipes";
+import { RecipeImage } from "./RecipeImage";
 export type FavoriteWeek = components["schemas"]["FavoriteWeek"];
 
 function DishImage({ recipe }: { recipe: Recipe }) {
-  return recipeImage(recipe.imageUrl) ? (
-    <img
-      src={recipe.imageUrl!}
-      alt=""
-      loading="lazy"
-      onError={(e) => {
-        e.currentTarget.hidden = true;
-        e.currentTarget.parentElement?.classList.add("image-failed");
-      }}
-    />
-  ) : (
-    <FoodPlaceholder />
-  );
+  return <RecipeImage url={recipe.imageUrl} />;
 }
 export function FavoriteToggle({
   recipe,

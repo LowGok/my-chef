@@ -76,7 +76,7 @@ func feedbackSchemaChecksum() string {
 }
 
 var schemaVersions = []func() string{schemaChecksum, shoppingSchemaChecksum, favoritesSchemaChecksum,
-	emailSchemaChecksum, emailIdentitySchemaChecksum, emailLimitsSchemaChecksum, signupSchemaChecksum, emailVerificationSchemaChecksum, emailChangeSchemaChecksum, passwordRecoverySchemaChecksum, feedbackSchemaChecksum, accountLifecycleSchemaChecksum, personalRecipeSchemaChecksum, personalPhotoSchemaChecksum, personalPlanningSchemaChecksum, recipeImportSchemaChecksum}
+	emailSchemaChecksum, emailIdentitySchemaChecksum, emailLimitsSchemaChecksum, signupSchemaChecksum, emailVerificationSchemaChecksum, emailChangeSchemaChecksum, passwordRecoverySchemaChecksum, feedbackSchemaChecksum, accountLifecycleSchemaChecksum, personalRecipeSchemaChecksum, personalPhotoSchemaChecksum, personalPlanningSchemaChecksum, recipeImportSchemaChecksum, nativeSchemaChecksum}
 
 func (s *Store) CheckSchema(ctx context.Context) error {
 	return s.checkSchema(ctx, false)
@@ -160,7 +160,7 @@ func (s *Store) Migrate(ctx context.Context) error {
 
 func (s *Store) migrateAfter(ctx context.Context, version int) error {
 	steps := []func(context.Context) error{s.migrateShopping, s.migrateFavorites, s.migrateEmail,
-		s.migrateEmailIdentity, s.migrateEmailLimits, s.migrateSignUp, s.migrateEmailVerification, s.migrateEmailChange, s.migratePasswordRecovery, s.migrateFeedback, s.migrateAccountLifecycle, s.migratePersonalRecipes, s.migratePersonalPhotos, s.migratePersonalPlanning, s.migrateRecipeImports}
+		s.migrateEmailIdentity, s.migrateEmailLimits, s.migrateSignUp, s.migrateEmailVerification, s.migrateEmailChange, s.migratePasswordRecovery, s.migrateFeedback, s.migrateAccountLifecycle, s.migratePersonalRecipes, s.migratePersonalPhotos, s.migratePersonalPlanning, s.migrateRecipeImports, s.migrateNativeSessions}
 	for _, step := range steps[version-1:] {
 		if err := step(ctx); err != nil {
 			return err

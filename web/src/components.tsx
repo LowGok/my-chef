@@ -29,11 +29,15 @@ export function Brand({
   );
 }
 
-export function Startup() {
+export function Startup({ message }: { message?: string } = {}) {
   return (
-    <div className="startup-screen" role="status" aria-label="Loading MyChef">
+    <div
+      className="startup-screen"
+      role="status"
+      aria-label={message ?? "Loading MyChef"}
+    >
       <Brand />
-      <p>Saved recipes and shopping lists</p>
+      <p>{message ?? "Saved recipes and shopping lists"}</p>
       <span className="startup-dots" aria-hidden="true">
         <i />
         <i />

@@ -228,3 +228,16 @@ internal/email/mailqueue/**
 !web/src/useShopping.ts
 !web/src/validation.ts
 !web/tsconfig.json
+!internal/auth/native.go
+!internal/http/native.go
+!internal/store/native_schema.go
+!migrations/017_native_sessions.sql
+!web/src/PhotoInput.tsx
+!web/src/RecipeImage.tsx
+!web/src/native-bridge.ts
+!web/src/native-bytes.ts
+!web/src/native-platform.ts
+!web/src/native-runtime.ts
+!web/src/native-shopping.ts
+!web/src/platform-media.ts
+!web/src/platform.ts

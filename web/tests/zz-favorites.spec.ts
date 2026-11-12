@@ -109,16 +109,26 @@ test("favorite cards recap and direct next-week add preserve preferences", async
       exact: true,
     }),
     swap = dialog.getByRole("button", { name: "Swap this week", exact: true });
+  await expect(add).toBeVisible();
+  await expect(swap).toBeVisible();
   for (const width of [320, 390, 760]) {
     await page.setViewportSize({ width, height: 844 });
-    const a = await add.boundingBox(),
-      b = await swap.boundingBox();
-    expect(Math.abs(a!.width - b!.width)).toBeLessThan(1);
-    expect(a!.y).toBe(b!.y);
-    expect(a!.height).toBe(b!.height);
-    expect(
-      await dialog.evaluate((e) => e.scrollWidth <= e.clientWidth + 1),
-    ).toBe(true);
+    const { buttons, fits } = await dialog.evaluate((element) => ({
+      buttons: Array.from(
+        element.querySelectorAll(".favorite-actions button"),
+        (button) => {
+          const { width, y, height } = button.getBoundingClientRect();
+          return { width, y, height };
+        },
+      ),
+      fits: element.scrollWidth <= element.clientWidth + 1,
+    }));
+    expect(buttons).toHaveLength(2);
+    const [a, b] = buttons;
+    expect(Math.abs(a.width - b.width)).toBeLessThan(1);
+    expect(a.y).toBe(b.y);
+    expect(a.height).toBe(b.height);
+    expect(fits).toBe(true);
   }
   await page.keyboard.press("Escape");
   await expect(favorites.locator(".favorite-card").first()).toBeFocused();

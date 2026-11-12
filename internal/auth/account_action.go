@@ -12,6 +12,11 @@ import (
 // session. The store rechecks both inside the export or deletion transaction.
 func (m *Manager) VerifyAccountAction(ctx context.Context, userID int64, token, current string) (store.AccountActor, error) {
 	session, err := m.Load(ctx, token)
+	if errors.Is(err, ErrSession) {
+		var native NativeSession
+		native, err = m.NativeLoad(ctx, token)
+		session = native.Session
+	}
 	if err != nil {
 		return store.AccountActor{}, err
 	}

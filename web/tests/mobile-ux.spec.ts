@@ -2,7 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { shoppingAccount } from "./support/shopping";
 import { dateLabel } from "../src/dates";
 
-async function mealRows(page: Page) {
+async function mealRows(page: Page, date = "2026-11-02") {
   const signed = await shoppingAccount(page);
   const recipes = [
     {
@@ -38,7 +38,7 @@ async function mealRows(page: Page) {
     },
   ].map((r) => ({
     ...r,
-    date: "2026-11-02",
+    date,
     isFavorite: false,
     yield: [],
     instructions: ["Cook and serve."],
@@ -70,7 +70,8 @@ async function mealRows(page: Page) {
 test("meal rows show the schedule and reserve allergens and time for recipe details", async ({
   page,
 }) => {
-  const recipes = await mealRows(page);
+  // Wednesday is the widest English weekday; do not depend on the run's date.
+  const recipes = await mealRows(page, "2026-11-11");
   for (const width of [320, 360, 390, 430, 1100]) {
     await page.setViewportSize({ width, height: 850 });
     const cards = page.locator(".recipe-card"),

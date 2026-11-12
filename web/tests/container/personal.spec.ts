@@ -252,15 +252,16 @@ test("personal account deletion revokes every photo", async ({ page }) => {
     );
 });
 
-test("personal deletion replay rejects the old account", async ({ page }) => {
-  await page.goto("/app/");
-  const session = await privateAction(
-    async () => await (await page.request.get("/api/v1/session")).json(),
-  );
+test("personal deletion replay rejects the old account", async ({
+  request,
+}) => {
+  const bootstrap = await privateAction(() => request.get("/api/v1/session"));
+  expect(bootstrap.status()).toBe(200);
+  const session = await privateAction(async () => await bootstrap.json());
   const response = await privateAction(() =>
-    page.request.post("/api/v1/login", {
+    request.post("/api/v1/login", {
       headers: {
-        Origin: new URL(page.url()).origin,
+        Origin: new URL(bootstrap.url()).origin,
         "X-CSRF-Token": session.csrfToken,
       },
       data: { email: "personalcontainer@example.test", password },

@@ -68,9 +68,12 @@ type window struct {
 	count int
 }
 type requestContext struct {
-	Session store.Session
-	Token   string
-	ID      string
+	Session  store.Session
+	Token    string
+	ID       string
+	Native   bool
+	Family   string
+	Platform string
 }
 type contextKey struct{}
 
@@ -100,6 +103,8 @@ func (a *API) Handler(frontend http.Handler) http.Handler {
 		a.write(w, 200, map[string]string{"version": a.Config.Version, "runtime": "go"})
 	})
 	mux.HandleFunc("GET /api/v1/session", a.session)
+	mux.HandleFunc("POST /api/v1/session", a.nativeStart)
+	mux.HandleFunc("POST /api/v1/refresh", a.nativeRefresh)
 	if a.Config.SignUp != nil {
 		mux.HandleFunc("POST /api/v1/register", a.guard(false, a.signUpRequest))
 		mux.HandleFunc("POST /api/v1/signup/inspect", a.guard(false, a.signUpInspect))
@@ -187,6 +192,16 @@ func (a *API) Handler(frontend http.Handler) http.Handler {
 				a.fail(w, r, 500, "internal", "The request could not be completed.")
 			}
 		}()
+		// Normalize before lifecycle lock selection, including the deletion
+		// route which takes its own exclusive account-work lock.
+		if strings.HasPrefix(r.URL.Path, nativePrefix) {
+			suffix := strings.TrimPrefix(r.URL.Path, nativePrefix)
+			if strings.HasPrefix(suffix, "fixture/") || strings.HasPrefix(suffix, "webhooks/") {
+				a.fail(w, r, http.StatusNotFound, "not_found", "That resource was not found.")
+				return
+			}
+			r = nativeRequest(r)
+		}
 		if len(r.URL.Path) >= 5 && r.URL.Path[:5] == "/api/" && a.Config.AccountReady != nil && !a.Config.AccountReady(r.Context()) {
 			a.fail(w, r, 503, "account_service_unavailable", "Account services are temporarily unavailable.")
 			return
@@ -291,6 +306,10 @@ func (a *API) throttle(w http.ResponseWriter, r *http.Request, key string, limit
 }
 func (a *API) guard(required bool, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if info(r).Native {
+			a.nativeGuard(required, next)(w, r)
+			return
+		}
 		cookie, err := r.Cookie("mychef_session")
 		if err != nil {
 			a.fail(w, r, 401, "unauthenticated", "Please sign in.")
@@ -332,6 +351,10 @@ func (a *API) cookie(w http.ResponseWriter, token string, authenticated bool) {
 	http.SetCookie(w, &http.Cookie{Name: "mychef_session", Value: token, Path: "/", HttpOnly: true, Secure: a.Config.Secure, SameSite: http.SameSiteLaxMode, MaxAge: seconds})
 }
 func (a *API) session(w http.ResponseWriter, r *http.Request) {
+	if info(r).Native {
+		a.nativeGuard(false, a.nativeSession)(w, r)
+		return
+	}
 	token := ""
 	if c, e := r.Cookie("mychef_session"); e == nil {
 		token = c.Value
@@ -422,6 +445,10 @@ func (a *API) login(w http.ResponseWriter, r *http.Request) {
 	a.signedIn(w, r, u, token, 200)
 }
 func (a *API) signedIn(w http.ResponseWriter, r *http.Request, u store.User, token string, status int) {
+	if info(r).Native {
+		a.nativeSignedIn(w, r, u, token, status)
+		return
+	}
 	a.cookie(w, token, true)
 	if a.Config.Verification != nil && u.EmailVerifiedAt == nil {
 		a.sessionResponse(w, status, token, nil, true)
@@ -435,6 +462,14 @@ func (a *API) signedIn(w http.ResponseWriter, r *http.Request, u store.User, tok
 	a.sessionResponse(w, status, token, &profile, false)
 }
 func (a *API) logout(w http.ResponseWriter, r *http.Request) {
+	if info(r).Native {
+		if err := a.Auth.NativeRevoke(r.Context(), info(r).Family); err != nil {
+			a.err(w, r, err)
+			return
+		}
+		a.write(w, http.StatusNoContent, nil)
+		return
+	}
 	if err := a.Auth.Revoke(r.Context(), info(r).Token); err != nil {
 		a.err(w, r, err)
 		return
@@ -460,7 +495,11 @@ func (a *API) updateProfile(w http.ResponseWriter, r *http.Request) {
 	if !a.decode(w, r, &body) {
 		return
 	}
-	u, err := a.Auth.Update(r.Context(), *info(r).Session.UserID, body)
+	var tokens []string
+	if info(r).Native {
+		tokens = []string{info(r).Token}
+	}
+	u, err := a.Auth.Update(r.Context(), *info(r).Session.UserID, body, tokens...)
 	if err != nil {
 		a.err(w, r, err)
 		return
