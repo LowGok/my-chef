@@ -197,12 +197,23 @@ public final class NativeJourneyProbe extends Instrumentation {
         root.getBoundsInScreen(window);
         if (area.isEmpty() || !window.contains(area.centerX(), area.centerY())) return touchFirst && clickDocuments(node);
         long down = SystemClock.uptimeMillis();
+        // The DocumentsUI grid distinguishes a finger tap from a mouse or
+        // unknown pointer; setting only the input source is not enough.
+        MotionEvent.PointerProperties finger = new MotionEvent.PointerProperties();
+        finger.id = 0;
+        finger.toolType = MotionEvent.TOOL_TYPE_FINGER;
+        MotionEvent.PointerCoords position = new MotionEvent.PointerCoords();
+        position.x = area.centerX();
+        position.y = area.centerY();
+        position.pressure = 1f;
+        position.size = .1f;
         for (int action : new int[]{MotionEvent.ACTION_DOWN, MotionEvent.ACTION_UP}) {
-            MotionEvent event = MotionEvent.obtain(down, SystemClock.uptimeMillis(), action,
-                area.centerX(), area.centerY(), 0);
-            event.setSource(InputDevice.SOURCE_TOUCHSCREEN);
+            MotionEvent event = MotionEvent.obtain(down, SystemClock.uptimeMillis(), action, 1,
+                new MotionEvent.PointerProperties[]{finger}, new MotionEvent.PointerCoords[]{position},
+                0, 0, 1f, 1f, 0, 0, InputDevice.SOURCE_TOUCHSCREEN, 0);
             try { if (!automation.injectInputEvent(event, true)) return false; }
             finally { event.recycle(); }
+            SystemClock.sleep(50);
         }
         return true;
     }
