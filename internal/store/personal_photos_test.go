@@ -432,3 +432,54 @@ func TestPersonalPhotoAdmissionSerializesAcrossDatabaseHandles(t *testing.T) {
 		t.Fatal("multiple in-flight admissions", winners)
 	}
 }
+
+func TestPersonalPhotoUsesFreshEntitlementAtAttachment(t *testing.T) {
+	s, journal, actor, _, _, now := personalPhotoStore(t)
+	ctx := t.Context()
+	if err := s.DB.Exec("UPDATE users SET email='photo-entitlement@example.test',email_key='photo-entitlement@example.test' WHERE user_id=?", actor.UserID).Error; err != nil {
+		t.Fatal(err)
+	}
+	at := now
+	reader, _ := testEntitlementSwitch(t, s, actor, entitlementIdentity(t, s, actor.UserID), func() time.Time { return at })
+	first := PersonalSave{RequestKey: strings.Repeat("a", 32), Content: personalDocument("Kept photo"), PhotoAction: "replace", PhotoDigest: personalUpload().Digest}
+	prepare := func(input PersonalSave) PersonalPhotoReservation {
+		t.Helper()
+		r, err := journal.ReservePersonalPhoto(ctx, actor, reader, input, personalUpload(), "192.0.2.9", now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := journal.BeginPersonalPhoto(ctx, actor, reader, input, r, now); err != nil {
+			t.Fatal(err)
+		}
+		return r
+	}
+	firstReservation := prepare(first)
+	recipe, err := journal.FinishPersonalPhoto(ctx, actor, reader, first, firstReservation, true, now)
+	if err != nil || recipe.PhotoID == nil {
+		t.Fatal("initial photo save failed", err)
+	}
+	edit := PersonalSave{ID: recipe.ID, ExpectedVersion: recipe.VersionID, RequestKey: strings.Repeat("b", 32), Content: personalDocument("Denied attachment"), PhotoAction: "replace", PhotoDigest: personalUpload().Digest}
+	reservation := prepare(edit)
+	at = now.Add(time.Minute)
+	if _, err := journal.FinishPersonalPhoto(ctx, actor, reader, edit, reservation, true, now); !errors.Is(err, ErrPersonalPermission) {
+		t.Fatal("photo attachment used admission time after grant expiry", err)
+	}
+	got, err := s.ReadPersonalRecipe(ctx, actor, recipe.ID, "", now)
+	if err != nil || got.VersionID != recipe.VersionID || got.PhotoID == nil || *got.PhotoID != *recipe.PhotoID {
+		t.Fatal("denied edit changed retained recipe", err)
+	}
+	if _, err := s.ReadPersonalPhoto(ctx, actor, *recipe.PhotoID, now); err != nil {
+		t.Fatal("retained photo needed Premium", err)
+	}
+	cleaner := &personalTestCleaner{fakeAssetCleaner: fakeAssetCleaner{binding: "fixture"}}
+	// The retained original and rejected upload may both be due. Cleanup
+	// examines one item per call, and their opaque IDs do not define order.
+	for range 2 {
+		if _, err := journal.CleanupStep(ctx, cleaner, now.Add(3*time.Minute)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(cleaner.private) != 1 || cleaner.private[0] != reservation.Work.Target {
+		t.Fatal("cleanup did not remove only the denied upload")
+	}
+}

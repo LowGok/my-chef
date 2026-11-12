@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { expect, type Page } from "@playwright/test";
 import { registerFixture } from "./registration";
 import { privateAction } from "./private-action";
@@ -22,20 +23,24 @@ export async function personalFixture(
 export async function personalGrant(page: Page, state: string) {
   try {
     const session = await (await page.request.get("/api/v1/session")).json();
-    const response = await page.request.post(
-      "/api/v1/fixture/personal-recipes/entitlement",
-      {
-        headers: {
-          Origin: new URL(page.url()).origin,
-          Authorization: `Bearer ${process.env.MYCHEF_TEST_INBOX_CAPABILITY}`,
-        },
-        data: {
-          accountId: session.user.id,
-          accountInstance: session.user.accountInstance,
-          state,
-        },
+    const path = "/api/v1/fixture/personal-recipes/entitlement";
+    const headers = {
+      Origin: new URL(page.url()).origin,
+      Authorization: `Bearer ${process.env.MYCHEF_TEST_INBOX_CAPABILITY}`,
+    };
+    const lease = await page.request.get(path, { headers });
+    expect(lease.status()).toBe(200);
+    const { generation } = await lease.json();
+    const response = await page.request.post(path, {
+      headers,
+      data: {
+        accountId: session.user.id,
+        accountInstance: session.user.accountInstance,
+        generation,
+        operationId: randomBytes(16).toString("hex"),
+        state,
       },
-    );
+    });
     expect(response.status()).toBe(204);
   } catch {
     throw new Error(

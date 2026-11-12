@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"strconv"
@@ -84,6 +85,21 @@ func validatePersonalSnapshot(recipe domain.Recipe) error {
 		return ErrPersonalStorage
 	}
 	return nil
+}
+
+// The durable worker has a server-captured plan, not a stored session token.
+// Its operation belongs to the account and is removed by account deletion.
+func requirePlanEntitlement(ctx context.Context, tx *gorm.DB, user int64, reader PersonalEntitlementReader) error {
+	var incarnation string
+	err := tx.Raw(`SELECT a.incarnation FROM account_incarnations a JOIN users u ON u.user_id=a.user_id
+WHERE a.user_id=? AND u.email_verified_at>0`, user).Row().Scan(&incarnation)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrPersonalSession
+	}
+	if err != nil {
+		return ErrPersonalStorage
+	}
+	return personalPermission(ctx, tx, PersonalActor{UserID: user}, incarnation, reader, time.Now())
 }
 
 func personalAssignmentAuthority(ctx context.Context, tx *gorm.DB, user int64, recipe domain.Recipe, options []PersonalPlanning, premium bool) error {

@@ -52,3 +52,6 @@ var RecipeImports string
 
 //go:embed 017_native_sessions.sql
 var NativeSessions string
+
+//go:embed 018_entitlement_grants.sql
+var EntitlementGrants string

@@ -192,7 +192,7 @@ with zipfile.ZipFile(io.BytesIO(sys.stdin.buffer.read())) as z:
   writeFileSync(filename(), JSON.stringify(value), { mode: 0o600 });
 });
 
-test("personal restart or restore reads every version and normalized photo without Premium", async ({
+test("personal restart or restore preserves versions and photos with the expected entitlement", async ({
   page,
 }) => {
   const value = evidence();
@@ -202,7 +202,8 @@ test("personal restart or restore reads every version and normalized photo witho
     "GET",
     "/personal-recipes/permissions",
   );
-  expect(permission.canWrite).toBe(false);
+  const entitled = process.env.MYCHEF_EXPECT_FIXTURE_PREMIUM === "1";
+  expect(permission.canWrite).toBe(entitled);
   const first = await personalRequest<PersonalRecipe>(
       page,
       "GET",
@@ -224,9 +225,27 @@ test("personal restart or restore reads every version and normalized photo witho
   await openPersonalLibrary(page);
   await page.locator(".personal-row").click();
   await expect(page.locator(".personal-detail img")).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: "Edit recipe", exact: true }),
-  ).toBeDisabled();
+  const edit = page.getByRole("button", { name: "Edit recipe", exact: true });
+  if (entitled) await expect(edit).toBeEnabled();
+  else await expect(edit).toBeDisabled();
+});
+
+test("personal normal mode ignores an existing fixture grant", async ({
+  page,
+}) => {
+  await login(page);
+  const permission = await personalRequest<{ canWrite: boolean }>(
+    page,
+    "GET",
+    "/personal-recipes/permissions",
+  );
+  expect(permission.canWrite).toBe(false);
+  const path = "/api/v1/fixture/personal-recipes/entitlement";
+  const headers = { Origin: new URL(page.url()).origin };
+  expect((await page.request.get(path, { headers })).status()).toBe(404);
+  expect((await page.request.post(path, { headers, data: {} })).status()).toBe(
+    404,
+  );
 });
 
 test("personal account deletion revokes every photo", async ({ page }) => {
@@ -296,6 +315,15 @@ test("normal runtime rejects fixture grants and personal creation", async ({
           context.request.post("/api/v1/fixture/personal-recipes/entitlement", {
             headers,
             data: {},
+          }),
+        )
+      ).status(),
+    ).toBe(404);
+    expect(
+      (
+        await privateAction(() =>
+          context.request.get("/api/v1/fixture/personal-recipes/entitlement", {
+            headers,
           }),
         )
       ).status(),

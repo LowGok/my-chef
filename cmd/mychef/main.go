@@ -203,7 +203,7 @@ func main() {
 		assetBinding = remote.AssetBinding()
 		model = credentials.RecipeModel
 	}
-	var personalReader store.PersonalEntitlementReader
+	personalReader := store.EntitlementReader(store.FixtureEntitlementLease{}, nil)
 	var personalFixture http.Handler
 	if inboxSettings != nil {
 		fixture := httpapi.NewPersonalFixture(s, *inboxSettings, nil)

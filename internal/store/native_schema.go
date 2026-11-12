@@ -42,8 +42,12 @@ func nativePlanningAuthority(tx *gorm.DB, owner int64, options []PersonalPlannin
 }
 
 func nativeSchemaChecksum() string {
-	sum := sha256.Sum256([]byte(migrations.Initial + migrations.Shopping + migrations.Favorites + migrations.Email + migrations.EmailIdentity + migrations.EmailLimits + migrations.SignUp + migrations.EmailVerification + migrations.EmailChange + migrations.PasswordRecovery + migrations.Feedback + migrations.AccountLifecycle + migrations.PersonalRecipes + migrations.PersonalPhotos + migrations.PersonalPlanning + migrations.RecipeImports + migrations.NativeSessions))
+	sum := sha256.Sum256([]byte(nativeSchemaSQL()))
 	return hex.EncodeToString(sum[:])
+}
+
+func nativeSchemaSQL() string {
+	return migrations.Initial + migrations.Shopping + migrations.Favorites + migrations.Email + migrations.EmailIdentity + migrations.EmailLimits + migrations.SignUp + migrations.EmailVerification + migrations.EmailChange + migrations.PasswordRecovery + migrations.Feedback + migrations.AccountLifecycle + migrations.PersonalRecipes + migrations.PersonalPhotos + migrations.PersonalPlanning + migrations.RecipeImports + migrations.NativeSessions
 }
 
 func (s *Store) migrateNativeSessions(ctx context.Context) error {

@@ -241,3 +241,6 @@ internal/email/mailqueue/**
 !web/src/native-shopping.ts
 !web/src/platform-media.ts
 !web/src/platform.ts
+!internal/store/entitlements.go
+!migrations/018_entitlement_grants.sql
+!internal/store/entitlement_fixture.go

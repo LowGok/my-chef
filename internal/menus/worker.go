@@ -289,10 +289,12 @@ func (s *Service) process(id int64) {
 		s.failed(id, "storage_unavailable")
 		return
 	}
-	menu, err := s.store.SaveMenu(ctx, row.UserID, id, request.MenuInput, recipes)
+	menu, err := s.store.SaveMenu(ctx, row.UserID, id, request.MenuInput, recipes, s.options.PersonalEntitlements)
 	if err != nil {
 		if errors.Is(err, domain.ErrMenuExists) {
 			s.failed(id, "menu_exists")
+		} else if errors.Is(err, store.ErrPersonalPermission) {
+			s.failed(id, "premium_required")
 		} else {
 			s.failed(id, "storage_unavailable")
 		}

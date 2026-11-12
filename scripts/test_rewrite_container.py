@@ -82,6 +82,8 @@ def main() -> None:
             assert {"internal/auth/native.go", "internal/http/native.go",
                     "internal/store/native_schema.go", "migrations/017_native_sessions.sql",
                     "web/src/native-platform.ts"}.issubset(paths), "required native API and web inputs were excluded"
+            assert {"internal/store/entitlements.go", "internal/store/entitlement_fixture.go",
+                    "migrations/018_entitlement_grants.sql"}.issubset(paths), "entitlement resolver and migration were excluded"
             assert not any(p.startswith("mobile/") for p in paths), "native projects entered the app container context"
             assert not any(any(word in p for word in ("secret", "canary", "node_modules", "test-results", ".streamlit", ".git/", "mychefApp", "_test.go")) for p in paths), "private or generated file entered the build context"
         if "MYCHEF_CONTAINER_IMAGE" not in env:
@@ -224,11 +226,13 @@ def main() -> None:
         command = ["bun", "run", "e2e", "--config", "playwright.live.config.ts", "--grep"]
         personal_env = dict(browser_env, MYCHEF_CONTAINER_FIXTURE="1")
         personal_command = ["bun", "run", "e2e", "container/personal.spec.ts", "--grep"]
-        def personal(phase: str) -> None:
-            subprocess.run(personal_command + [phase], env=personal_env, cwd=ROOT / "web", check=True)
+        def personal(phase: str, *, premium: bool = False) -> None:
+            env = dict(personal_env, MYCHEF_EXPECT_FIXTURE_PREMIUM="1" if premium else "0")
+            subprocess.run(personal_command + [phase], env=env, cwd=ROOT / "web", check=True)
         import_command = ["bun", "run", "e2e", "container/imports.spec.ts", "--grep"]
-        def imported(phase: str) -> None:
-            subprocess.run(import_command + [phase], env=personal_env, cwd=ROOT / "web", check=True)
+        def imported(phase: str, *, premium: bool = False) -> None:
+            env = dict(personal_env, MYCHEF_EXPECT_FIXTURE_PREMIUM="1" if premium else "0")
+            subprocess.run(import_command + [phase], env=env, cwd=ROOT / "web", check=True)
         first = start(volume, inbox=True)
         assert subprocess.run(docker + ["exec", first, "/app/mychef-migrate", "up", "--db", "/forbidden.db"], env=env,
                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode != 0
@@ -252,9 +256,12 @@ def main() -> None:
         worker = start_worker()
         second = start(volume, inbox=True)
         subprocess.run(command + ["restart retains"], env=browser_env, cwd=ROOT / "web", check=True)
-        personal("personal restart")
-        imported("imports restart")
+        personal("personal restart", premium=True)
+        imported("imports restart", premium=True)
         stop(second)
+        disabled = start(volume)
+        personal("personal normal mode")
+        stop(disabled)
         fresh = output("volume", "create", f"mychef-restore-{suffix}")
         volumes.append(fresh)
         run("run", "--rm", *options, "--mount", f"type=volume,src={volume},dst=/backup,readonly",
@@ -303,7 +310,7 @@ def main() -> None:
                 "aquasec/trivy:0.76.1@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c",
                 "image", "--exit-code", "1", "--severity", "HIGH,CRITICAL", "--scanners", "vuln", image)
         result = {"outcome":"passed", "image":image, "imageId":metadata["Id"], "version":expected_version,
-                  "checks":["context canaries", "offline worker served", "nonroot shell-free runtime", "read-only root", "writable tmpfs", "health", "browser menu", "personal versions/photos/export", "volume restart", "online backup/fresh-volume restore", "personal deletion replay", "normal runtime fails closed", "separate worker UID", "protected ledger/policy", "ephemeral import sources", "import save/restart/restore/deletion", "independent admission replay", "SIGTERM"], "scan":args.scan}
+                  "checks":["context canaries", "offline worker served", "nonroot shell-free runtime", "read-only root", "writable tmpfs", "health", "browser menu", "personal versions/photos/export", "volume restart", "online backup/fresh-volume restore", "personal deletion replay", "active grant persists on restart", "restored grant is cleared", "normal runtime ignores stored grants", "separate worker UID", "protected ledger/policy", "ephemeral import sources", "import save/restart/restore/deletion", "independent admission replay", "SIGTERM"], "scan":args.scan}
         (artifacts / "result.json").write_text(json.dumps(result, indent=2))
         print(json.dumps(result))
     finally:

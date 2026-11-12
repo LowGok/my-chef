@@ -187,7 +187,7 @@ test("imports create reviewed version and private photo draft in container", asy
     writeFileSync(filename(), JSON.stringify(value), { mode: 0o600 });
   });
 });
-test("imports restart and restore retain private provenance and draft without Premium", async ({
+test("imports restart and restore retain private provenance and draft", async ({
   page,
 }) => {
   await privateAction(async () => {
@@ -198,7 +198,7 @@ test("imports restart and restore retain private provenance and draft without Pr
       "GET",
       "/personal-recipes/permissions",
     );
-    expect(permission.canWrite).toBe(false);
+    expect(permission.canWrite).toBe(process.env.MYCHEF_EXPECT_FIXTURE_PREMIUM === "1");
     const saved = await personalRequest<PersonalRecipe>(
       page,
       "GET",
