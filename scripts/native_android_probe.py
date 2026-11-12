@@ -50,8 +50,10 @@ def _adb(*args):
 
 
 def _snapshot(adb=_adb):
-    adb("shell", "uiautomator", "dump", "/sdcard/mychef-picker.xml")
-    raw = adb("shell", "cat", "/sdcard/mychef-picker.xml")
+    path = "/sdcard/mychef-picker.xml"
+    adb("shell", "rm", "-f", path)
+    adb("shell", "uiautomator", "dump", path)
+    raw = adb("shell", "cat", path)
     try:
         return list(ET.fromstring(raw[raw.index("<?xml"):]).iter("node"))
     except (ValueError, ET.ParseError):

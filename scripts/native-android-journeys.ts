@@ -171,8 +171,29 @@ async function activateControl(control: Locator, name: string) {
       await expect.poll(keyboardShown).toBe(false);
     }
   }
-  // Wait for layout and hit testing before the separate OS tap.
-  await control.click({ trial: true });
+  // Center the control after Android has dismissed the keyboard. Check the
+  // WebView's hit target, then let instrumentation send the actual OS touch.
+  await control.evaluate((node) =>
+    node.scrollIntoView({
+      block: "center",
+      inline: "nearest",
+      behavior: "instant",
+    }),
+  );
+  await expect
+    .poll(
+      () =>
+        control.evaluate((node) => {
+          const rect = node.getBoundingClientRect();
+          const target = document.elementFromPoint(
+            rect.left + rect.width / 2,
+            rect.top + rect.height / 2,
+          );
+          return Boolean(target && node.contains(target));
+        }),
+      { message: name + " must own its center point in the native WebView" },
+    )
+    .toBe(true);
   const sequence = String(++controlSequence);
   probeCommand("activate:" + sequence + ":" + name);
   await expect
@@ -589,21 +610,35 @@ try {
       page.getByRole("heading", { name: "Your profile.", exact: true }),
     ).toBeVisible();
   });
+  await check("OS photo picker cancellation retains the draft", async () => {
+    await openLibrary();
+    await button("Create a recipe").click();
+    await fillPersonalDraft(page);
+    await choosePhoto("Choose recipe photo");
+    await picker("CANCEL");
+    await expect(
+      page.getByLabel("Choose recipe photo", { exact: true }),
+    ).toHaveValue("Choose photos");
+    await expect(page.getByLabel("Title", { exact: true })).toHaveValue(
+      "Private fixture supper",
+    );
+    await expect(
+      page.getByAltText("Selected recipe photo preview"),
+    ).toHaveCount(0);
+  });
+  await check("OS photo picker attaches a dish photo", async () => {
+    const image = join(state, "native-dish.png");
+    await writeFile(image, personalPhoto);
+    adb("push", image, "/sdcard/Download/native-dish.png");
+    await choosePhoto("Choose recipe photo");
+    await picker("native-dish.png");
+    await expect(
+      page.getByAltText("Selected recipe photo preview"),
+    ).toBeVisible();
+  });
   await check(
-    "OS photo picker cancel uncertain-save retry and edit",
+    "dish photo survives uncertain save retry and later edit",
     async () => {
-      await openLibrary();
-      await button("Create a recipe").click();
-      await fillPersonalDraft(page);
-      await choosePhoto("Choose recipe photo");
-      await picker("CANCEL");
-      await expect(page.locator(".personal-editor")).toBeVisible();
-      const image = join(state, "native-dish.png");
-      await writeFile(image, personalPhoto);
-      adb("push", image, "/sdcard/Download/native-dish.png");
-      await choosePhoto("Choose recipe photo");
-      await picker("native-dish.png");
-      await expect(page.locator(".personal-photo-preview img")).toBeVisible();
       const droppedResponse = join(state, "native-personal-save-drop");
       await writeFile(droppedResponse, "one disposable committed response");
       await activate("Save");

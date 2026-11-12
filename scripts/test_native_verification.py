@@ -42,7 +42,7 @@ class NativeVerificationTest(unittest.TestCase):
                     "Application Not Responding: com.android.systemui}")
         close = ('<node package="android" resource-id="android:id/aerr_close" '
                  'enabled="true" clickable="true" bounds="[20,40][120,80]"/>')
-        adb = unittest.mock.Mock(side_effect=[displays, "", '<?xml version="1.0"?><hierarchy>' + close
+        adb = unittest.mock.Mock(side_effect=[displays, "", "", '<?xml version="1.0"?><hierarchy>' + close
                                               + "</hierarchy>", displays, ""])
         self.assertTrue(probe.dismiss_system_ui_anr(adb))
         adb.assert_called_with("shell", "input", "tap", "70", "60")
