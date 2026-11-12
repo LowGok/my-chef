@@ -51,7 +51,7 @@ def verify_stage(check, description, events, rejected_tls, diagnostics, *, launc
     try:
         launch()
         wait_for(check, description)
-    except RuntimeError:
+    except (RuntimeError, subprocess.SubprocessError):
         print(f"Synthetic session response statuses: {events[event_start:][-12:]}", flush=True)
         print(f"Fixture TLS rejection reasons: {sorted(set(rejected_tls[tls_start:]))}", flush=True)
         try:
@@ -389,7 +389,7 @@ def ios(state, stack, ca, package):
     stack.callback(cleanup)
     sim("boot", identifier)
     try:
-        sim("bootstatus", identifier, timeout=150)
+        sim("bootstatus", identifier, timeout=240)
     except subprocess.TimeoutExpired as error:
         output = error.stdout or b""
         if isinstance(output, bytes):
@@ -425,7 +425,7 @@ def ios(state, stack, ca, package):
 
     def diagnostics():
         # Only this fresh simulator and its anonymous fixture are visible.
-        sim("io", identifier, "screenshot", str(ARTIFACTS / "anonymous-launch.png"))
+        sim("io", identifier, "screenshot", str(ARTIFACTS / "anonymous-launch.png"), timeout=20)
         output = subprocess.run(["xcrun", "simctl", "spawn", identifier, "log", "show", "--last", "5m",
                                  "--style", "compact", "--predicate",
                                  'process == "App" AND (subsystem == "com.apple.CFNetwork" OR subsystem == "com.apple.WebKit")'],
@@ -434,7 +434,8 @@ def ios(state, stack, ca, package):
         codes = sorted(set(re.findall(r"(?:NSURLErrorDomain Code=|error\s+)(-\d{2,6})\b", output)))
         print("Simulator network error codes: " + (", ".join(codes) or "none recorded"), flush=True)
 
-    return ({"runtime": runtime, "model": device["name"], "signing": "simulator linker entitlements only", "keychainIdentity": access_group},
+    return ({"runtime": runtime, "model": device["name"], "hostArchitecture": os.uname().machine,
+             "signing": "simulator linker entitlements only", "keychainIdentity": access_group},
             lambda: sim("launch", identifier, APP), lambda: sim("terminate", identifier, APP), diagnostics)
 
 
