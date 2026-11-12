@@ -23,10 +23,12 @@ const expect = playwrightExpect.configure({ timeout: 30_000 });
 const interruptedConnection =
   "The connection was interrupted. Check the request status before starting another menu.";
 const state = process.argv[2];
+const group = process.argv[3];
 if (
   process.env.GITHUB_ACTIONS !== "true" ||
   process.env.GITHUB_REPOSITORY !== "LowGok/my-chef" ||
   process.env.NATIVE_PLATFORM !== "android" ||
+  (group !== "core" && group !== "media" && group !== "account") ||
   !state ||
   !/^\/.*mychef-installed-[A-Za-z0-9_-]+$/.test(state)
 )
@@ -269,7 +271,22 @@ async function picker(
   target: "CANCEL" | "SAVE" | "native-dish.png" | "native-page.png",
 ) {
   if (target !== "CANCEL") {
-    await probeAction("document", target);
+    try {
+      await probeAction("document", target);
+    } catch (error) {
+      const result = Bun.spawnSync(
+        ["python3", "scripts/native_android_probe.py", "picker-focus"],
+        { stdout: "pipe", stderr: "ignore" },
+      );
+      const focus = result.stdout.toString().trim();
+      throw new Error(
+        "Disposable Android picker did not complete; focus: " +
+          (/^(app|documents|system-ui-anr|other|unknown)$/.test(focus)
+            ? focus
+            : "unknown"),
+        { cause: error },
+      );
+    }
     return;
   }
   const result = Bun.spawnSync(
@@ -393,8 +410,7 @@ const shoppingWeekInUrl = () =>
     () => new URLSearchParams(window.location.search).get("week") ?? "",
   );
 
-try {
-  await connect();
+async function coreJourneys() {
   await check("native sign-in and preferences", async () => {
     await login();
     await profile();
@@ -704,6 +720,11 @@ try {
       page.getByRole("heading", { name: "Your profile.", exact: true }),
     ).toBeVisible();
   });
+}
+
+async function mediaJourneys() {
+  await login();
+  await profile();
   await check("OS photo picker cancellation retains the draft", async () => {
     await openLibrary();
     await button("Create a recipe").click();
@@ -942,6 +963,11 @@ try {
       await profile();
     },
   );
+}
+
+async function accountJourneys() {
+  await login();
+  await profile();
   await check("OS export cancel and save", async () => {
     await accountDetails();
     for (const save of [false, true]) {
@@ -1032,13 +1058,19 @@ try {
       })
       .toBeGreaterThan(before + 0.1);
   });
+}
+
+try {
+  await connect();
+  await { core: coreJourneys, media: mediaJourneys, account: accountJourneys }[
+    group
+  ]();
   await writeFile(
-    join(state, "native-android-journeys.json"),
+    join(state, `native-android-journeys-${group}.json`),
     JSON.stringify(
       {
+        group,
         passed,
-        limitations:
-          "Disposable API 33 emulator; no physical Android device or audible TalkBack validation.",
       },
       null,
       2,

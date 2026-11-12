@@ -455,8 +455,6 @@ def android_journeys(state, receipt, metadata, events):
     from native_fixture_account import seed
 
     capability = json.loads((state / "fixture-inbox.json").read_text())["capability"]
-    account = seed(18137, ORIGIN, capability, "nativeandroid")
-    (state / "native-android-account.json").write_text(json.dumps(account))
     sdk = Path(ENV["ANDROID_HOME"])
     apk = build(state, sdk, command)
     adb_path = str(sdk / "platform-tools/adb")
@@ -465,23 +463,56 @@ def android_journeys(state, receipt, metadata, events):
     for name in ("GITHUB_ACTIONS", "GITHUB_REPOSITORY", "NATIVE_PLATFORM"):
         if name in os.environ:
             ENV[name] = os.environ[name]
-    try:
-        output = command("bun", "scripts/native-android-journeys.ts", str(state), timeout=600)
-    except RuntimeError:
+    def diagnose():
         print("Disposable native route statuses: " + str(events[-20:]), flush=True)
         try:
             android_request_diagnostics(adb_path)
-        except (OSError, subprocess.SubprocessError):
+        except (OSError, RuntimeError, subprocess.SubprocessError):
             print("Disposable Android bridge stages unavailable", flush=True)
         probe = state / "probe-private.log"
         if probe.is_file():
             safe = [line for line in probe.read_text(errors="replace").splitlines()
                     if re.fullmatch(r"INSTRUMENTATION_(?:STATUS|RESULT): (?:probe=(?:ready|failed)|probeReason=(?:launch|webview|pinch-disabled|probe-timeout|instrumentation|native-control|native-window-(?:unfocused|bounds)|control-timeout|input-denied|picker-(?:window|target|activation|return)|accessibility-controls))|INSTRUMENTATION_CODE: -?[0-9]+", line)]
             print("Disposable probe status: " + "; ".join(safe[-8:]), flush=True)
-        raise
-    print(output, flush=True)
-    result = json.loads((state / "native-android-journeys.json").read_text())
-    result.update(source=receipt["candidate"], artifactSha256=receipt["artifactSha256"], device=metadata)
+
+    groups = (("core", 7), ("media", 6), ("account", 4))
+    passed = {}
+    failed = []
+    adb = lambda *args: command(adb_path, "-s", "emulator-5554", *args)
+    for group, count in groups:
+        print("Starting installed Android group: " + group, flush=True)
+        try:
+            if group != "core":
+                for marker in ("native-network-offline", "native-shopping-conflict", "native-personal-save-drop"):
+                    (state / marker).unlink(missing_ok=True)
+                adb("shell", "svc", "wifi", "enable")
+                adb("shell", "svc", "data", "enable")
+                adb("shell", "am", "force-stop", APP)
+                if adb("shell", "pm", "clear", APP) != "Success":
+                    raise RuntimeError("Disposable Android app state could not be cleared")
+            account = seed(18137, ORIGIN, capability, "nativeandroid" + group)
+            (state / "native-android-account.json").write_text(json.dumps(account))
+            output = command("bun", "scripts/native-android-journeys.ts", str(state), group, timeout=270)
+            print(output, flush=True)
+            result = json.loads((state / f"native-android-journeys-{group}.json").read_text())
+            checks = result.get("passed") if isinstance(result, dict) else None
+            if (not isinstance(result, dict) or result.get("group") != group
+                    or not isinstance(checks, list) or len(checks) != count
+                    or not all(isinstance(check, str) and re.fullmatch(r"[A-Za-z0-9 -]{1,100}", check) for check in checks)
+                    or len(set(checks)) != count):
+                raise RuntimeError("Installed Android group receipt is incomplete")
+            passed[group] = checks
+        except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
+            failed.append(group)
+            if isinstance(error, RuntimeError):
+                print(str(error), flush=True)
+            print("Installed Android group failed: " + group, flush=True)
+            diagnose()
+    if failed:
+        raise RuntimeError("Installed Android groups failed: " + ", ".join(failed))
+    result = dict(source=receipt["candidate"], artifactSha256=receipt["artifactSha256"], device=metadata,
+                  groups=passed, passed=[name for names in passed.values() for name in names],
+                  limitations="Disposable API 33 emulator; no physical Android device or audible TalkBack validation.")
     (ARTIFACTS / "installed-journeys.json").write_text(json.dumps(result, indent=2) + "\n")
 
 

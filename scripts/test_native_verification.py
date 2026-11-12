@@ -26,9 +26,49 @@ menu = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(menu)
 import test_native_installed as installed
 import native_android_probe as probe
+import native_fixture_account
 
 
 class NativeVerificationTest(unittest.TestCase):
+    def test_android_groups_continue_on_failure_without_issuing_a_full_receipt(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "fixture-inbox.json").write_text(json.dumps({"capability": "x" * 43}))
+            native_groups = []
+            incomplete = True
+            counts = {"core": 7, "media": 6, "account": 4}
+            source = {"sourceCommit": "b" * 40}
+            build = {"candidate": source, "artifactSha256": "c" * 64}
+
+            def execute(*args, **kwargs):
+                if args[0] == "bun":
+                    group = args[-1]
+                    native_groups.append(group)
+                    if incomplete and group == "media":
+                        raise RuntimeError("Synthetic picker failure")
+                    (root / f"native-android-journeys-{group}.json").write_text(json.dumps({
+                        "group": group, "passed": [f"{group} check {i}" for i in range(counts[group])],
+                    }))
+                return "Success"
+
+            with patch.object(installed, "command", side_effect=execute), \
+                    patch.object(installed, "ARTIFACTS", root), \
+                    patch.dict(installed.ENV, {"ANDROID_HOME": "/synthetic-sdk"}), \
+                    patch.object(probe, "build", return_value=root / "probe.apk"), \
+                    patch.object(native_fixture_account, "seed", return_value={}), \
+                    patch.object(installed, "android_request_diagnostics"), redirect_stdout(io.StringIO()):
+                with self.assertRaisesRegex(RuntimeError, "groups failed: media"):
+                    installed.android_journeys(root, build, {}, [])
+                self.assertEqual(native_groups, ["core", "media", "account"])
+                output = root / "installed-journeys.json"
+                self.assertFalse(output.exists())
+                incomplete = False
+                installed.android_journeys(root, build, {}, [])
+            result = json.loads(output.read_text())
+            self.assertEqual(result["source"], source)
+            self.assertEqual(result["artifactSha256"], build["artifactSha256"])
+            self.assertEqual({group: len(names) for group, names in result["groups"].items()}, counts)
+
     def test_wrong_simulator_archive_stops_before_a_device_is_opened(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

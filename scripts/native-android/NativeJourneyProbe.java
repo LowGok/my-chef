@@ -186,12 +186,16 @@ public final class NativeJourneyProbe extends Instrumentation {
     }
 
     private static boolean tapDocument(UiAutomation automation, AccessibilityNodeInfo root, AccessibilityNodeInfo node) {
+        return tapDocument(automation, root, node, false);
+    }
+
+    private static boolean tapDocument(UiAutomation automation, AccessibilityNodeInfo root, AccessibilityNodeInfo node, boolean touchFirst) {
         if (!documents(node) || !node.isVisibleToUser() || !node.isEnabled()) return false;
-        if (clickDocuments(node)) return true;
+        if (!touchFirst && clickDocuments(node)) return true;
         Rect area = new Rect(), window = new Rect();
         node.getBoundsInScreen(area);
         root.getBoundsInScreen(window);
-        if (area.isEmpty() || !window.contains(area.centerX(), area.centerY())) return false;
+        if (area.isEmpty() || !window.contains(area.centerX(), area.centerY())) return touchFirst && clickDocuments(node);
         long down = SystemClock.uptimeMillis();
         for (int action : new int[]{MotionEvent.ACTION_DOWN, MotionEvent.ACTION_UP}) {
             MotionEvent event = MotionEvent.obtain(down, SystemClock.uptimeMillis(), action,
@@ -210,7 +214,9 @@ public final class NativeJourneyProbe extends Instrumentation {
         boolean openedRoots = false, visitedDownloads = false;
         while (SystemClock.uptimeMillis() < end) {
             AccessibilityNodeInfo root = pickerRoot(automation);
-            if (selected && root == null) {
+            if (selected) {
+                // A departing picker can remain in the accessibility window
+                // list while the app has already regained real input focus.
                 boolean[] appFocused = {false};
                 runOnMainSync(() -> appFocused[0] = web.isShown() && web.hasWindowFocus());
                 if (appFocused[0]) return;
@@ -218,11 +224,15 @@ public final class NativeJourneyProbe extends Instrumentation {
             if (root != null) {
                 sawPicker = true;
                 if (selected) {
-                    if (target.equals("native-page.png")) tapDocument(automation, root, named(root, "Open", true, 0));
+                    if (!target.equals("SAVE")) {
+                        for (String label : new String[]{"Open", "Select", "Done"}) {
+                            if (tapDocument(automation, root, named(root, label, true, 0))) break;
+                        }
+                    }
                 } else {
                     AccessibilityNodeInfo file = named(root, target, false, 0);
                     sawTarget |= file != null;
-                    selected = tapDocument(automation, root, file);
+                    selected = tapDocument(automation, root, file, !target.equals("SAVE"));
                     if (!selected && file == null && !target.equals("SAVE")) {
                         if (!openedRoots) openedRoots = tapDocument(automation, root, named(root, "Show roots", false, 0));
                         else if (!visitedDownloads) {

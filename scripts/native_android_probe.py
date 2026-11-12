@@ -121,6 +121,9 @@ def picker_focus():
 
 
 if __name__ == "__main__":
+    if sys.argv[1:] == ["picker-focus"]:
+        print(picker_focus())
+        raise SystemExit(0)
     if sys.argv[1:] != ["cancel-picker"]:
         raise SystemExit("Only disposable picker cancellation is executable directly")
     try:
