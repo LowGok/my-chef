@@ -737,7 +737,7 @@ export function App() {
       setDiscardDialog(false);
       setError("");
     });
-    location.replace("/landing/");
+    location.replace(isNativeTransport() ? "/app/" : "/landing/");
   }
   async function logout(discard = false) {
     const owner = user?.id ?? cachedOwner()?.profile.id;

@@ -196,3 +196,49 @@ test("native back asks before discarding a recipe draft and preserves it when ca
     await server.dispose();
   }
 });
+
+test("native account deletion returns to the packaged sign-in page", async ({
+  page,
+  context,
+  playwright,
+}) => {
+  const { personalFixture } = await import("./support/personal-recipes");
+  const email = "nativeruntimedelete@example.test";
+  const password = "Garden personal recipe fixture 2026!";
+  await personalFixture(page, "nativeruntimedelete");
+  await context.clearCookies();
+  const server = await playwright.request.newContext({
+    baseURL: "http://127.0.0.1:18137",
+  });
+  try {
+    await fakeNative(context, server);
+    await page.goto("/app/");
+    await page.getByLabel("Email", { exact: true }).fill(email);
+    await page.getByLabel("Password", { exact: true }).fill(password);
+    await page
+      .getByRole("button", { name: "Sign in to MyChef", exact: true })
+      .click();
+    await page.getByRole("button", { name: "Profile", exact: true }).click();
+    await page.getByText("Account details", { exact: true }).click();
+    await page
+      .getByRole("button", { name: "Delete my account", exact: true })
+      .click();
+    const dialog = page.getByRole("dialog", {
+      name: "Delete my account",
+      exact: true,
+    });
+    await dialog.getByLabel("Current password", { exact: true }).fill(password);
+    await dialog
+      .getByLabel("Type DELETE to confirm", { exact: true })
+      .fill("DELETE");
+    await dialog
+      .getByRole("button", { name: "Permanently delete account", exact: true })
+      .click();
+    await expect(
+      page.getByRole("heading", { name: "Welcome back.", exact: true }),
+    ).toBeVisible();
+    await expect(page).toHaveURL(/\/app\/$/);
+  } finally {
+    await server.dispose();
+  }
+});
