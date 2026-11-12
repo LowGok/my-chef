@@ -233,15 +233,18 @@ async function nativeUI(mode: "picker" | "accessibility", target: string) {
     { stdout: "pipe", stderr: "ignore" },
   );
   if (result.exitCode) {
-    const focus = result.stdout.toString().trim();
+    const details = result.stdout
+      .toString()
+      .trim()
+      .match(
+        /^(adb-missing|adb-timeout|adb-command-failed|picker-timeout):(app|documents|system-ui-anr|other|unknown)$/,
+      );
     throw new Error(
       "Disposable native UI check failed: " +
         mode +
         " " +
         target +
-        (/^(app|documents|system-ui-anr|other|unknown)$/.test(focus)
-          ? "; focus: " + focus
-          : ""),
+        (details ? "; " + details[1] + "; focus: " + details[2] : ""),
     );
   }
 }

@@ -28,6 +28,15 @@ import native_android_probe as probe
 
 
 class NativeVerificationTest(unittest.TestCase):
+    def test_ui_driver_uses_the_same_sdk_adb_as_the_installed_fixture(self):
+        with patch.dict(probe.os.environ, {"ANDROID_HOME": "/synthetic-sdk"}), \
+                patch.object(probe.subprocess, "check_output", return_value="") as output:
+            probe._adb("shell", "dumpsys", "window", "displays")
+        self.assertEqual(output.call_args.args[0], [
+            "/synthetic-sdk/platform-tools/adb", "-s", "emulator-5554",
+            "shell", "dumpsys", "window", "displays",
+        ])
+
     def test_recover_only_the_focused_system_ui_dialog(self):
         displays = ("  mCurrentFocus=Window{42 u0 "
                     "Application Not Responding: com.android.systemui}")

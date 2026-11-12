@@ -43,7 +43,9 @@ android:targetPackage="com.gkldevelopment.mychef.preview" android:functionalTest
 
 
 def _adb(*args):
-    return subprocess.check_output(["adb", "-s", "emulator-5554", *args], text=True,
+    sdk = os.environ.get("ANDROID_HOME")
+    binary = str(Path(sdk) / "platform-tools" / "adb") if sdk else "adb"
+    return subprocess.check_output([binary, "-s", "emulator-5554", *args], text=True,
                                    stderr=subprocess.DEVNULL, timeout=20)
 
 
@@ -180,7 +182,9 @@ if __name__ == "__main__":
     mode = sys.argv[1]
     try:
         operations[mode](sys.argv[2])
-    except (OSError, RuntimeError, subprocess.SubprocessError):
+    except (OSError, RuntimeError, subprocess.SubprocessError) as error:
         if mode == "picker":
-            print(picker_focus())
+            failure = {FileNotFoundError: "adb-missing", subprocess.TimeoutExpired: "adb-timeout",
+                       subprocess.CalledProcessError: "adb-command-failed"}.get(type(error), "picker-timeout")
+            print(f"{failure}:{picker_focus()}")
         raise SystemExit(1)
