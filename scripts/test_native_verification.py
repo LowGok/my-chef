@@ -36,7 +36,7 @@ class NativeVerificationTest(unittest.TestCase):
             (root / "fixture-inbox.json").write_text(json.dumps({"capability": "x" * 43}))
             native_groups = []
             incomplete = True
-            counts = {"core": 7, "media": 6, "account": 4}
+            counts = {"core": 7, "media": 5, "pages": 1, "account": 4}
             source = {"sourceCommit": "b" * 40}
             build = {"candidate": source, "artifactSha256": "c" * 64}
 
@@ -59,7 +59,7 @@ class NativeVerificationTest(unittest.TestCase):
                     patch.object(installed, "android_request_diagnostics"), redirect_stdout(io.StringIO()):
                 with self.assertRaisesRegex(RuntimeError, "groups failed: media"):
                     installed.android_journeys(root, build, {}, [])
-                self.assertEqual(native_groups, ["core", "media", "account"])
+                self.assertEqual(native_groups, ["core", "media", "pages", "account"])
                 output = root / "installed-journeys.json"
                 self.assertFalse(output.exists())
                 incomplete = False

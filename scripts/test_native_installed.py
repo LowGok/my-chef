@@ -475,7 +475,7 @@ def android_journeys(state, receipt, metadata, events):
                     if re.fullmatch(r"INSTRUMENTATION_(?:STATUS|RESULT): (?:probe=(?:ready|failed)|probeReason=(?:launch|webview|pinch-disabled|probe-timeout|instrumentation|native-control|native-window-(?:unfocused|bounds)|control-timeout|input-denied|picker-(?:window|target|activation|confirmation|return)|accessibility-controls))|INSTRUMENTATION_CODE: -?[0-9]+", line)]
             print("Disposable probe status: " + "; ".join(safe[-8:]), flush=True)
 
-    groups = (("core", 7), ("media", 6), ("account", 4))
+    groups = (("core", 7), ("media", 5), ("pages", 1), ("account", 4))
     passed = {}
     failed = []
     adb = lambda *args: command(adb_path, "-s", "emulator-5554", *args)

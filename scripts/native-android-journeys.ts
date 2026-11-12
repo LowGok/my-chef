@@ -28,7 +28,10 @@ if (
   process.env.GITHUB_ACTIONS !== "true" ||
   process.env.GITHUB_REPOSITORY !== "LowGok/my-chef" ||
   process.env.NATIVE_PLATFORM !== "android" ||
-  (group !== "core" && group !== "media" && group !== "account") ||
+  (group !== "core" &&
+    group !== "media" &&
+    group !== "pages" &&
+    group !== "account") ||
   !state ||
   !/^\/.*mychef-installed-[A-Za-z0-9_-]+$/.test(state)
 )
@@ -903,6 +906,11 @@ async function mediaJourneys() {
       await profile();
     },
   );
+}
+
+async function pageImportJourney() {
+  await login();
+  await profile();
   await check(
     "system recipe-page picker consent and source/dish separation",
     async () => {
@@ -1068,9 +1076,12 @@ async function accountJourneys() {
 
 try {
   await connect();
-  await { core: coreJourneys, media: mediaJourneys, account: accountJourneys }[
-    group
-  ]();
+  await {
+    core: coreJourneys,
+    media: mediaJourneys,
+    pages: pageImportJourney,
+    account: accountJourneys,
+  }[group]();
   await writeFile(
     join(state, `native-android-journeys-${group}.json`),
     JSON.stringify(

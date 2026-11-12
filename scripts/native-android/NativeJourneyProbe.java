@@ -148,11 +148,14 @@ public final class NativeJourneyProbe extends Instrumentation {
     }
 
     private static AccessibilityNodeInfo pickerRoot(UiAutomation automation) {
+        boolean hasFocusedAppWindow = false;
         for (AccessibilityWindowInfo window : automation.getWindows()) {
-            if (!window.isFocused() && !window.isActive()) continue;
+            if (!window.isFocused() || window.getType() != AccessibilityWindowInfo.TYPE_APPLICATION) continue;
+            hasFocusedAppWindow = true;
             AccessibilityNodeInfo root = window.getRoot();
             if (documents(root)) return root;
         }
+        if (hasFocusedAppWindow) return null;
         AccessibilityNodeInfo root = automation.getRootInActiveWindow();
         return documents(root) ? root : null;
     }
@@ -173,6 +176,16 @@ public final class NativeJourneyProbe extends Instrumentation {
                 && (labelMatches(node.getText(), label) || labelMatches(node.getContentDescription(), label))) return node;
         for (int i = 0; i < node.getChildCount(); i++) {
             AccessibilityNodeInfo result = named(node.getChild(i), label, control, depth + 1);
+            if (result != null) return result;
+        }
+        return null;
+    }
+
+    private static AccessibilityNodeInfo fileTitle(AccessibilityNodeInfo node, String filename, int depth) {
+        if (node == null || depth > 32) return null;
+        if (node.isVisibleToUser() && node.isEnabled() && labelMatches(node.getText(), filename)) return node;
+        for (int i = 0; i < node.getChildCount(); i++) {
+            AccessibilityNodeInfo result = fileTitle(node.getChild(i), filename, depth + 1);
             if (result != null) return result;
         }
         return null;
@@ -214,7 +227,7 @@ public final class NativeJourneyProbe extends Instrumentation {
                 0, 0, 1f, 1f, 0, 0, InputDevice.SOURCE_TOUCHSCREEN, 0);
             try { if (!automation.injectInputEvent(event, true)) return false; }
             finally { event.recycle(); }
-            if (action == MotionEvent.ACTION_DOWN) SystemClock.sleep(holdMillis);
+            SystemClock.sleep(action == MotionEvent.ACTION_DOWN ? holdMillis : 50);
         }
         return true;
     }
@@ -236,6 +249,8 @@ public final class NativeJourneyProbe extends Instrumentation {
         boolean save = target.equals("SAVE"), page = target.equals("native-page.png");
         boolean sawPicker = false, sawTarget = false, selected = false, confirmed = false;
         boolean openedRoots = false, visitedDownloads = false;
+        int dishTaps = 0;
+        long selectionTime = 0;
         while (SystemClock.uptimeMillis() < end) {
             AccessibilityNodeInfo root = pickerRoot(automation);
             if (selected) {
@@ -249,14 +264,25 @@ public final class NativeJourneyProbe extends Instrumentation {
                 sawPicker = true;
                 if (selected) {
                     if (!save && !confirmed) confirmed = confirmDocuments(automation, root);
-                } else {
-                    AccessibilityNodeInfo file = named(root, target, false, 0);
+                }
+                // If the single-file picker still owns focus and has no
+                // confirmation control, reacquire the file before another tap.
+                boolean retryDish = !save && !page && !confirmed && dishTaps < 3
+                    && SystemClock.uptimeMillis() - selectionTime >= 2_500;
+                if (!selected || retryDish) {
+                    AccessibilityNodeInfo file = save ? null : fileTitle(root, target, 0);
+                    if (file == null) file = named(root, target, false, 0);
                     sawTarget |= file != null;
                     // In the multi-file picker, select the file with a long
                     // press and use the action bar to confirm the selection.
-                    selected = save ? tapDocument(automation, root, file)
+                    boolean sent = save ? tapDocument(automation, root, file)
                         : touchDocument(automation, root, file,
                             page ? ViewConfiguration.getLongPressTimeout() + 150 : 50);
+                    if (sent) {
+                        selected = true;
+                        selectionTime = SystemClock.uptimeMillis();
+                        if (!save && !page) dishTaps++;
+                    }
                     if (!selected && file == null && !save) {
                         if (!openedRoots) openedRoots = tapDocument(automation, root, named(root, "Show roots", false, 0));
                         else if (!visitedDownloads) {
