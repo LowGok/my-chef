@@ -929,8 +929,14 @@ async function mediaJourneys() {
       const source = join(state, "native-page.png");
       await writeFile(source, Buffer.from(encoded, "base64"));
       await stagePhoto(source, "native-page.png");
+      stage = "choose and confirm recipe page in Android picker";
       await choosePhoto("Recipe-page photos");
       await picker("native-page.png");
+      stage = "check selected recipe page before consent";
+      await expect(
+        page.getByLabel("Recipe-page photos", { exact: true }),
+      ).toHaveValue("1 photo selected · Change");
+      stage = "review and save imported recipe page";
       await page
         .getByRole("checkbox", {
           name: "I have permission to import this recipe for my personal use.",

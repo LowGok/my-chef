@@ -11,6 +11,7 @@ import android.os.SystemClock;
 import android.view.InputDevice;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewConfiguration;
 import android.view.ViewGroup;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.accessibility.AccessibilityWindowInfo;
@@ -186,16 +187,16 @@ public final class NativeJourneyProbe extends Instrumentation {
     }
 
     private static boolean tapDocument(UiAutomation automation, AccessibilityNodeInfo root, AccessibilityNodeInfo node) {
-        return tapDocument(automation, root, node, false);
+        if (!documents(node) || !node.isVisibleToUser() || !node.isEnabled()) return false;
+        return clickDocuments(node) || touchDocument(automation, root, node, 50);
     }
 
-    private static boolean tapDocument(UiAutomation automation, AccessibilityNodeInfo root, AccessibilityNodeInfo node, boolean touchFirst) {
+    private static boolean touchDocument(UiAutomation automation, AccessibilityNodeInfo root, AccessibilityNodeInfo node, int holdMillis) {
         if (!documents(node) || !node.isVisibleToUser() || !node.isEnabled()) return false;
-        if (!touchFirst && clickDocuments(node)) return true;
         Rect area = new Rect(), window = new Rect();
         node.getBoundsInScreen(area);
         root.getBoundsInScreen(window);
-        if (area.isEmpty() || !window.contains(area.centerX(), area.centerY())) return touchFirst && clickDocuments(node);
+        if (area.isEmpty() || !window.contains(area.centerX(), area.centerY())) return false;
         long down = SystemClock.uptimeMillis();
         // The DocumentsUI grid distinguishes a finger tap from a mouse or
         // unknown pointer; setting only the input source is not enough.
@@ -213,15 +214,27 @@ public final class NativeJourneyProbe extends Instrumentation {
                 0, 0, 1f, 1f, 0, 0, InputDevice.SOURCE_TOUCHSCREEN, 0);
             try { if (!automation.injectInputEvent(event, true)) return false; }
             finally { event.recycle(); }
-            SystemClock.sleep(50);
+            if (action == MotionEvent.ACTION_DOWN) SystemClock.sleep(holdMillis);
         }
         return true;
+    }
+
+    private static boolean confirmDocuments(UiAutomation automation, AccessibilityNodeInfo root) {
+        String owner = String.valueOf(root.getPackageName());
+        for (AccessibilityNodeInfo control : root.findAccessibilityNodeInfosByViewId(owner + ":id/menu_open")) {
+            if (tapDocument(automation, root, control)) return true;
+        }
+        for (String label : new String[]{"Open", "Select", "Done"}) {
+            if (tapDocument(automation, root, named(root, label, false, 0))) return true;
+        }
+        return false;
     }
 
     private void selectSystemDocument(String target) {
         UiAutomation automation = interactiveWindows();
         long end = SystemClock.uptimeMillis() + 30_000;
-        boolean sawPicker = false, sawTarget = false, selected = false;
+        boolean save = target.equals("SAVE"), page = target.equals("native-page.png");
+        boolean sawPicker = false, sawTarget = false, selected = false, confirmed = false;
         boolean openedRoots = false, visitedDownloads = false;
         while (SystemClock.uptimeMillis() < end) {
             AccessibilityNodeInfo root = pickerRoot(automation);
@@ -230,21 +243,21 @@ public final class NativeJourneyProbe extends Instrumentation {
                 // list while the app has already regained real input focus.
                 boolean[] appFocused = {false};
                 runOnMainSync(() -> appFocused[0] = web.isShown() && web.hasWindowFocus());
-                if (appFocused[0]) return;
+                if (appFocused[0] && (!page || confirmed)) return;
             }
             if (root != null) {
                 sawPicker = true;
                 if (selected) {
-                    if (!target.equals("SAVE")) {
-                        for (String label : new String[]{"Open", "Select", "Done"}) {
-                            if (tapDocument(automation, root, named(root, label, true, 0))) break;
-                        }
-                    }
+                    if (!save && !confirmed) confirmed = confirmDocuments(automation, root);
                 } else {
                     AccessibilityNodeInfo file = named(root, target, false, 0);
                     sawTarget |= file != null;
-                    selected = tapDocument(automation, root, file, !target.equals("SAVE"));
-                    if (!selected && file == null && !target.equals("SAVE")) {
+                    // In the multi-file picker, select the file with a long
+                    // press and use the action bar to confirm the selection.
+                    selected = save ? tapDocument(automation, root, file)
+                        : touchDocument(automation, root, file,
+                            page ? ViewConfiguration.getLongPressTimeout() + 150 : 50);
+                    if (!selected && file == null && !save) {
                         if (!openedRoots) openedRoots = tapDocument(automation, root, named(root, "Show roots", false, 0));
                         else if (!visitedDownloads) {
                             AccessibilityNodeInfo downloads = named(root, "Downloads", false, 0);
@@ -256,7 +269,7 @@ public final class NativeJourneyProbe extends Instrumentation {
             }
             SystemClock.sleep(650);
         }
-        throw new IllegalStateException(selected ? "picker-return" : sawTarget ? "picker-activation"
+        throw new IllegalStateException(selected ? page && !confirmed ? "picker-confirmation" : "picker-return" : sawTarget ? "picker-activation"
             : sawPicker ? "picker-target" : "picker-window");
     }
 
@@ -332,7 +345,7 @@ public final class NativeJourneyProbe extends Instrumentation {
         } catch (Exception error) {
             Bundle failure = new Bundle(); failure.putString("probe", "failed");
             String reason = error.getMessage();
-            failure.putString("probeReason", reason != null && reason.matches("launch|webview|pinch-disabled|probe-timeout|native-control|native-window-(?:unfocused|bounds)|control-timeout|input-denied|picker-(?:window|target|activation|return)|accessibility-controls") ? reason : "instrumentation");
+            failure.putString("probeReason", reason != null && reason.matches("launch|webview|pinch-disabled|probe-timeout|native-control|native-window-(?:unfocused|bounds)|control-timeout|input-denied|picker-(?:window|target|activation|confirmation|return)|accessibility-controls") ? reason : "instrumentation");
             finish(Activity.RESULT_CANCELED, failure);
         } finally {
             runOnMainSync(() -> WebView.setWebContentsDebuggingEnabled(false));
