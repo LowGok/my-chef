@@ -395,7 +395,7 @@ def ios(state, stack, ca, package):
 
     runtimes = json.loads(sim("list", "devices", "available", "-j"))["devices"]
     runtime, device = next((runtime, device) for runtime, devices in runtimes.items()
-                           if runtime.endswith("iOS-26-2") for device in devices if device["name"] == "iPhone 17")
+                           if runtime.endswith("iOS-18-6") for device in devices if device["name"] == "iPhone 16")
     identifier = sim("create", "MyChef fixture", device["deviceTypeIdentifier"], runtime)
     if not re.fullmatch(r"[0-9A-Fa-f]{8}(?:-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}", identifier):
         raise RuntimeError("CoreSimulator did not return a device identifier")
@@ -476,7 +476,7 @@ def android_journeys(state, receipt, metadata, events):
         probe = state / "probe-private.log"
         if probe.is_file():
             safe = [line for line in probe.read_text(errors="replace").splitlines()
-                    if re.fullmatch(r"INSTRUMENTATION_(?:STATUS|RESULT): (?:probe=(?:ready|failed)|probeReason=(?:launch|webview|pinch-disabled|probe-timeout|instrumentation|native-control|native-window-(?:unfocused|bounds)|control-timeout|input-denied|picker-control|accessibility-controls))|INSTRUMENTATION_CODE: -?[0-9]+", line)]
+                    if re.fullmatch(r"INSTRUMENTATION_(?:STATUS|RESULT): (?:probe=(?:ready|failed)|probeReason=(?:launch|webview|pinch-disabled|probe-timeout|instrumentation|native-control|native-window-(?:unfocused|bounds)|control-timeout|input-denied|picker-(?:window|target|activation|return)|accessibility-controls))|INSTRUMENTATION_CODE: -?[0-9]+", line)]
             print("Disposable probe status: " + "; ".join(safe[-8:]), flush=True)
         raise
     print(output, flush=True)

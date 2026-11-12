@@ -2,7 +2,10 @@ package com.gkldevelopment.mychef.testing;
 
 import android.app.Activity;
 import android.app.Instrumentation;
+import android.app.UiAutomation;
+import android.accessibilityservice.AccessibilityServiceInfo;
 import android.content.Intent;
+import android.graphics.Rect;
 import android.os.Bundle;
 import android.os.SystemClock;
 import android.view.InputDevice;
@@ -10,11 +13,13 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.accessibility.AccessibilityNodeInfo;
+import android.view.accessibility.AccessibilityWindowInfo;
 import android.webkit.WebView;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.Arrays;
+import java.util.Locale;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import org.json.JSONArray;
@@ -129,11 +134,42 @@ public final class NativeJourneyProbe extends Instrumentation {
         return owner.equals("com.android.documentsui") || owner.equals("com.google.android.documentsui");
     }
 
+    private UiAutomation interactiveWindows() {
+        UiAutomation automation = getUiAutomation();
+        AccessibilityServiceInfo info = automation.getServiceInfo();
+        int flags = AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
+            | AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS;
+        if ((info.flags & flags) != flags) {
+            info.flags |= flags;
+            automation.setServiceInfo(info);
+        }
+        return automation;
+    }
+
+    private static AccessibilityNodeInfo pickerRoot(UiAutomation automation) {
+        for (AccessibilityWindowInfo window : automation.getWindows()) {
+            if (!window.isFocused() && !window.isActive()) continue;
+            AccessibilityNodeInfo root = window.getRoot();
+            if (documents(root)) return root;
+        }
+        AccessibilityNodeInfo root = automation.getRootInActiveWindow();
+        return documents(root) ? root : null;
+    }
+
+    private static boolean labelMatches(CharSequence actual, String expected) {
+        if (actual == null) return false;
+        String label = actual.toString().strip().toLowerCase(Locale.ROOT);
+        String target = expected.toLowerCase(Locale.ROOT);
+        if (label.equals(target)) return true;
+        // DocumentsUI may omit the extension or append file metadata to a tile.
+        return target.endsWith(".png") && (label.equals(target.substring(0, target.length() - 4))
+            || label.startsWith(target + ",") || label.startsWith(target + "\n"));
+    }
+
     private static AccessibilityNodeInfo named(AccessibilityNodeInfo node, String label, boolean control, int depth) {
         if (node == null || depth > 32) return null;
         if (node.isVisibleToUser() && (!control || node.isEnabled() && node.isClickable() && node.isFocusable())
-                && (label.equalsIgnoreCase(String.valueOf(node.getText()))
-                || label.equalsIgnoreCase(String.valueOf(node.getContentDescription())))) return node;
+                && (labelMatches(node.getText(), label) || labelMatches(node.getContentDescription(), label))) return node;
         for (int i = 0; i < node.getChildCount(); i++) {
             AccessibilityNodeInfo result = named(node.getChild(i), label, control, depth + 1);
             if (result != null) return result;
@@ -149,25 +185,58 @@ public final class NativeJourneyProbe extends Instrumentation {
         return false;
     }
 
+    private static boolean tapDocument(UiAutomation automation, AccessibilityNodeInfo root, AccessibilityNodeInfo node) {
+        if (!documents(node) || !node.isVisibleToUser() || !node.isEnabled()) return false;
+        if (clickDocuments(node)) return true;
+        Rect area = new Rect(), window = new Rect();
+        node.getBoundsInScreen(area);
+        root.getBoundsInScreen(window);
+        if (area.isEmpty() || !window.contains(area.centerX(), area.centerY())) return false;
+        long down = SystemClock.uptimeMillis();
+        for (int action : new int[]{MotionEvent.ACTION_DOWN, MotionEvent.ACTION_UP}) {
+            MotionEvent event = MotionEvent.obtain(down, SystemClock.uptimeMillis(), action,
+                area.centerX(), area.centerY(), 0);
+            event.setSource(InputDevice.SOURCE_TOUCHSCREEN);
+            try { if (!automation.injectInputEvent(event, true)) return false; }
+            finally { event.recycle(); }
+        }
+        return true;
+    }
+
     private void selectSystemDocument(String target) {
+        UiAutomation automation = interactiveWindows();
         long end = SystemClock.uptimeMillis() + 30_000;
-        boolean selected = false;
+        boolean sawPicker = false, sawTarget = false, selected = false;
+        boolean openedRoots = false, visitedDownloads = false;
         while (SystemClock.uptimeMillis() < end) {
-            AccessibilityNodeInfo root = getUiAutomation().getRootInActiveWindow();
-            if (selected && root != null && getTargetContext().getPackageName().equals(String.valueOf(root.getPackageName()))) return;
-            if (documents(root)) {
+            AccessibilityNodeInfo root = pickerRoot(automation);
+            if (selected && root == null) {
+                boolean[] appFocused = {false};
+                runOnMainSync(() -> appFocused[0] = web.isShown() && web.hasWindowFocus());
+                if (appFocused[0]) return;
+            }
+            if (root != null) {
+                sawPicker = true;
                 if (selected) {
-                    if (target.equals("native-page.png")) clickDocuments(named(root, "Open", true, 0));
-                } else if (clickDocuments(named(root, target, false, 0))) selected = true;
-                else if (!target.equals("SAVE")) {
-                    if (!clickDocuments(named(root, "Downloads", false, 0))
-                            && !clickDocuments(named(root, "Download", false, 0)))
-                        clickDocuments(named(root, "Show roots", false, 0));
+                    if (target.equals("native-page.png")) tapDocument(automation, root, named(root, "Open", true, 0));
+                } else {
+                    AccessibilityNodeInfo file = named(root, target, false, 0);
+                    sawTarget |= file != null;
+                    selected = tapDocument(automation, root, file);
+                    if (!selected && file == null && !target.equals("SAVE")) {
+                        if (!openedRoots) openedRoots = tapDocument(automation, root, named(root, "Show roots", false, 0));
+                        else if (!visitedDownloads) {
+                            AccessibilityNodeInfo downloads = named(root, "Downloads", false, 0);
+                            if (downloads == null) downloads = named(root, "Download", false, 0);
+                            visitedDownloads = tapDocument(automation, root, downloads);
+                        }
+                    }
                 }
             }
             SystemClock.sleep(650);
         }
-        throw new IllegalStateException("picker-control");
+        throw new IllegalStateException(selected ? "picker-return" : sawTarget ? "picker-activation"
+            : sawPicker ? "picker-target" : "picker-window");
     }
 
     private void checkAccessibility(String group) {
@@ -242,7 +311,7 @@ public final class NativeJourneyProbe extends Instrumentation {
         } catch (Exception error) {
             Bundle failure = new Bundle(); failure.putString("probe", "failed");
             String reason = error.getMessage();
-            failure.putString("probeReason", reason != null && reason.matches("launch|webview|pinch-disabled|probe-timeout|native-control|native-window-(?:unfocused|bounds)|control-timeout|input-denied|picker-control|accessibility-controls") ? reason : "instrumentation");
+            failure.putString("probeReason", reason != null && reason.matches("launch|webview|pinch-disabled|probe-timeout|native-control|native-window-(?:unfocused|bounds)|control-timeout|input-denied|picker-(?:window|target|activation|return)|accessibility-controls") ? reason : "instrumentation");
             finish(Activity.RESULT_CANCELED, failure);
         } finally {
             runOnMainSync(() -> WebView.setWebContentsDebuggingEnabled(false));
