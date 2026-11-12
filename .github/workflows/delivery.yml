@@ -4,6 +4,17 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
+    inputs:
+      package-operation:
+        description: 'Private GHCR package initialization or first release'
+        type: choice
+        required: true
+        options: [initialize, release]
+      expected-commit:
+        description: 'Exact approved main commit SHA'
+        type: string
+        required: true
 
 permissions:
   contents: read
@@ -110,9 +121,69 @@ jobs:
           dry-run: 'true'
           configFilePath: gitversion.yml
 
+  package-plan:
+    if: >-
+      github.repository == 'LowGok/my-chef' &&
+      github.repository_id == '1454481532' && github.event.repository.private == false &&
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      operation: ${{ steps.plan.outputs.operation }}
+      project: ${{ steps.plan.outputs.project }}
+      image: ${{ steps.plan.outputs.image }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - name: Check the approved package operation
+        id: plan
+        env:
+          PACKAGE_STATE: ${{ vars.MYCHEF_GHCR_PACKAGE_STATE }}
+          PACKAGE_OPERATION: ${{ inputs.package-operation }}
+          PACKAGE_EXPECTED_SHA: ${{ inputs.expected-commit }}
+          PACKAGE_APPROVED_SHA: ${{ vars.MYCHEF_GHCR_INITIALIZE_SHA }}
+        run: python3 scripts/container_release.py plan
+
+  package-initialize:
+    if: needs.package-plan.outputs.operation == 'initialize'
+    needs: [package-plan]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - name: Create an empty OCI marker without application files
+        id: marker
+        run: python3 scripts/container_release.py marker
+      - name: Initialize the private package by digest only
+        id: seed
+        uses: michielvha/docker-release-action@8b89bc6484d5cf1d1e298b61109ca65836e52c2c # reviewed PR 12; unreleased
+        with:
+          registry: ghcr.io
+          username: lowgok
+          password: ${{ github.token }}
+          project: ${{ needs.package-plan.outputs.project }}
+          context: ${{ steps.marker.outputs.context }}
+          matrix-mode: build
+      - name: Report the marker digest for package verification
+        env:
+          PACKAGE_IMAGE: ${{ needs.package-plan.outputs.image }}
+          MARKER_DIGEST: ${{ steps.seed.outputs.image-digest }}
+        run: |
+          [[ "$MARKER_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          printf 'Initialized marker: `%s@%s`\n' "$PACKAGE_IMAGE" "$MARKER_DIGEST" >> "$GITHUB_STEP_SUMMARY"
+
   release:
-    if: github.repository == 'LowGok/my-chef' && github.ref == 'refs/heads/main' && github.event_name == 'push'
-    needs: [checks, tooling-checks, container]
+    if: needs.package-plan.outputs.operation == 'release'
+    needs: [checks, tooling-checks, container, package-plan]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -153,7 +224,7 @@ jobs:
           registry: ghcr.io
           username: lowgok
           password: ${{ github.token }}
-          project: my-chef
+          project: ${{ needs.package-plan.outputs.project }}
           version: ${{ steps.version.outputs.semVer }}
           platforms: linux/amd64
           context: .
@@ -193,9 +264,11 @@ jobs:
       - name: Exercise the published digest
         if: steps.preflight.outputs.publish == 'true'
         env:
-          MYCHEF_CONTAINER_IMAGE: ghcr.io/lowgok/my-chef@${{ steps.publish.outputs.release-digest }}
+          MYCHEF_CONTAINER_IMAGE: ${{ needs.package-plan.outputs.image }}@${{ steps.publish.outputs.release-digest }}
           MYCHEF_RELEASE_VERSION: ${{ steps.version.outputs.semVer }}
-        run: python3 scripts/test_rewrite_container.py
+        run: |
+          docker --host=unix:///var/run/docker.sock pull "$MYCHEF_CONTAINER_IMAGE"
+          python3 scripts/test_rewrite_container.py
       - name: Record the verified image
         if: steps.preflight.outputs.publish == 'true'
         env:

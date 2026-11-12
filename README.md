@@ -52,7 +52,10 @@ their respective licenses and notices. Licensing requests may be directed to
 
 Delivery runs the retained app, dependency, browser, database and container checks
 for pull requests and main. PR version previews run without publication.
-Canonical main pushes can publish a new exact-version GHCR image after checks.
+Canonical main pushes can publish a new exact-version image to the private
+`ghcr.io/lowgok/my-chef-app` package after its access is verified and automatic
+publication is enabled. First publication uses a separate owner dispatch at the
+approved main commit. Normal pushes cannot initialize the package.
 The release uses Conventional Commit versioning, a clean-history floor of 0.16.1,
 blocking vulnerability scans, an SPDX SBOM, keyless signing and attestations.
 The shared publisher pushes its image before scanning, so a failed scan can leave
