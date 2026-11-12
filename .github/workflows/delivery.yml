@@ -266,7 +266,9 @@ jobs:
         env:
           MYCHEF_CONTAINER_IMAGE: ${{ needs.package-plan.outputs.image }}@${{ steps.publish.outputs.release-digest }}
           MYCHEF_RELEASE_VERSION: ${{ steps.version.outputs.semVer }}
-        run: python3 scripts/test_rewrite_container.py
+        run: |
+          docker --host=unix:///var/run/docker.sock pull "$MYCHEF_CONTAINER_IMAGE"
+          python3 scripts/test_rewrite_container.py
       - name: Record the verified image
         if: steps.preflight.outputs.publish == 'true'
         env:

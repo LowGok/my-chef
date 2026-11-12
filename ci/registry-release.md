@@ -9,12 +9,16 @@ Delivery holds publication while `MYCHEF_GHCR_PACKAGE_STATE` is unset. The
 initialization job runs only on canonical `main`, after the owner dispatches
 it for the exact SHA in `MYCHEF_GHCR_INITIALIZE_SHA`. Its build context is an
 empty OCI marker. It pushes only by digest and creates no application image,
-release tag or `latest` alias. Verify private package visibility and repository
-association before dispatching the separate first release for that same SHA.
+release tag or `latest` alias. Before dispatching the first release for that
+SHA, verify private visibility and repository association. Check [package access
+settings](https://docs.github.com/en/packages/learn-github-packages/configuring-a-packages-access-control-and-visibility#selecting-whether-a-package-inherits-permissions-from-a-repository)
+separately. Remove public repository permission inheritance and grant only the
+canonical repository's Actions workflow the package access it needs. Do not
+store private source or preview inputs in this package.
 
 The first release must pass application and container checks, the registry
 preflight, the blocking vulnerability scan, signing, SBOM and provenance
-attestations, and runtime smoke against the published digest. Keep the
+attestations, and an authenticated pull and runtime smoke against the published digest. Keep the
 release receipt. Once that succeeds, set the package state to `ready` and
 clear the initialization SHA. This enables ordinary main releases and
 disables manual initialization. If publication fails, leave it held and
