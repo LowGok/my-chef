@@ -9,8 +9,9 @@ import {
   type Page,
 } from "../web/node_modules/@playwright/test";
 import { join } from "node:path";
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, unlink, writeFile } from "node:fs/promises";
 import { safeJourneyError } from "./native-android-report";
+import { addDays, monday } from "../web/src/dates";
 import {
   fillPersonalDraft,
   personalPhoto,
@@ -576,7 +577,6 @@ try {
       // again. Select the route while offline, then reconnect on that route.
       await button("Profile").click();
       await expect(button("Profile")).toHaveAttribute("aria-current", "page");
-      const { unlink } = await import("node:fs/promises");
       await unlink(join(state, "native-network-offline"));
       adb("shell", "svc", "wifi", "enable");
       adb("shell", "svc", "data", "enable");
@@ -779,8 +779,109 @@ try {
       await check.check();
     await activate("Save");
     await expect(page.locator(".personal-detail")).toBeVisible();
-    await profile();
   });
+  await check(
+    "imported shopping stays in memory across offline relaunch",
+    async () => {
+      const date = await page.evaluate(() => {
+        const local = new Date();
+        return [
+          local.getFullYear(),
+          String(local.getMonth() + 1).padStart(2, "0"),
+          String(local.getDate()).padStart(2, "0"),
+        ].join("-");
+      });
+      const importedWeek = addDays(monday(date), 7);
+      await button("Add to next week").click();
+      await expect(
+        page.getByRole("status").filter({ hasText: "Added to next week." }),
+      ).toBeVisible();
+      await button("Meals").click();
+      await button("Plan a menu").click();
+      await page
+        .getByLabel("First meal date", { exact: true })
+        .fill(importedWeek);
+      await page.getByLabel("Number of meals", { exact: true }).fill("1");
+      await activate("Review menu");
+      await expect(
+        page
+          .locator(".planner li")
+          .filter({ hasText: "Carrot soup" })
+          .locator(".personal-version")
+          .first(),
+      ).toBeVisible();
+      await activate("Plan my week");
+      await expect(button("Open Carrot soup")).toBeVisible({ timeout: 60_000 });
+      await button("Shopping list").click();
+      await expect.poll(shoppingWeekInUrl).toBe(importedWeek);
+      const tabNotice = () =>
+        page.getByText(
+          "This list stays in this tab. Keep it open until changes are saved.",
+          { exact: true },
+        );
+      const stock = () => page.getByText(/^vegetable stock$/i);
+      const extra = "Temporary imported-list nutmeg";
+      await expect(tabNotice()).toBeVisible();
+      await expect(stock()).toBeVisible();
+      const marker = join(state, "native-network-offline");
+      await writeFile(marker, "offline");
+      try {
+        adb("shell", "svc", "wifi", "disable");
+        adb("shell", "svc", "data", "disable");
+        await expect(
+          page.getByText(
+            "Offline · Keep this tab open until your changes are saved.",
+            { exact: true },
+          ),
+        ).toBeVisible();
+        await extras(extra);
+        await expect(page.getByText(extra, { exact: true })).toBeVisible();
+        await expect(
+          page.locator(".shopping-progress [role=status]"),
+        ).toHaveText("Pending sync · 1 change");
+        adb("shell", "am", "force-stop", app);
+        await device?.close().catch(() => undefined);
+        await connect();
+        stage = "imported shopping after offline relaunch";
+        await expect(
+          page.getByText(
+            "Connect to load your shopping list for the first time.",
+            {
+              exact: true,
+            },
+          ),
+        ).toBeVisible();
+        await expect(button("Shopping list")).toHaveCount(0);
+        await expect(stock()).toHaveCount(0);
+        await expect(page.getByText(extra, { exact: true })).toHaveCount(0);
+      } finally {
+        await unlink(marker);
+        adb("shell", "svc", "wifi", "enable");
+        adb("shell", "svc", "data", "enable");
+      }
+      stage = "imported shopping reloads only after reconnect";
+      adb("shell", "input", "keyevent", "3");
+      adb("shell", "am", "start", "-n", app + "/.MainActivity");
+      await button("Shopping list").click();
+      await expect(page.locator(".shopping-heading")).toBeVisible();
+      for (let step = 0; step < 3; step++) {
+        const shown = await shoppingWeekInUrl();
+        expect(shown).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+        if (shown === importedWeek) break;
+        await button(
+          shown < importedWeek
+            ? "Next shopping week"
+            : "Previous shopping week",
+        ).click();
+        await expect.poll(shoppingWeekInUrl).not.toBe(shown);
+      }
+      await expect.poll(shoppingWeekInUrl).toBe(importedWeek);
+      await expect(tabNotice()).toBeVisible();
+      await expect(stock()).toBeVisible();
+      await expect(page.getByText(extra, { exact: true })).toHaveCount(0);
+      await profile();
+    },
+  );
   await check(
     "system recipe-page picker consent and source/dish separation",
     async () => {
