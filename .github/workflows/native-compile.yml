@@ -30,7 +30,7 @@ jobs:
       max-parallel: ${{ github.event.label.name == 'native-installed' && 2 || 1 }}
       matrix:
         platform: ${{ fromJSON(github.event.label.name == 'native-installed' && '["android","ios-simulator"]' || github.event.label.name == 'native-installed-android' && '["android"]' || github.event.label.name == 'native-installed-ios-simulator' && '["ios-simulator"]' || '["android","ios-simulator","ios-device"]') }}
-    runs-on: ${{ matrix.platform == 'android' && 'ubuntu-24.04' || matrix.platform == 'ios-simulator' && 'macos-26-intel' || 'macos-26' }}
+    runs-on: ${{ matrix.platform == 'android' && 'ubuntu-24.04' || matrix.platform == 'ios-simulator' && 'macos-15' || 'macos-26' }}
     timeout-minutes: 25
     env:
       CI: "1"

@@ -27,7 +27,7 @@ ORIGIN = "https://localhost:8977"
 ENV = {k: v for k, v in os.environ.items() if k in {
     "PATH", "HOME", "USER", "LOGNAME", "TMPDIR", "LANG", "ANDROID_HOME", "ANDROID_SDK_ROOT"
 }}
-ENV.update(DEVELOPER_DIR="/Applications/Xcode_26.6.app/Contents/Developer", GOTOOLCHAIN="go1.27.4", CGO_ENABLED="0")
+ENV.update(DEVELOPER_DIR="/Applications/Xcode_26.3.app/Contents/Developer", GOTOOLCHAIN="go1.27.4", CGO_ENABLED="0")
 
 
 def command(*argv, timeout=90, data=None):
@@ -376,7 +376,7 @@ def ios(state, stack, ca, package):
 
     runtimes = json.loads(sim("list", "devices", "available", "-j"))["devices"]
     runtime, device = next((runtime, device) for runtime, devices in runtimes.items()
-                           if runtime.endswith("iOS-26-5") for device in devices if device["name"] == "iPhone 17")
+                           if runtime.endswith("iOS-26-2") for device in devices if device["name"] == "iPhone 17")
     identifier = sim("create", "MyChef fixture", device["deviceTypeIdentifier"], runtime)
     if not re.fullmatch(r"[0-9A-Fa-f]{8}(?:-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}", identifier):
         raise RuntimeError("CoreSimulator did not return a device identifier")

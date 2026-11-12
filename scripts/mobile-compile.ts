@@ -20,6 +20,10 @@ import { nativeBuildPlan, verifyCopiedNativeAssets } from "./mobile-hosted";
 type Platform = "android" | "ios-simulator" | "ios-device";
 // Build 1 is already installed through owner-only TestFlight.
 const compilationVersion = { version: "0.1.0", build: 2 } as const;
+const xcode = {
+  "ios-simulator": { version: "26.3", build: "17C529" },
+  "ios-device": { version: "26.6", build: "17F113" },
+} as const;
 const stop = () => {
   throw new Error("Compile-only authorization or source identity is invalid.");
 };
@@ -160,7 +164,7 @@ async function compile() {
   ])
     if (process.env[key]) env[key] = process.env[key]!;
   if (input.platform !== "android")
-    env.DEVELOPER_DIR = "/Applications/Xcode_26.6.app/Contents/Developer";
+    env.DEVELOPER_DIR = `/Applications/Xcode_${xcode[input.platform].version}.app/Contents/Developer`;
   else {
     if (!process.env.JAVA_HOME_21_X64) stop();
     env.JAVA_HOME = process.env.JAVA_HOME_21_X64;
@@ -217,7 +221,7 @@ async function compile() {
         : run(["java", "-version"]);
     if (
       input.platform !== "android"
-        ? tool !== "Xcode 26.6\nBuild version 17F113"
+        ? tool !== `Xcode ${xcode[input.platform].version}\nBuild version ${xcode[input.platform].build}`
         : !/version "21\.0\.13"/.test(tool)
     )
       stop();
