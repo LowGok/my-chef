@@ -37,6 +37,7 @@ class NativeVerificationTest(unittest.TestCase):
             native_groups = []
             incomplete = True
             counts = {"core": 7, "media": 5, "pages": 1, "account": 4}
+            page_check = "system recipe-page picker consent and source/dish separation"
             source = {"sourceCommit": "b" * 40}
             build = {"candidate": source, "artifactSha256": "c" * 64}
 
@@ -47,7 +48,8 @@ class NativeVerificationTest(unittest.TestCase):
                     if incomplete and group == "media":
                         raise RuntimeError("Synthetic picker failure")
                     (root / f"native-android-journeys-{group}.json").write_text(json.dumps({
-                        "group": group, "passed": [f"{group} check {i}" for i in range(counts[group])],
+                        "group": group, "passed": [page_check] if group == "pages"
+                        else [f"{group} check {i}" for i in range(counts[group])],
                     }))
                 return "Success"
 
@@ -68,6 +70,7 @@ class NativeVerificationTest(unittest.TestCase):
             self.assertEqual(result["source"], source)
             self.assertEqual(result["artifactSha256"], build["artifactSha256"])
             self.assertEqual({group: len(names) for group, names in result["groups"].items()}, counts)
+            self.assertIn(page_check, result["passed"])
 
     def test_wrong_simulator_archive_stops_before_a_device_is_opened(self):
         with tempfile.TemporaryDirectory() as temporary:

@@ -498,7 +498,7 @@ def android_journeys(state, receipt, metadata, events):
             checks = result.get("passed") if isinstance(result, dict) else None
             if (not isinstance(result, dict) or result.get("group") != group
                     or not isinstance(checks, list) or len(checks) != count
-                    or not all(isinstance(check, str) and re.fullmatch(r"[A-Za-z0-9 -]{1,100}", check) for check in checks)
+                    or not all(isinstance(check, str) and re.fullmatch(r"[A-Za-z0-9 /-]{1,100}", check) for check in checks)
                     or len(set(checks)) != count):
                 raise RuntimeError("Installed Android group receipt is incomplete")
             passed[group] = checks
