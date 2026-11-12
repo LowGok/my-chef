@@ -98,7 +98,9 @@ async function connect() {
   stage = "attach Android WebView";
   page = await webview.page();
   page.on("pageerror", (error) => {
-    browserErrors.push(safeJourneyError(error, "browser exception", privateValues));
+    browserErrors.push(
+      safeJourneyError(error, "browser exception", privateValues),
+    );
     if (browserErrors.length > 4) browserErrors.shift();
   });
   page.setDefaultTimeout(30_000);
@@ -116,7 +118,7 @@ const button = (name: string) =>
   page.getByRole("button", { name, exact: true });
 let controlSequence = 0;
 function probeCommand(value: string) {
-  if (!/^(pinch|activate:[1-9][0-9]{0,3}:[A-Za-z ]{1,50})$/.test(value))
+  if (!/^(pinch|activate:[1-9][0-9]{0,3}:[A-Za-z -]{1,50})$/.test(value))
     throw new Error("Invalid disposable probe command.");
   const result = Bun.spawnSync(
     [
@@ -144,8 +146,14 @@ function probeCommand(value: string) {
   );
 }
 async function activateControl(control: Locator, name: string) {
-  await expect(control, name + " must be visible for a native tap").toBeVisible();
-  await expect(control, name + " must be enabled for a native tap").toBeEnabled();
+  await expect(
+    control,
+    name + " must be visible for a native tap",
+  ).toBeVisible();
+  await expect(
+    control,
+    name + " must be enabled for a native tap",
+  ).toBeEnabled();
   if (name !== "Current password") {
     await page.evaluate(() => {
       const field = document.activeElement;
@@ -222,14 +230,24 @@ async function login(password = account.password) {
 async function nativeUI(mode: "picker" | "accessibility", target: string) {
   const result = Bun.spawnSync(
     ["python3", "scripts/native_android_probe.py", mode, target],
-    { stdout: "ignore", stderr: "ignore" },
+    { stdout: "pipe", stderr: "ignore" },
   );
-  if (result.exitCode)
+  if (result.exitCode) {
+    const focus = result.stdout.toString().trim();
     throw new Error(
-      "Disposable native UI check failed: " + mode + " " + target,
+      "Disposable native UI check failed: " +
+        mode +
+        " " +
+        target +
+        (/^(app|documents|system-ui-anr|other|unknown)$/.test(focus)
+          ? "; focus: " + focus
+          : ""),
     );
+  }
 }
 const picker = (target: string) => nativeUI("picker", target);
+const choosePhoto = (label: "Choose recipe photo" | "Recipe-page photos") =>
+  activateControl(page.getByLabel(label, { exact: true }), label);
 async function extras(name: string) {
   const disclosure = page.locator(".shopping-add");
   if ((await disclosure.getAttribute("open")) === null)
@@ -330,10 +348,7 @@ try {
           "storage",
           "Secure storage is unavailable. Unlock your device and try again.",
         ],
-        [
-          "connection",
-          interruptedConnection,
-        ],
+        ["connection", interruptedConnection],
         ["request", "The request could not be completed. Please try again."],
         ["session", "Please sign in."],
       ]) {
@@ -363,7 +378,9 @@ try {
       if (await page.getByText(interruptedConnection, { exact: true }).count())
         throw new Error("Planner review stopped on a connection interruption.");
       if (await page.getByRole("alert").count())
-        throw new Error("Planner review displayed a validation or request error.");
+        throw new Error(
+          "Planner review displayed a validation or request error.",
+        );
       throw error;
     }
     await activate("Plan my week");
@@ -384,9 +401,12 @@ try {
     await rating.selectOption("5");
     await activate("Save rating");
     await expect(
-      page.getByText("Rating saved. Save this reference if you need it later.", {
-        exact: true,
-      }),
+      page.getByText(
+        "Rating saved. Save this reference if you need it later.",
+        {
+          exact: true,
+        },
+      ),
     ).toBeVisible();
   });
   await check(
@@ -572,13 +592,13 @@ try {
       await openLibrary();
       await button("Create a recipe").click();
       await fillPersonalDraft(page);
-      await page.getByLabel("Choose recipe photo", { exact: true }).click();
+      await choosePhoto("Choose recipe photo");
       await picker("CANCEL");
       await expect(page.locator(".personal-editor")).toBeVisible();
       const image = join(state, "native-dish.png");
       await writeFile(image, personalPhoto);
       adb("push", image, "/sdcard/Download/native-dish.png");
-      await page.getByLabel("Choose recipe photo", { exact: true }).click();
+      await choosePhoto("Choose recipe photo");
       await picker("native-dish.png");
       await expect(page.locator(".personal-photo-preview img")).toBeVisible();
       const droppedResponse = join(state, "native-personal-save-drop");
@@ -655,7 +675,7 @@ try {
       const source = join(state, "native-page.png");
       await writeFile(source, Buffer.from(encoded, "base64"));
       adb("push", source, "/sdcard/Download/native-page.png");
-      await page.getByLabel("Recipe-page photos", { exact: true }).click();
+      await choosePhoto("Recipe-page photos");
       await picker("native-page.png");
       await page
         .getByRole("checkbox", {

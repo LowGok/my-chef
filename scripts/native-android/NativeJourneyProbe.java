@@ -71,14 +71,20 @@ public final class NativeJourneyProbe extends Instrumentation {
     private void activate(String label) throws Exception {
         if (!Arrays.asList("Save preferences", "Save password", "Send feedback", "Save rating", "Save", "Retry save",
                 "Review menu", "Plan my week", "Add extra", "Check page", "Read recipe pages",
-                "Download ZIP", "Permanently delete account", "Current password").contains(label))
+                "Download ZIP", "Permanently delete account", "Current password",
+                "Choose recipe photo", "Recipe-page photos").contains(label))
             throw new IllegalStateException("native-control");
         double[][] point = {null};
         CountDownLatch evaluated = new CountDownLatch(1);
-        String selector = label.equals("Current password")
-            ? "[...document.querySelectorAll('dialog[open] input[name=currentPassword]')].filter(n=>!n.disabled&&n.getClientRects().length)"
-            : "[...document.querySelectorAll('button')].filter(n=>(n.textContent||'').trim()==="
-                + JSONObject.quote(label) + "&&!n.disabled&&n.getClientRects().length)";
+        String quotedLabel = JSONObject.quote(label);
+        String selector = switch (label) {
+            case "Current password" -> "[...document.querySelectorAll('dialog[open] input[name=currentPassword]')].filter(n=>!n.disabled&&n.getClientRects().length)";
+            case "Choose recipe photo", "Recipe-page photos" ->
+                "[...document.querySelectorAll('input[type=button]')].filter(n=>!n.disabled&&n.getClientRects().length&&[...n.labels].some(l=>(l.textContent||'').trim()==="
+                    + quotedLabel + "))";
+            default -> "[...document.querySelectorAll('button')].filter(n=>(n.textContent||'').trim()==="
+                + quotedLabel + "&&!n.disabled&&n.getClientRects().length)";
+        };
         String expression = "(() => {const nodes=" + selector + ";"
             + "if(nodes.length!==1)return null;const r=nodes[0].getBoundingClientRect(),v=visualViewport;"
             + "return [r.x+r.width/2,r.y+r.height/2,v?v.offsetLeft:0,v?v.offsetTop:0,v?v.width:innerWidth,v?v.height:innerHeight]})()";
@@ -150,7 +156,7 @@ public final class NativeJourneyProbe extends Instrumentation {
                     String value = new String(Files.readAllBytes(command.toPath()), StandardCharsets.UTF_8).trim();
                     command.delete();
                     if (value.equals("pinch")) pinch();
-                    else if (value.matches("activate:[1-9][0-9]{0,3}:[A-Za-z ]{1,50}")) {
+                    else if (value.matches("activate:[1-9][0-9]{0,3}:[A-Za-z -]{1,50}")) {
                         String[] parts = value.split(":", 3);
                         activate(parts[2]);
                         Files.write(done.toPath(), parts[1].getBytes(StandardCharsets.UTF_8));

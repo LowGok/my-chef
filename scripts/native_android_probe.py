@@ -10,6 +10,7 @@ import zipfile
 
 APP = "com.gkldevelopment.mychef.preview"
 SYSTEM_UI_ANR = "Application Not Responding: com.android.systemui"
+SYSTEM_PICKERS = ("com.android.documentsui", "com.google.android.documentsui")
 
 
 def build(state, sdk, run):
@@ -118,14 +119,12 @@ def picker(filename):
     adb, snapshot = _adb, _snapshot
     deadline = time.monotonic() + 35
 
-    system_pickers = ("com.android.documentsui", "com.google.android.documentsui")
-
     def returned_to_app(cancel=False):
         while time.monotonic() < deadline:
             nodes = snapshot()
             if any(node.get("package") == APP for node in nodes):
                 return
-            if cancel and any(node.get("package") in system_pickers for node in nodes):
+            if cancel and any(node.get("package") in SYSTEM_PICKERS for node in nodes):
                 # The first Back can dismiss the filename keyboard alone.
                 adb("shell", "input", "keyevent", "4")
             time.sleep(.5)
@@ -134,7 +133,7 @@ def picker(filename):
     while time.monotonic() < deadline:
         nodes = snapshot()
         if filename == "CANCEL":
-            if any(node.get("package") in system_pickers for node in nodes):
+            if any(node.get("package") in SYSTEM_PICKERS for node in nodes):
                 adb("shell", "input", "keyevent", "4")
                 returned_to_app(cancel=True)
                 return
@@ -158,8 +157,30 @@ def picker(filename):
     raise RuntimeError("Synthetic OS picker target was not available")
 
 
+def picker_focus():
+    """Report only whether a known window owns focus, without window details."""
+    try:
+        window = focused_window(_adb)
+    except (OSError, subprocess.SubprocessError):
+        return "unknown"
+    owner = window.split("/", 1)[0]
+    if owner == APP:
+        return "app"
+    if owner in SYSTEM_PICKERS:
+        return "documents"
+    if window == SYSTEM_UI_ANR:
+        return "system-ui-anr"
+    return "other" if window else "unknown"
+
+
 if __name__ == "__main__":
     operations = {"picker": picker, "accessibility": accessibility}
     if len(sys.argv) != 3 or sys.argv[1] not in operations:
         raise SystemExit("Only disposable native UI checks are executable directly")
-    operations[sys.argv[1]](sys.argv[2])
+    mode = sys.argv[1]
+    try:
+        operations[mode](sys.argv[2])
+    except (OSError, RuntimeError, subprocess.SubprocessError):
+        if mode == "picker":
+            print(picker_focus())
+        raise SystemExit(1)
