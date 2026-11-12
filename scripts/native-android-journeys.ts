@@ -118,7 +118,11 @@ const button = (name: string) =>
   page.getByRole("button", { name, exact: true });
 let controlSequence = 0;
 function probeCommand(value: string) {
-  if (!/^(pinch|activate:[1-9][0-9]{0,3}:[A-Za-z -]{1,50})$/.test(value))
+  if (
+    !/^(pinch|activate:[1-9][0-9]{0,3}:[A-Za-z -]{1,50}|document:[1-9][0-9]{0,3}:(?:SAVE|native-(?:dish|page)\.png)|accessibility:[1-9][0-9]{0,3}:(?:nav|export-dialog))$/.test(
+      value,
+    )
+  )
     throw new Error("Invalid disposable probe command.");
   const result = Bun.spawnSync(
     [
@@ -144,6 +148,28 @@ function probeCommand(value: string) {
     "cache/native-check-pending",
     "cache/native-check-command",
   );
+}
+async function probeAction(
+  kind: "activate" | "document" | "accessibility",
+  name: string,
+) {
+  const sequence = String(++controlSequence);
+  probeCommand(kind + ":" + sequence + ":" + name);
+  await expect
+    .poll(
+      () => {
+        try {
+          return adb("shell", "run-as", app, "cat", "cache/native-check-done");
+        } catch {
+          return "";
+        }
+      },
+      {
+        timeout: 40_000,
+        message: "Disposable Android probe: " + kind + " " + name,
+      },
+    )
+    .toBe(sequence);
 }
 async function activateControl(control: Locator, name: string) {
   await expect(
@@ -194,17 +220,7 @@ async function activateControl(control: Locator, name: string) {
       { message: name + " must own its center point in the native WebView" },
     )
     .toBe(true);
-  const sequence = String(++controlSequence);
-  probeCommand("activate:" + sequence + ":" + name);
-  await expect
-    .poll(() => {
-      try {
-        return adb("shell", "run-as", app, "cat", "cache/native-check-done");
-      } catch {
-        return "";
-      }
-    })
-    .toBe(sequence);
+  await probeAction("activate", name);
 }
 
 const activate = (name: string) => activateControl(button(name), name);
@@ -248,9 +264,15 @@ async function login(password = account.password) {
   await button("Sign in to MyChef").click();
   await expect(button("Profile")).toBeVisible();
 }
-async function nativeUI(mode: "picker" | "accessibility", target: string) {
+async function picker(
+  target: "CANCEL" | "SAVE" | "native-dish.png" | "native-page.png",
+) {
+  if (target !== "CANCEL") {
+    await probeAction("document", target);
+    return;
+  }
   const result = Bun.spawnSync(
-    ["python3", "scripts/native_android_probe.py", mode, target],
+    ["python3", "scripts/native_android_probe.py", "cancel-picker"],
     { stdout: "pipe", stderr: "ignore" },
   );
   if (result.exitCode) {
@@ -261,17 +283,33 @@ async function nativeUI(mode: "picker" | "accessibility", target: string) {
         /^(adb-missing|adb-timeout|adb-command-failed|picker-timeout):(app|documents|system-ui-anr|other|unknown)$/,
       );
     throw new Error(
-      "Disposable native UI check failed: " +
-        mode +
-        " " +
-        target +
+      "Disposable picker cancellation failed" +
         (details ? "; " + details[1] + "; focus: " + details[2] : ""),
     );
   }
 }
-const picker = (target: string) => nativeUI("picker", target);
 const choosePhoto = (label: "Choose recipe photo" | "Recipe-page photos") =>
   activateControl(page.getByLabel(label, { exact: true }), label);
+async function stagePhoto(
+  path: string,
+  name: "native-dish.png" | "native-page.png",
+) {
+  const destination = "/sdcard/Download/" + name;
+  adb("push", path, destination);
+  const indexed = adb(
+    "shell",
+    "content",
+    "call",
+    "--uri",
+    "content://media",
+    "--method",
+    "scan_file",
+    "--arg",
+    destination,
+  );
+  if (!/content:\/\/media\/external(?:_primary)?\/[^\s}\]]+/.test(indexed))
+    throw new Error("Synthetic photo is missing from Android MediaStore.");
+}
 async function extras(name: string) {
   const disclosure = page.locator(".shopping-add");
   if ((await disclosure.getAttribute("open")) === null)
@@ -629,7 +667,7 @@ try {
   await check("OS photo picker attaches a dish photo", async () => {
     const image = join(state, "native-dish.png");
     await writeFile(image, personalPhoto);
-    adb("push", image, "/sdcard/Download/native-dish.png");
+    await stagePhoto(image, "native-dish.png");
     await choosePhoto("Choose recipe photo");
     await picker("native-dish.png");
     await expect(
@@ -712,7 +750,7 @@ try {
       });
       const source = join(state, "native-page.png");
       await writeFile(source, Buffer.from(encoded, "base64"));
-      adb("push", source, "/sdcard/Download/native-page.png");
+      await stagePhoto(source, "native-page.png");
       await choosePhoto("Recipe-page photos");
       await picker("native-page.png");
       await page
@@ -778,7 +816,7 @@ try {
       exact: true,
     });
     const input = dialog.getByLabel("Current password", { exact: true });
-    await nativeUI("accessibility", "export-dialog");
+    await probeAction("accessibility", "export-dialog");
     const initialScale = await page.evaluate(() => visualViewport?.scale ?? 1);
     await activateControl(input, "Current password");
     await expect(input).toBeFocused();
@@ -808,7 +846,7 @@ try {
       document.documentElement.style.fontSize = "";
       window.scrollTo(0, 0);
     });
-    await nativeUI("accessibility", "nav");
+    await probeAction("accessibility", "nav");
   });
   await check("permanent account deletion clears native access", async () => {
     await button("Delete my account").click();

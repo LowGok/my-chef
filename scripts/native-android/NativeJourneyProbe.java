@@ -9,6 +9,7 @@ import android.view.InputDevice;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.accessibility.AccessibilityNodeInfo;
 import android.webkit.WebView;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
@@ -122,6 +123,70 @@ public final class NativeJourneyProbe extends Instrumentation {
         }
     }
 
+    private static boolean documents(AccessibilityNodeInfo node) {
+        if (node == null) return false;
+        String owner = String.valueOf(node.getPackageName());
+        return owner.equals("com.android.documentsui") || owner.equals("com.google.android.documentsui");
+    }
+
+    private static AccessibilityNodeInfo named(AccessibilityNodeInfo node, String label, boolean control, int depth) {
+        if (node == null || depth > 32) return null;
+        if (node.isVisibleToUser() && (!control || node.isEnabled() && node.isClickable() && node.isFocusable())
+                && (label.equalsIgnoreCase(String.valueOf(node.getText()))
+                || label.equalsIgnoreCase(String.valueOf(node.getContentDescription())))) return node;
+        for (int i = 0; i < node.getChildCount(); i++) {
+            AccessibilityNodeInfo result = named(node.getChild(i), label, control, depth + 1);
+            if (result != null) return result;
+        }
+        return null;
+    }
+
+    private static boolean clickDocuments(AccessibilityNodeInfo node) {
+        for (int depth = 0; depth < 5 && documents(node); depth++, node = node.getParent()) {
+            if (node.isVisibleToUser() && node.isEnabled() && node.isClickable())
+                return node.performAction(AccessibilityNodeInfo.ACTION_CLICK);
+        }
+        return false;
+    }
+
+    private void selectSystemDocument(String target) {
+        long end = SystemClock.uptimeMillis() + 30_000;
+        boolean selected = false;
+        while (SystemClock.uptimeMillis() < end) {
+            AccessibilityNodeInfo root = getUiAutomation().getRootInActiveWindow();
+            if (selected && root != null && getTargetContext().getPackageName().equals(String.valueOf(root.getPackageName()))) return;
+            if (documents(root)) {
+                if (selected) {
+                    if (target.equals("native-page.png")) clickDocuments(named(root, "Open", true, 0));
+                } else if (clickDocuments(named(root, target, false, 0))) selected = true;
+                else if (!target.equals("SAVE")) {
+                    if (!clickDocuments(named(root, "Downloads", false, 0))
+                            && !clickDocuments(named(root, "Download", false, 0)))
+                        clickDocuments(named(root, "Show roots", false, 0));
+                }
+            }
+            SystemClock.sleep(650);
+        }
+        throw new IllegalStateException("picker-control");
+    }
+
+    private void checkAccessibility(String group) {
+        String[] labels = group.equals("nav") ? new String[]{"Meals", "Shopping list", "Profile"}
+            : new String[]{"Cancel", "Download ZIP"};
+        long end = SystemClock.uptimeMillis() + 25_000;
+        while (SystemClock.uptimeMillis() < end) {
+            AccessibilityNodeInfo root = getUiAutomation().getRootInActiveWindow();
+            boolean ready = root != null && getTargetContext().getPackageName().equals(String.valueOf(root.getPackageName()));
+            for (String label : labels) {
+                if (!ready) break;
+                ready = named(root, label, true, 0) != null;
+            }
+            if (ready) return;
+            SystemClock.sleep(500);
+        }
+        throw new IllegalStateException("accessibility-controls");
+    }
+
     @Override public void onStart() {
         File stop = new File(getTargetContext().getCacheDir(), "native-check-finish");
         File command = new File(getTargetContext().getCacheDir(), "native-check-command");
@@ -160,6 +225,14 @@ public final class NativeJourneyProbe extends Instrumentation {
                         String[] parts = value.split(":", 3);
                         activate(parts[2]);
                         Files.write(done.toPath(), parts[1].getBytes(StandardCharsets.UTF_8));
+                    } else if (value.matches("document:[1-9][0-9]{0,3}:(SAVE|native-(dish|page)\\.png)")) {
+                        String[] parts = value.split(":", 3);
+                        selectSystemDocument(parts[2]);
+                        Files.write(done.toPath(), parts[1].getBytes(StandardCharsets.UTF_8));
+                    } else if (value.matches("accessibility:[1-9][0-9]{0,3}:(nav|export-dialog)")) {
+                        String[] parts = value.split(":", 3);
+                        checkAccessibility(parts[2]);
+                        Files.write(done.toPath(), parts[1].getBytes(StandardCharsets.UTF_8));
                     } else throw new IllegalStateException("native-control");
                 }
                 SystemClock.sleep(100);
@@ -169,7 +242,7 @@ public final class NativeJourneyProbe extends Instrumentation {
         } catch (Exception error) {
             Bundle failure = new Bundle(); failure.putString("probe", "failed");
             String reason = error.getMessage();
-            failure.putString("probeReason", reason != null && reason.matches("launch|webview|pinch-disabled|probe-timeout|native-control|native-window-(?:unfocused|bounds)|control-timeout|input-denied") ? reason : "instrumentation");
+            failure.putString("probeReason", reason != null && reason.matches("launch|webview|pinch-disabled|probe-timeout|native-control|native-window-(?:unfocused|bounds)|control-timeout|input-denied|picker-control|accessibility-controls") ? reason : "instrumentation");
             finish(Activity.RESULT_CANCELED, failure);
         } finally {
             runOnMainSync(() -> WebView.setWebContentsDebuggingEnabled(false));

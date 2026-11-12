@@ -88,82 +88,20 @@ def dismiss_system_ui_anr(adb):
     return True
 
 
-def _control_bounds(node, name):
-    if (node.get("package") != APP or
-            not (node.get("text") == name or node.get("content-desc") == name) or
-            not all(node.get(flag) == "true" for flag in ("enabled", "clickable", "focusable"))):
-        return None
-    match = re.fullmatch(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]", node.get("bounds", ""))
-    if not match:
-        return None
-    x1, y1, x2, y2 = map(int, match.groups())
-    return (x1, y1, x2, y2) if x2 > x1 and y2 > y1 else None
-
-
-def accessibility(group):
-    """Inspect real Android accessibility nodes, without saving their text."""
-    groups = {"nav": ("Meals", "Shopping list", "Profile"),
-              "export-dialog": ("Cancel", "Download ZIP")}
-    if group not in groups:
-        raise ValueError("Unsupported native accessibility group")
+def cancel_picker():
+    """Send OS Back only to the focused system picker and wait for MyChef."""
     deadline = time.monotonic() + 35
+    saw_documents = False
     while time.monotonic() < deadline:
-        nodes = _snapshot()
-        if all(any(_control_bounds(node, name) is not None for node in nodes)
-               for name in groups[group]):
+        owner = picker_focus()
+        if saw_documents and owner == "app":
             return
+        if owner == "documents":
+            saw_documents = True
+            # The first Back can dismiss the filename keyboard alone.
+            _adb("shell", "input", "keyevent", "4")
         time.sleep(.5)
-    raise RuntimeError("Labelled native controls are absent from the accessibility tree")
-
-
-def picker(filename):
-    """Use a real system picker and wait for it to return to MyChef."""
-    if filename not in ("SAVE", "CANCEL") and not re.fullmatch(r"native-(?:dish|page)\.png", filename):
-        raise ValueError("Unsupported synthetic picker target")
-    adb, snapshot = _adb, _snapshot
-    deadline = time.monotonic() + 35
-
-    def returned_to_app():
-        while time.monotonic() < deadline:
-            owner = picker_focus()
-            if owner == "app":
-                return
-            if filename == "CANCEL" and owner == "documents":
-                # The first Back can dismiss the filename keyboard alone.
-                adb("shell", "input", "keyevent", "4")
-            time.sleep(.5)
-        raise RuntimeError("Synthetic OS picker did not return to MyChef")
-
-    while time.monotonic() < deadline:
-        if picker_focus() != "documents":
-            time.sleep(.5)
-            continue
-        if filename == "CANCEL":
-            adb("shell", "input", "keyevent", "4")
-            returned_to_app()
-            return
-        try:
-            nodes = [node for node in snapshot() if node.get("package") in SYSTEM_PICKERS]
-        except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
-            # UiAutomator can report an unavailable hierarchy during transitions.
-            time.sleep(.5)
-            continue
-        wanted = [n for n in nodes if n.get("text", "").casefold() == filename.casefold()
-                  or n.get("content-desc", "").casefold() == filename.casefold()]
-        if not wanted and filename != "SAVE":
-            wanted = [n for n in nodes if n.get("text") in ("Downloads", "Download")]
-            if not wanted:
-                wanted = [n for n in nodes if n.get("content-desc") == "Show roots"]
-        if wanted:
-            bounds = re.fullmatch(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]", wanted[-1].get("bounds", ""))
-            if bounds and picker_focus() == "documents":
-                x1, y1, x2, y2 = map(int, bounds.groups())
-                adb("shell", "input", "tap", str((x1 + x2) // 2), str((y1 + y2) // 2))
-                if wanted[-1].get("text", "").casefold() == filename.casefold() or wanted[-1].get("content-desc", "").casefold() == filename.casefold():
-                    returned_to_app()
-                    return
-        time.sleep(.5)
-    raise RuntimeError("Synthetic OS picker target was not available")
+    raise RuntimeError("Synthetic OS picker was not opened and closed")
 
 
 def picker_focus():
@@ -183,15 +121,12 @@ def picker_focus():
 
 
 if __name__ == "__main__":
-    operations = {"picker": picker, "accessibility": accessibility}
-    if len(sys.argv) != 3 or sys.argv[1] not in operations:
-        raise SystemExit("Only disposable native UI checks are executable directly")
-    mode = sys.argv[1]
+    if sys.argv[1:] != ["cancel-picker"]:
+        raise SystemExit("Only disposable picker cancellation is executable directly")
     try:
-        operations[mode](sys.argv[2])
+        cancel_picker()
     except (OSError, RuntimeError, subprocess.SubprocessError) as error:
-        if mode == "picker":
-            failure = {FileNotFoundError: "adb-missing", subprocess.TimeoutExpired: "adb-timeout",
-                       subprocess.CalledProcessError: "adb-command-failed"}.get(type(error), "picker-timeout")
-            print(f"{failure}:{picker_focus()}")
+        failure = {FileNotFoundError: "adb-missing", subprocess.TimeoutExpired: "adb-timeout",
+                   subprocess.CalledProcessError: "adb-command-failed"}.get(type(error), "picker-timeout")
+        print(f"{failure}:{picker_focus()}")
         raise SystemExit(1)

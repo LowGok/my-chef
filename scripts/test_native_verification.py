@@ -264,27 +264,6 @@ class NativeFixtureProxyTest(unittest.TestCase):
 
 
 class NativeSystemPickerTest(unittest.TestCase):
-    def test_accessibility_checks_native_enabled_focusable_controls(self):
-        snapshots = []
-        for enabled in ('false', 'true'):
-            nodes = ''.join('<node package="' + probe.APP + '" text="' + name +
-                            '" clickable="true" focusable="true" enabled="' + enabled +
-                            '" bounds="[0,0][30,30]"/>'
-                            for name in ('Meals', 'Shopping list', 'Profile'))
-            snapshots.append('<?xml version="1.0"?><hierarchy>' + nodes + '</hierarchy>')
-        remaining = iter(snapshots)
-        reads = []
-
-        def output(argv, **kwargs):
-            if 'cat' in argv:
-                reads.append(True)
-                return next(remaining)
-            return ''
-
-        with patch.object(probe.subprocess, 'check_output', side_effect=output), patch.object(probe.time, 'sleep'):
-            probe.accessibility('nav')
-        self.assertEqual(len(reads), 2)
-
     def test_cancel_repeats_back_only_while_the_system_picker_is_still_active(self):
         windows = iter(['com.android.documentsui/.Pick', '', 'com.android.documentsui/.Pick', probe.APP + '/.Main'])
         commands = []
@@ -298,7 +277,7 @@ class NativeSystemPickerTest(unittest.TestCase):
 
         with patch.object(probe, '_adb', side_effect=output), patch.object(probe.time, 'sleep'), \
                 patch.object(probe, '_snapshot', side_effect=probe.subprocess.CalledProcessError(1, 'dump')) as dump:
-            probe.picker('CANCEL')
+            probe.cancel_picker()
         self.assertEqual(sum(argv[-3:] == ('input', 'keyevent', '4') for argv in commands), 2)
         dump.assert_not_called()
 
@@ -313,29 +292,10 @@ class NativeSystemPickerTest(unittest.TestCase):
             return ''
 
         with patch.object(probe, '_adb', side_effect=output), patch.object(probe.time, 'sleep'):
-            probe.picker('CANCEL')
+            probe.cancel_picker()
         back = next(i for i, argv in enumerate(commands) if argv[-3:] == ('input', 'keyevent', '4'))
         self.assertEqual(sum('dumpsys' in argv for argv in commands[:back]), 2)
         self.assertEqual(sum('dumpsys' in argv for argv in commands[back:]), 1)
-
-    def test_save_waits_for_the_system_dialog_to_return_to_mychef(self):
-        documents = 'com.android.documentsui/.Pick'
-        windows = iter([documents, documents, documents, documents, probe.APP + '/.Main'])
-        commands = []
-
-        def output(*argv):
-            commands.append(argv)
-            if 'dumpsys' in argv:
-                return f'mCurrentFocus=Window{{42 u0 {next(windows)}}}'
-            return ''
-
-        save = probe.ET.fromstring('<node package="com.android.documentsui" text="SAVE" bounds="[0,0][20,20]"/>')
-        with patch.object(probe, '_adb', side_effect=output), patch.object(probe.time, 'sleep'), \
-                patch.object(probe, '_snapshot', side_effect=[probe.subprocess.CalledProcessError(1, 'dump'), [save]]) as dump:
-            probe.picker('SAVE')
-        self.assertEqual(dump.call_count, 2)
-        tap = next(i for i, argv in enumerate(commands) if argv[-4:] == ('input', 'tap', '10', '10'))
-        self.assertEqual(sum('dumpsys' in argv for argv in commands[tap:]), 2)
 
 
 if __name__ == "__main__":
