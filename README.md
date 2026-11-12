@@ -19,6 +19,16 @@ Start `.test-artifacts/rewrite-tools/mychef` with `MYCHEF_DB=/tmp/mychef-demo.db
 Keep credentials outside source control. Fixture mode uses synthetic providers.
 Production provider configuration requires separate operator setup.
 
+## Native clients
+
+The [Capacitor projects](mobile/) package the same React interface for Android
+and iOS. The [Native verification workflow](.github/workflows/native-compile.yml)
+compiles from the selected pull request commit with an isolated HTTPS fixture.
+Installed checks run separately on an Android emulator and iPhone simulator.
+They publish JSON receipts for the exact source and artifact, without publishing
+the packages or using store credentials. Simulator results do not cover an
+iPhone installation through TestFlight.
+
 ## Container
 
 Run `docker build -t my-chef:local .`. The image contains the app and
