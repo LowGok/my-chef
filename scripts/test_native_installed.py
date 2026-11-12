@@ -370,9 +370,28 @@ def android(state, stack, ca, apk):
 
 
 def ios(state, stack, ca, package):
+    # Verify the archive before booting the simulator. The host Mach-O tools
+    # do not need CoreSimulator, and can otherwise contend with its first boot.
+    command("/usr/bin/ditto", "-x", "-k", str(package), str(state))
+    app = state / "App.app"
+    info = plistlib.loads((app / "Info.plist").read_bytes())
+    if info.get("CFBundleIdentifier") != APP or info.get("CFBundleSupportedPlatforms") != ["iPhoneSimulator"]:
+        raise RuntimeError("Unexpected simulator app identity")
+    access_group = "MYCHEF0000." + APP
+    binary = app / "App"
+    sections = command("otool", "-l", str(binary))
+    expected = (GENERATED / "simulator-keychain.plist").read_bytes()
+    if (not re.search(r"sectname __entitlements\s+segname __TEXT\b", sections) or expected not in binary.read_bytes()
+            or plistlib.loads(expected) != {"application-identifier": access_group, "keychain-access-groups": [access_group]}):
+        raise RuntimeError("Unexpected simulator Keychain identity")
+    print("Verified the linked simulator Keychain identity", flush=True)
+
+    simctl = Path(command("xcrun", "--find", "simctl", timeout=30)).resolve()
+    if not simctl.is_relative_to(Path(ENV["DEVELOPER_DIR"]).resolve()) or not simctl.is_file():
+        raise RuntimeError("Could not resolve the selected Xcode simulator tool")
     print("Booting iPhone simulator", flush=True)
     def sim(*args, timeout=150):
-        return command("xcrun", "simctl", *args, timeout=timeout)
+        return command(str(simctl), *args, timeout=timeout)
 
     runtimes = json.loads(sim("list", "devices", "available", "-j"))["devices"]
     runtime, device = next((runtime, device) for runtime, devices in runtimes.items()
@@ -383,8 +402,11 @@ def ios(state, stack, ca, package):
 
     def cleanup():
         for operation in ("shutdown", "delete"):
-            subprocess.run(["xcrun", "simctl", operation, identifier], env=ENV,
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=45)
+            try:
+                subprocess.run([str(simctl), operation, identifier], env=ENV,
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30)
+            except subprocess.TimeoutExpired:
+                print("Disposable simulator cleanup timed out: " + operation, flush=True)
 
     stack.callback(cleanup)
     sim("boot", identifier)
@@ -406,27 +428,16 @@ def ios(state, stack, ca, package):
         sim("spawn", identifier, "launchctl", "print", "system", timeout=30)
         print("CoreSimulator reports Booted; continuing with the installed app check", flush=True)
     sim("keychain", identifier, "add-root-cert", ca)
-
-    # Install the exact simulator package with its link-time fixture identity.
-    command("/usr/bin/ditto", "-x", "-k", str(package), str(state))
-    app = state / "App.app"
-    info = plistlib.loads((app / "Info.plist").read_bytes())
-    if info.get("CFBundleIdentifier") != APP or info.get("CFBundleSupportedPlatforms") != ["iPhoneSimulator"]:
-        raise RuntimeError("Unexpected simulator app identity")
-    access_group = "MYCHEF0000." + APP
-    binary = app / "App"
-    sections = command("otool", "-l", str(binary))
-    expected = (GENERATED / "simulator-keychain.plist").read_bytes()
-    if (not re.search(r"sectname __entitlements\s+segname __TEXT\b", sections) or expected not in binary.read_bytes()
-            or plistlib.loads(expected) != {"application-identifier": access_group, "keychain-access-groups": [access_group]}):
-        raise RuntimeError("Unexpected simulator Keychain identity")
-    print("Verified the linked simulator Keychain identity", flush=True)
     sim("install", identifier, str(app))
+    print("Installed the verified simulator package", flush=True)
 
     def diagnostics():
         # Only this fresh simulator and its anonymous fixture are visible.
-        sim("io", identifier, "screenshot", str(ARTIFACTS / "anonymous-launch.png"), timeout=20)
-        output = subprocess.run(["xcrun", "simctl", "spawn", identifier, "log", "show", "--last", "5m",
+        try:
+            sim("io", identifier, "screenshot", str(ARTIFACTS / "anonymous-launch.png"), timeout=20)
+        except (RuntimeError, subprocess.SubprocessError):
+            print("Simulator screenshot unavailable", flush=True)
+        output = subprocess.run([str(simctl), "spawn", identifier, "log", "show", "--last", "5m",
                                  "--style", "compact", "--predicate",
                                  'process == "App" AND (subsystem == "com.apple.CFNetwork" OR subsystem == "com.apple.WebKit")'],
                                 env=ENV, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=25).stdout

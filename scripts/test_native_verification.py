@@ -13,6 +13,7 @@ import importlib.util
 import io
 from contextlib import redirect_stdout
 from pathlib import Path
+import plistlib
 import sys
 import tempfile
 import unittest
@@ -28,6 +29,20 @@ import native_android_probe as probe
 
 
 class NativeVerificationTest(unittest.TestCase):
+    def test_wrong_simulator_archive_stops_before_a_device_is_opened(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            app = root / "App.app"
+            app.mkdir()
+            (app / "Info.plist").write_bytes(plistlib.dumps({
+                "CFBundleIdentifier": installed.APP,
+                "CFBundleSupportedPlatforms": ["iPhoneOS"],
+            }))
+            with patch.object(installed, "command") as command:
+                with self.assertRaisesRegex(RuntimeError, "Unexpected simulator app identity"):
+                    installed.ios(root, None, root / "fake-ca.pem", root / "fake-package.zip")
+            command.assert_called_once_with("/usr/bin/ditto", "-x", "-k", str(root / "fake-package.zip"), str(root))
+
     def test_ui_driver_uses_the_same_sdk_adb_as_the_installed_fixture(self):
         with patch.dict(probe.os.environ, {"ANDROID_HOME": "/synthetic-sdk"}), \
                 patch.object(probe.subprocess, "check_output", return_value="") as output:
