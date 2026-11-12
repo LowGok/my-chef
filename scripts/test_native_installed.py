@@ -389,15 +389,22 @@ def ios(state, stack, ca, package):
     stack.callback(cleanup)
     sim("boot", identifier)
     try:
-        sim("bootstatus", identifier, timeout=300)
+        sim("bootstatus", identifier, timeout=150)
     except subprocess.TimeoutExpired as error:
         output = error.stdout or b""
         if isinstance(output, bytes):
             output = output.decode(errors="replace")
         phases = re.findall(r"\bStatus=(\d{1,3}),\s*isTerminal=(?:YES|NO)", output)
-        print("iPhone simulator did not finish booting. CoreSimulator status: "
-              + (phases[-1] if phases else "unreported"), flush=True)
-        raise
+        devices = json.loads(sim("list", "devices", "booted", "-j", timeout=30))["devices"]
+        if not any(entry.get("udid") == identifier and entry.get("state") == "Booted"
+                   for entry in devices.get(runtime, [])):
+            print("iPhone simulator did not boot. CoreSimulator status: "
+                  + (phases[-1] if phases else "unreported"), flush=True)
+            raise
+        # bootstatus also waits for simulator setup tasks. Check the exact
+        # booted device directly; trust, installation and launch still must pass.
+        sim("spawn", identifier, "launchctl", "print", "system", timeout=30)
+        print("CoreSimulator reports Booted; continuing with the installed app check", flush=True)
     sim("keychain", identifier, "add-root-cert", ca)
 
     # Install the exact simulator package with its link-time fixture identity.
