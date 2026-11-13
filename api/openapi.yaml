@@ -165,16 +165,6 @@
               }
             }
           },
-          "409": {
-            "description": "Conflicting operation key.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
           "400": {
             "description": "Incorrect current password, malformed input or confirmation.",
             "content": {
@@ -197,6 +187,16 @@
           },
           "403": {
             "description": "Missing or invalid Origin or CSRF token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicting operation key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1023,6 +1023,24 @@
       "post": {
         "operationId": "createGeneration",
         "responses": {
+          "200": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Generation"
+                }
+              }
+            },
+            "headers": {
+              "X-MyChef-User": {
+                "description": "Acting user ID as a decimal string.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
           "202": {
             "description": "Response",
             "content": {
@@ -1107,24 +1125,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "200": {
-            "description": "Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Generation"
-                }
-              }
-            },
-            "headers": {
-              "X-MyChef-User": {
-                "description": "Acting user ID as a decimal string.",
-                "schema": {
-                  "type": "string"
                 }
               }
             }
@@ -5626,16 +5626,6 @@
               }
             }
           },
-          "409": {
-            "description": "Conflicting operation key.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
           "400": {
             "description": "Incorrect current password, malformed input or confirmation.",
             "content": {
@@ -5658,6 +5648,16 @@
           },
           "403": {
             "description": "Account verification or permissions required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicting operation key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -6531,6 +6531,24 @@
       "post": {
         "operationId": "nativeCreateGeneration",
         "responses": {
+          "200": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Generation"
+                }
+              }
+            },
+            "headers": {
+              "X-MyChef-User": {
+                "description": "Acting user ID as a decimal string.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
           "202": {
             "description": "Response",
             "content": {
@@ -6615,24 +6633,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "200": {
-            "description": "Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Generation"
-                }
-              }
-            },
-            "headers": {
-              "X-MyChef-User": {
-                "description": "Acting user ID as a decimal string.",
-                "schema": {
-                  "type": "string"
                 }
               }
             }
@@ -11138,6 +11138,348 @@
           }
         }
       }
+    },
+    "/api/v1/newsletter/subscribe": {
+      "post": {
+        "operationId": "requestNewsletterSubscription",
+        "security": [
+          {
+            "NewsletterService": []
+          }
+        ],
+        "description": "The service credential and validated public Origin authorize this isolated newsletter route. Responses contain no account identity or existence information. Fixture mode accepts synthetic addresses only.",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Origin",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uri"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-MyChef-Newsletter-Source",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 45
+            },
+            "description": "Literal client IP set by the authenticated gateway."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewsletterSubscriptionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Durably accepted with uniform acknowledgement.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NewsletterResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input or proof.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Service authentication required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Invalid public origin.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Body exceeds 4 KiB.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited. Retry-After gives seconds.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Newsletter service temporarily unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/newsletter/confirm": {
+      "post": {
+        "operationId": "confirmNewsletterSubscription",
+        "security": [
+          {
+            "NewsletterService": []
+          }
+        ],
+        "description": "The service credential and validated public Origin authorize this isolated newsletter route. Responses contain no account identity or existence information. Fixture mode accepts synthetic addresses only.",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Origin",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uri"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-MyChef-Newsletter-Source",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 45
+            },
+            "description": "Literal client IP set by the authenticated gateway."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewsletterProofRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The proved action completed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NewsletterResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input or proof.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Service authentication required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Invalid public origin.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Body exceeds 4 KiB.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited. Retry-After gives seconds.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Newsletter service temporarily unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/newsletter/unsubscribe": {
+      "post": {
+        "operationId": "unsubscribeNewsletter",
+        "security": [
+          {
+            "NewsletterService": []
+          }
+        ],
+        "description": "The service credential and validated public Origin authorize this isolated newsletter route. Responses contain no account identity or existence information. Fixture mode accepts synthetic addresses only.",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Origin",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uri"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-MyChef-Newsletter-Source",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 45
+            },
+            "description": "Literal client IP set by the authenticated gateway."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewsletterProofRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The proved action completed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NewsletterResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input or proof.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Service authentication required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Invalid public origin.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Body exceeds 4 KiB.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited. Retry-After gives seconds.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Newsletter service temporarily unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -11151,6 +11493,11 @@
         "type": "http",
         "scheme": "bearer",
         "description": "Opaque native access credential. Browser cookies and refresh credentials do not authenticate native API requests."
+      },
+      "NewsletterService": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Server-side newsletter gateway credential. Browser clients submit through the public same-origin gateway."
       }
     },
     "schemas": {
@@ -13770,6 +14117,67 @@
         "required": [
           "native"
         ]
+      },
+      "NewsletterSubscriptionRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "email",
+          "locale",
+          "consentVersion"
+        ],
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "maxLength": 254
+          },
+          "locale": {
+            "type": "string",
+            "enum": [
+              "en",
+              "fr-BE",
+              "nl-BE"
+            ]
+          },
+          "consentVersion": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          }
+        }
+      },
+      "NewsletterProofRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "proof"
+        ],
+        "properties": {
+          "proof": {
+            "type": "string",
+            "minLength": 43,
+            "maxLength": 43,
+            "pattern": "^[A-Za-z0-9_-]{43}$"
+          }
+        }
+      },
+      "NewsletterResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending-confirmation",
+              "confirmed",
+              "unsubscribed"
+            ]
+          }
+        }
       }
     },
     "responses": {
