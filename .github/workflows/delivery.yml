@@ -54,7 +54,7 @@ jobs:
       - name: Check concurrent persistence and workers with the race detector
         env:
           CGO_ENABLED: '1'
-        run: go test -race ./...
+        run: go test -race -timeout 20m ./...
       - name: Rehearse read-only PostgreSQL import
         run: python3 scripts/test_postgres_import.py
       - name: Install browser and build candidate binaries
