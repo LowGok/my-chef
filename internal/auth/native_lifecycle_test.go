@@ -3,6 +3,7 @@ package auth
 import (
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/LowGok/my-chef/internal/email/mailqueue"
 )
@@ -105,6 +106,8 @@ func TestNativeRecoveryRevokesSignedInFamiliesAndUsesAnonymousAccess(t *testing.
 
 func TestNativeEmailVerificationRotatesItsRestrictedFamily(t *testing.T) {
 	change, now, user, cookie := changeFixture(t, false)
+	// NativeBind validates the replacement session against the system clock.
+	*now = time.Now().UTC()
 	m := New(change.Store)
 	tokens, err := m.NativeBind(t.Context(), cookie, "ios", "")
 	if err != nil {

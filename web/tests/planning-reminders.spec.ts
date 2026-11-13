@@ -27,10 +27,25 @@ test("Profile explains the fixed nudge and separates Premium advance settings", 
   await group.getByLabel("Time", { exact: true }).fill("17:30");
   await group.getByRole("button", { name: "Save reminder preferences" }).click();
   await expect(group.getByRole("status")).toHaveText("Reminder preferences saved.");
-  expect(await group.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
-  await page.evaluate(() => document.documentElement.style.fontSize = "200%");
-  expect(await page.evaluate(() => getComputedStyle(document.documentElement).fontSize)).toBe("32px");
-  expect(await group.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+  const textAndControls = group.locator("summary, p, label, input:not([type=checkbox]), select, button");
+  const fontSizes = () => textAndControls.evaluateAll((nodes) =>
+    nodes.map((node) => Number.parseFloat(getComputedStyle(node).fontSize)),
+  );
+  for (const width of [320, 430]) {
+    await page.setViewportSize({ width, height: 720 });
+    for (const native of [false, true]) {
+      await page.evaluate((native) => {
+        document.documentElement.style.fontSize = "100%";
+        if (native) document.documentElement.dataset.native = "true";
+        else delete document.documentElement.dataset.native;
+      }, native);
+      const normal = await fontSizes();
+      await page.evaluate(() => { document.documentElement.style.fontSize = "200%"; });
+      expect(await fontSizes(), `text at ${width}px, native=${native}`).toEqual(normal.map((size) => size * 2));
+      expect(await group.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+      await expect(group.getByRole("button", { name: "Save reminder preferences" })).toBeEnabled();
+    }
+  }
   const day = group.getByRole("combobox", { name: "Day", exact: true });
   await day.focus();
   await expect(day).toBeFocused();

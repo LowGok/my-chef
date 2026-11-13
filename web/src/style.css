@@ -3100,6 +3100,10 @@ html[data-native="true"] :is(input, select, textarea) {
   font-size: max(16px, 1rem);
 }
 
+.planning-reminders {
+  font-size: 0.9375rem;
+  overflow-wrap: anywhere;
+}
 .planning-reminders form, .reminder-device-actions {
   display: grid;
   gap: .75rem;
@@ -3115,7 +3119,12 @@ html[data-native="true"] :is(input, select, textarea) {
 }
 .planning-reminders input:not([type="checkbox"]), .planning-reminders select {
   min-height: 44px;
+  min-width: 0;
   max-width: 100%;
-  font-size: 16px;
+  font-size: max(16px, 1rem);
 }
-.planning-reminders button { min-height: 44px; }
+.planning-reminders button {
+  min-height: 44px;
+  font-size: 0.875rem;
+  white-space: normal;
+}
