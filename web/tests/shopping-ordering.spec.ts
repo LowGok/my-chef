@@ -19,11 +19,11 @@ test("phone layout and shopping ordering keep completed items above closed extra
   }
   await page.goto("/app/?view=shopping&week=2026-11-02");
   await expect(page.getByText("Saved", { exact: true })).toBeVisible();
-  await expect(page.locator(".shopping-heading > .icon")).toHaveCount(0);
+  await expect(page.locator(".shopping-heading > svg")).toHaveCount(0);
   await expect(
     page
       .getByRole("button", { name: "Shopping list", exact: true })
-      .locator(".icon"),
+      .locator('svg[aria-hidden="true"]'),
   ).toHaveCount(1);
   const tabs = await page.locator(".shopping-tabs").boundingBox(),
     first = await page.locator(".shopping-tabs button").first().boundingBox(),
