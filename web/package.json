@@ -12,7 +12,7 @@
     "generate": "bun generate.ts"
   },
   "dependencies": {
-    "@capacitor/core": "8.6.0",
+    "@capacitor/core": "8.6.2",
     "@fontsource/montserrat": "5.3.0",
     "react": "19.3.1",
     "react-dom": "19.3.1"
