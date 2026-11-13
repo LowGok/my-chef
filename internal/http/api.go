@@ -31,6 +31,7 @@ type Generator interface {
 	Status(context.Context, int64, int64) (domain.Operation, error)
 }
 type Config struct {
+	NewsletterChecks     func(context.Context) map[string]bool
 	Newsletter           *newsletter.Service
 	NewsletterSettings   config.Newsletter
 	NewsletterReady      func(context.Context) bool
@@ -91,6 +92,7 @@ func New(s *store.Store, g Generator, c Config, logger *slog.Logger) *API {
 
 func (a *API) Handler(frontend http.Handler) http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /internal/newsletter/readiness", a.newsletterReadiness)
 	mux.HandleFunc("GET /healthz", Health)
 	mux.HandleFunc("GET /readyz", a.ready)
 	mux.HandleFunc("POST /api/v1/newsletter/subscribe", a.newsletterRoute("subscribe"))

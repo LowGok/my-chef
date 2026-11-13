@@ -257,3 +257,4 @@ internal/newsletter/**
 !internal/store/newsletter.go
 !internal/store/newsletter_lifecycle.go
 !migrations/019_newsletter.sql
+!internal/auth/newsletter.go

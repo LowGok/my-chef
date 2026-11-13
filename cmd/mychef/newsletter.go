@@ -30,7 +30,10 @@ func runNewsletter(args []string, input io.Reader, output, diagnostics io.Writer
 	if flags.Parse(args[1:]) != nil || flags.NArg() != 0 || *database == "" || *journalPath == "" || *userID <= 0 || args[0] == "export" && *destination == "" || args[0] == "erase" && *destination != "" {
 		return 2
 	}
-	fail := func() int { fmt.Fprintln(diagnostics, "Newsletter contact operation unavailable."); return 1 }
+	fail := func() int {
+		_, _ = fmt.Fprintln(diagnostics, "Newsletter contact operation unavailable.")
+		return 1
+	}
 	raw, err := io.ReadAll(io.LimitReader(input, 4097))
 	if err != nil || len(raw) > 4096 {
 		return fail()

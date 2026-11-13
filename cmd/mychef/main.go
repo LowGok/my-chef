@@ -20,6 +20,7 @@ import (
 	httpapi "github.com/LowGok/my-chef/internal/http"
 	"github.com/LowGok/my-chef/internal/imports"
 	"github.com/LowGok/my-chef/internal/menus"
+	"github.com/LowGok/my-chef/internal/newsletter"
 	"github.com/LowGok/my-chef/internal/providers"
 	"github.com/LowGok/my-chef/internal/store"
 	webui "github.com/LowGok/my-chef/web"
@@ -84,6 +85,11 @@ func main() {
 	emailCfg, err := config.LoadEmail()
 	if err != nil {
 		logger.Error("invalid email configuration", "error", err)
+		os.Exit(1)
+	}
+	newsletterSettings, err := config.LoadNewsletter(cfg, emailCfg)
+	if err != nil {
+		logger.Error("invalid newsletter configuration")
 		os.Exit(1)
 	}
 	inboxSettings, err := config.LoadFixtureInbox(cfg, emailCfg, time.Now())
@@ -274,6 +280,10 @@ func main() {
 		os.Exit(1)
 	}
 	mailService := email.NewWithFixtureInbox(email.Queue{Store: s, ProofKeys: proofKeys, RecoveryWork: recoveryWork}, emailCfg, fixtureInbox)
+	var newsletterService *newsletter.Service
+	if newsletterSettings.Mode != "disabled" {
+		newsletterService = &newsletter.Service{Store: s, Keys: proofKeys, RateKey: proofSettings.RateKey, Origin: newsletterSettings.Origin, ConsentVersion: newsletterSettings.ConsentVersion}
+	}
 	emailCtx, cancelEmail := context.WithCancel(ctx)
 	emailDone := make(chan struct{})
 	go func() {
@@ -334,6 +344,19 @@ func main() {
 			}
 		})
 	}
+	var newsletterFailed atomic.Bool
+	if newsletterService != nil && proofKeys != nil && len(proofSettings.RateKey) == 32 {
+		for _, run := range []func(context.Context) error{newsletterService.Run, func(ctx context.Context) error {
+			return newsletterService.RunSweep(ctx, journal, newsletterSettings.PendingDays, newsletterSettings.WithdrawnDays, deletion)
+		}} {
+			recoveryWorkers.Go(func() {
+				if err := run(emailCtx); err != nil && emailCtx.Err() == nil {
+					newsletterFailed.Store(true)
+					logger.Error("newsletter worker stopped")
+				}
+			})
+		}
+	}
 	defer func() {
 		cancelEmail()
 		<-emailDone
@@ -341,6 +364,12 @@ func main() {
 		recoveryWorkers.Wait()
 	}()
 	api := httpapi.New(s, service, httpapi.Config{
+		Newsletter: newsletterService, NewsletterSettings: newsletterSettings, NewsletterReady: func(ctx context.Context) bool {
+			return newsletterReady(newsletterSettings, !lifecycleFailed.Load() && journal.CheckAvailable(ctx) == nil && s.SQL.PingContext(ctx) == nil, mailService.Ready(ctx), proofKeys != nil && len(proofSettings.RateKey) == 32, newsletterFailed.Load())
+		},
+		NewsletterChecks: func(ctx context.Context) map[string]bool {
+			return newsletterChecks(newsletterSettings, !lifecycleFailed.Load() && journal.CheckAvailable(ctx) == nil && s.SQL.PingContext(ctx) == nil, mailService.Ready(ctx), proofKeys != nil && len(proofSettings.RateKey) == 32, newsletterFailed.Load())
+		},
 		Origin: cfg.Origin, Secure: cfg.Secure, Version: version,
 		Lifecycle: journal, TraceDir: os.Getenv("MYCHEF_TRACE_DIR"), AccountMail: !emailCfg.Disabled,
 		AccountReady: func(ctx context.Context) bool { return !lifecycleFailed.Load() && journal.CheckAvailable(ctx) == nil },

@@ -1,12 +1,12 @@
 package newsletter
 
 import (
+	"bytes"
 	"errors"
 	"net/url"
 	"testing"
 	"time"
 
-	"bytes"
 	"github.com/LowGok/my-chef/internal/email/mailqueue"
 	"github.com/LowGok/my-chef/internal/store"
 )

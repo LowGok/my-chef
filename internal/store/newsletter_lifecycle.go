@@ -97,3 +97,39 @@ func (j *LifecycleJournal) EraseNewsletterContact(ctx context.Context, actor New
 	}
 	return j.deleteAccount(ctx, actor.UserID, operation, now, opts, func(tx *gorm.DB) error { return newsletterContactAuthority(tx, actor) })
 }
+
+// ExpireNewsletterContact adds consent-state authority to the normal guarded
+// contact erasure. It is used only by configured retention maintenance.
+func (j *LifecycleJournal) ExpireNewsletterContact(ctx context.Context, actor NewsletterContactAuthority, status string, revision, cutoff int64, rateKey []byte, now time.Time, opts AccountDeletionOptions) (AccountDeletion, error) {
+	if len(rateKey) != 32 || (status != "pending" && status != "unsubscribed") {
+		return AccountDeletion{}, ErrAccountAccess
+	}
+	operation, err := randomLifecycleID()
+	if err != nil {
+		return AccountDeletion{}, err
+	}
+	cleanup := opts.Cleanup
+	opts.Cleanup = func(tx *gorm.DB, user User) error {
+		if err := RecordNewsletterErasure(ctx, tx, rateKey, user.EmailKey); err != nil {
+			return err
+		}
+		if cleanup != nil {
+			return cleanup(tx, user)
+		}
+		return nil
+	}
+	return j.deleteAccount(ctx, actor.UserID, operation, now, opts, func(tx *gorm.DB) error {
+		if err := newsletterContactAuthority(tx, actor); err != nil {
+			return err
+		}
+		var count int64
+		if err := tx.Raw(`SELECT count(*) FROM newsletter_subscriptions WHERE user_id=? AND status=? AND revision=?
+   AND ((status='pending' AND requested_unix<=?) OR (status='unsubscribed' AND withdrawn_unix<=?))`, actor.UserID, status, revision, cutoff, cutoff).Scan(&count).Error; err != nil {
+			return err
+		}
+		if count != 1 {
+			return ErrAccountAccess
+		}
+		return nil
+	})
+}

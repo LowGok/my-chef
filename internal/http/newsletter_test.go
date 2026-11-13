@@ -93,3 +93,27 @@ func TestNewsletterHTTPRejectsInvalidAndUnavailableRequests(t *testing.T) {
 		t.Fatal("newsletter route leaked into native namespace")
 	}
 }
+
+func TestNewsletterReadinessIsOperatorOnlyAndBoolean(t *testing.T) {
+	a, _ := newsletterAPI(t)
+	a.Config.NewsletterChecks = func(context.Context) map[string]bool {
+		return map[string]bool{"storage": true, "identityCompatibility": false}
+	}
+	h := a.Handler(nil)
+	for _, token := range []string{"", strings.Repeat("s", 64)} {
+		r := httptest.NewRequest("GET", "/internal/newsletter/readiness", nil)
+		r.Header.Set("Authorization", "Bearer "+token)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		want := 401
+		if token != "" {
+			want = 200
+		}
+		if w.Code != want {
+			t.Fatalf("readiness status %d expected %d", w.Code, want)
+		}
+		if token != "" && (!strings.Contains(w.Body.String(), `"identityCompatibility":false`) || strings.Contains(w.Body.String(), token)) {
+			t.Fatal("unsafe or missing prerequisite result")
+		}
+	}
+}

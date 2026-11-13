@@ -142,3 +142,26 @@ func (a *API) newsletterError(w http.ResponseWriter, r *http.Request, err error)
 	}
 	a.fail(w, r, 503, "newsletter_unavailable", "Newsletter registration is temporarily unavailable.")
 }
+
+// newsletterReadiness is a direct operator endpoint. The public Sites gateway
+// has no route to it and no browser session can authorize it.
+func (a *API) newsletterReadiness(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Robots-Tag", "noindex")
+	token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+	secret := a.Config.NewsletterSettings.ServiceToken
+	if !ok || len(secret) < 32 || subtle.ConstantTimeCompare([]byte(token), []byte(secret)) != 1 {
+		a.fail(w, r, 401, "unauthenticated", "Service authentication required.")
+		return
+	}
+	if a.Config.NewsletterChecks == nil {
+		a.fail(w, r, 503, "newsletter_unavailable", "Newsletter readiness is unavailable.")
+		return
+	}
+	checks := a.Config.NewsletterChecks(r.Context())
+	ready := len(checks) > 0
+	for _, value := range checks {
+		ready = ready && value
+	}
+	a.write(w, 200, map[string]any{"ready": ready, "checks": checks})
+}
