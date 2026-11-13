@@ -15,7 +15,14 @@ test("Go serves health and the embedded production frontend", async ({
   await expect(
     page.getByRole("heading", { name: "MyChef", exact: true }),
   ).toBeVisible();
-  await expect(page.locator(".brand")).toHaveText("MyChef");
+  const logo = page
+    .locator(".brand")
+    .getByRole("img", { name: "MyChef", exact: true });
+  await expect(logo).toBeVisible();
+  await expect(logo).toHaveJSProperty("naturalWidth", 1000);
+  await expect(
+    page.getByRole("button", { name: "Sign in to MyChef", exact: true }),
+  ).toHaveCSS("background-color", "rgb(74, 105, 75)");
   await page.screenshot({
     path: "../test-results/branding/welcome.png",
     fullPage: true,
