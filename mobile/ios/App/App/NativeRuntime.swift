@@ -1,6 +1,7 @@
 import Foundation
 import UIKit
 import Network
+import UserNotifications
 
 // Process-only handoff. Do not forward account URLs to Capacitor's delegate
 // proxies: those retain a lastURL and broadcast the unredacted proof.
@@ -11,6 +12,7 @@ final class NativeRuntime {
     private var received = -Double.infinity
     private var reminder: String?
     private var reminderReceived = -Double.infinity
+    private var lastNotificationTap: (reference: String, time: TimeInterval)?
     private var reminderEnabled = false
     private var reminderToken: String?
     private var online = true
@@ -35,6 +37,17 @@ final class NativeRuntime {
         reminder = reference
         reminderReceived = ProcessInfo.processInfo.systemUptime
         signal()
+    }
+
+    func receiveReminderResponse(_ response: UNNotificationResponse?) {
+        guard let response, response.actionIdentifier == UNNotificationDefaultActionIdentifier,
+              let reference = response.notification.request.content.userInfo["reminder"] as? String,
+              reference.range(of: "^[a-f0-9]{32}$", options: .regularExpression) != nil else { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        // UIKit can report one launch to both delegates.
+        if let last = lastNotificationTap, last.reference == reference, now - last.time < 1 { return }
+        lastNotificationTap = (reference, now)
+        receiveReminder(reference)
     }
 
     #if targetEnvironment(simulator)

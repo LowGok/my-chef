@@ -22,11 +22,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
 
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
                                 withCompletionHandler completionHandler: @escaping () -> Void) {
-        let value = response.notification.request.content.userInfo["reminder"] as? String
         DispatchQueue.main.async {
-            if response.actionIdentifier == UNNotificationDefaultActionIdentifier, let value {
-                NativeRuntime.shared.receiveReminder(value)
-            }
+            NativeRuntime.shared.receiveReminderResponse(response)
             completionHandler()
         }
     }
