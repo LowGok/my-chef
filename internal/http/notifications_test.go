@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"bytes"
+	"log/slog"
 	"net/http"
 	"strings"
 	"testing"
@@ -11,6 +12,8 @@ import (
 
 func TestReminderRegistrationUsesOnlyNativeServerIdentity(t *testing.T) {
 	a, h := testAPI(t)
+	var diagnostics bytes.Buffer
+	a.Logger = slog.New(slog.NewJSONHandler(&diagnostics, nil))
 	tokens := nativeFixtureLogin(t, a, h)
 	who, err := a.Auth.NativeLoad(t.Context(), tokens.AccessToken)
 	if err != nil || who.Session.UserID == nil {
@@ -43,5 +46,14 @@ func TestReminderRegistrationUsesOnlyNativeServerIdentity(t *testing.T) {
 	}
 	if got := callNative(h, http.MethodDelete, path+"/installation", "", tokens.AccessToken).Code; got != 204 {
 		t.Fatal("opt-out failed", got)
+	}
+	const reference = "0123456789abcdef0123456789abcdef"
+	if got := callNative(h, http.MethodPost, path+"/open", `{"reference":"`+reference+`"}`, tokens.AccessToken).Code; got != 404 {
+		t.Fatal("unknown reference was not rejected", got)
+	}
+	for _, marker := range []string{token, reference, tokens.AccessToken, tokens.RefreshToken, "native-http@example.test", "Garden native 2026!"} {
+		if strings.Contains(diagnostics.String(), marker) {
+			t.Fatal("reminder diagnostics disclosed a private input")
+		}
 	}
 }

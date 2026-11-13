@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -73,6 +74,44 @@ func TestReminderProvidersUseOneSubmissionAndExplicitExpiry(t *testing.T) {
 				if wire != 1 || got.State != want || want == Temporary && got.RetryAfter != delay {
 					t.Fatalf("status %d: %d submissions, result %+v", status, wire, got)
 				}
+			}
+		})
+	}
+}
+
+func TestReminderWireSeparatesDeviceRoutingFromNotificationContent(t *testing.T) {
+	const reference = "0123456789abcdef0123456789abcdef"
+	const providerCredential = "preview-credential-canary"
+	for _, provider := range []string{"apns", "fcm"} {
+		t.Run(provider, func(t *testing.T) {
+			token := strings.Repeat("f", 64)
+			if provider == "fcm" {
+				token = "synthetic:private_device_canary_" + strings.Repeat("a", 40)
+			}
+			alert := map[string]any{"title": "Plan your meals", "body": "Ready to plan your week?"}
+			want := map[string]any{"aps": map[string]any{"alert": alert, "sound": "default"}, "reminder": reference}
+			if provider == "fcm" {
+				want = map[string]any{"message": map[string]any{
+					"token": token, "notification": alert, "data": map[string]any{"reminder": reference},
+					"android": map[string]any{"ttl": "60s", "notification": map[string]any{"tag": reference, "channel_id": "mychef-planning"}},
+				}}
+			}
+			now := time.Date(2026, 11, 16, 16, 0, 0, 0, time.UTC)
+			sender := &PushSender{topic: "com.example.preview", project: "mychef-fake", now: func() time.Time { return now },
+				credential: func(context.Context, string) (string, error) { return providerCredential, nil },
+				client: &http.Client{Transport: pushRoundTrip(func(req *http.Request) (*http.Response, error) {
+					var payload map[string]any
+					if err := json.NewDecoder(req.Body).Decode(&payload); err != nil || !reflect.DeepEqual(payload, want) {
+						t.Fatal("push payload exceeded its generic content and routing contract")
+					}
+					if req.Header.Get("Authorization") != "Bearer "+providerCredential || strings.Contains(req.URL.String(), providerCredential) {
+						t.Fatal("provider authentication was not confined to its request header")
+					}
+					return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"name":"projects/mychef-fake/messages/fixture"}`))}, nil
+				})},
+			}
+			if result := sender.Send(t.Context(), Delivery{Provider: provider, Token: token, Reference: reference, Deadline: now.Add(time.Minute)}); result.State != Accepted {
+				t.Fatal("synthetic provider did not record acceptance")
 			}
 		})
 	}
