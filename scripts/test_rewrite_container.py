@@ -84,6 +84,8 @@ def main() -> None:
                     "web/src/native-platform.ts"}.issubset(paths), "required native API and web inputs were excluded"
             assert {"internal/store/entitlements.go", "internal/store/entitlement_fixture.go",
                     "migrations/018_entitlement_grants.sql"}.issubset(paths), "entitlement resolver and migration were excluded"
+            assert {"migrations/019_newsletter.sql", "internal/newsletter/capture.go",
+                    "internal/newsletter/proofs.go", "cmd/mychef/newsletter_runtime.go"}.issubset(paths), "newsletter runtime inputs were excluded"
             assert not any(p.startswith("mobile/") for p in paths), "native projects entered the app container context"
             assert not any(any(word in p for word in ("secret", "canary", "node_modules", "test-results", ".streamlit", ".git/", "mychefApp", "_test.go")) for p in paths), "private or generated file entered the build context"
         if "MYCHEF_CONTAINER_IMAGE" not in env:
