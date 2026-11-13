@@ -18,7 +18,9 @@ import (
 	"time"
 
 	"github.com/LowGok/my-chef/internal/auth"
+	"github.com/LowGok/my-chef/internal/config"
 	"github.com/LowGok/my-chef/internal/domain"
+	"github.com/LowGok/my-chef/internal/newsletter"
 	"github.com/LowGok/my-chef/internal/providers"
 	"github.com/LowGok/my-chef/internal/store"
 	"gorm.io/gorm"
@@ -29,6 +31,9 @@ type Generator interface {
 	Status(context.Context, int64, int64) (domain.Operation, error)
 }
 type Config struct {
+	Newsletter           *newsletter.Service
+	NewsletterSettings   config.Newsletter
+	NewsletterReady      func(context.Context) bool
 	RecipeImports        *RecipeImportService
 	PersonalRecipes      PersonalRecipeSaver
 	PersonalPhotos       PersonalPhotoReader
@@ -88,6 +93,9 @@ func (a *API) Handler(frontend http.Handler) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", Health)
 	mux.HandleFunc("GET /readyz", a.ready)
+	mux.HandleFunc("POST /api/v1/newsletter/subscribe", a.newsletterRoute("subscribe"))
+	mux.HandleFunc("POST /api/v1/newsletter/confirm", a.newsletterRoute("confirm"))
+	mux.HandleFunc("POST /api/v1/newsletter/unsubscribe", a.newsletterRoute("unsubscribe"))
 	if a.Config.EmailWebhook != nil {
 		mux.Handle("POST /api/v1/webhooks/email", a.Config.EmailWebhook)
 	}
@@ -197,7 +205,7 @@ func (a *API) Handler(frontend http.Handler) http.Handler {
 		// route which takes its own exclusive account-work lock.
 		if strings.HasPrefix(r.URL.Path, nativePrefix) {
 			suffix := strings.TrimPrefix(r.URL.Path, nativePrefix)
-			if strings.HasPrefix(suffix, "fixture/") || strings.HasPrefix(suffix, "webhooks/") {
+			if strings.HasPrefix(suffix, "fixture/") || strings.HasPrefix(suffix, "webhooks/") || strings.HasPrefix(suffix, "newsletter/") {
 				a.fail(w, r, http.StatusNotFound, "not_found", "That resource was not found.")
 				return
 			}

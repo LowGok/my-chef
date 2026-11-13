@@ -19,7 +19,7 @@ func (s *Service) Unsubscribe(ctx context.Context, token string) error {
 }
 
 func (s *Service) applyProof(ctx context.Context, token, purpose string) error {
-	if !s.valid() {
+	if s == nil || s.Store == nil || purpose == "confirm" && !s.valid() {
 		return ErrUnavailable
 	}
 	hash, err := proofHash(token)

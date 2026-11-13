@@ -607,6 +607,20 @@ export type NativeRefreshResponse = {
     native: NativeTokens;
 };
 
+export type NewsletterSubscriptionRequest = {
+    email: string;
+    locale: 'en' | 'fr-BE' | 'nl-BE';
+    consentVersion: string;
+};
+
+export type NewsletterProofRequest = {
+    proof: string;
+};
+
+export type NewsletterResult = {
+    status: 'pending-confirmation' | 'confirmed' | 'unsubscribed';
+};
+
 export type ImportEmptyInputWritable = {
     [key: string]: never;
 };
@@ -6274,6 +6288,162 @@ export type NativeRefreshResponses = {
 
 export type NativeRefreshResponse2 = NativeRefreshResponses[keyof NativeRefreshResponses];
 
+export type RequestNewsletterSubscriptionData = {
+    body: NewsletterSubscriptionRequest;
+    headers: {
+        Origin: string;
+        /**
+         * Literal client IP set by the authenticated gateway.
+         */
+        'X-MyChef-Newsletter-Source': string;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/newsletter/subscribe';
+};
+
+export type RequestNewsletterSubscriptionErrors = {
+    /**
+     * Invalid input or proof.
+     */
+    400: Error;
+    /**
+     * Service authentication required.
+     */
+    401: Error;
+    /**
+     * Invalid public origin.
+     */
+    403: Error;
+    /**
+     * Body exceeds 4 KiB.
+     */
+    413: Error;
+    /**
+     * Rate limited. Retry-After gives seconds.
+     */
+    429: Error;
+    /**
+     * Newsletter service temporarily unavailable.
+     */
+    503: Error;
+};
+
+export type RequestNewsletterSubscriptionError = RequestNewsletterSubscriptionErrors[keyof RequestNewsletterSubscriptionErrors];
+
+export type RequestNewsletterSubscriptionResponses = {
+    /**
+     * Durably accepted with uniform acknowledgement.
+     */
+    202: NewsletterResult;
+};
+
+export type RequestNewsletterSubscriptionResponse = RequestNewsletterSubscriptionResponses[keyof RequestNewsletterSubscriptionResponses];
+
+export type ConfirmNewsletterSubscriptionData = {
+    body: NewsletterProofRequest;
+    headers: {
+        Origin: string;
+        /**
+         * Literal client IP set by the authenticated gateway.
+         */
+        'X-MyChef-Newsletter-Source': string;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/newsletter/confirm';
+};
+
+export type ConfirmNewsletterSubscriptionErrors = {
+    /**
+     * Invalid input or proof.
+     */
+    400: Error;
+    /**
+     * Service authentication required.
+     */
+    401: Error;
+    /**
+     * Invalid public origin.
+     */
+    403: Error;
+    /**
+     * Body exceeds 4 KiB.
+     */
+    413: Error;
+    /**
+     * Rate limited. Retry-After gives seconds.
+     */
+    429: Error;
+    /**
+     * Newsletter service temporarily unavailable.
+     */
+    503: Error;
+};
+
+export type ConfirmNewsletterSubscriptionError = ConfirmNewsletterSubscriptionErrors[keyof ConfirmNewsletterSubscriptionErrors];
+
+export type ConfirmNewsletterSubscriptionResponses = {
+    /**
+     * The proved action completed.
+     */
+    200: NewsletterResult;
+};
+
+export type ConfirmNewsletterSubscriptionResponse = ConfirmNewsletterSubscriptionResponses[keyof ConfirmNewsletterSubscriptionResponses];
+
+export type UnsubscribeNewsletterData = {
+    body: NewsletterProofRequest;
+    headers: {
+        Origin: string;
+        /**
+         * Literal client IP set by the authenticated gateway.
+         */
+        'X-MyChef-Newsletter-Source': string;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/newsletter/unsubscribe';
+};
+
+export type UnsubscribeNewsletterErrors = {
+    /**
+     * Invalid input or proof.
+     */
+    400: Error;
+    /**
+     * Service authentication required.
+     */
+    401: Error;
+    /**
+     * Invalid public origin.
+     */
+    403: Error;
+    /**
+     * Body exceeds 4 KiB.
+     */
+    413: Error;
+    /**
+     * Rate limited. Retry-After gives seconds.
+     */
+    429: Error;
+    /**
+     * Newsletter service temporarily unavailable.
+     */
+    503: Error;
+};
+
+export type UnsubscribeNewsletterError = UnsubscribeNewsletterErrors[keyof UnsubscribeNewsletterErrors];
+
+export type UnsubscribeNewsletterResponses = {
+    /**
+     * The proved action completed.
+     */
+    200: NewsletterResult;
+};
+
+export type UnsubscribeNewsletterResponse = UnsubscribeNewsletterResponses[keyof UnsubscribeNewsletterResponses];
+
 export interface components {
   schemas: {
     "PersonalImportSaveInput": PersonalImportSaveInput;
@@ -6357,5 +6527,8 @@ export interface components {
     "NativeStartInput": NativeStartInput;
     "NativeRefreshInput": NativeRefreshInput;
     "NativeRefreshResponse": NativeRefreshResponse;
+    "NewsletterSubscriptionRequest": NewsletterSubscriptionRequest;
+    "NewsletterProofRequest": NewsletterProofRequest;
+    "NewsletterResult": NewsletterResult;
   };
 }

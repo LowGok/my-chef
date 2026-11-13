@@ -88,4 +88,8 @@ func TestNewsletterHTTPRejectsInvalidAndUnavailableRequests(t *testing.T) {
 	if w.Code != 400 {
 		t.Fatalf("invalid proof status %d", w.Code)
 	}
+	w = newsletterCall(h, "/api/native/v1/newsletter/subscribe", `{}`, strings.Repeat("s", 64), "https://mychef.dev")
+	if w.Code != 404 {
+		t.Fatal("newsletter route leaked into native namespace")
+	}
 }
