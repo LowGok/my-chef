@@ -76,7 +76,7 @@ func TestPersonalPlanningCapturesVersionAndSurvivesLibraryDeletion(t *testing.T)
 	if _, err := j.CleanupStep(ctx, cleaner, now.Add(2*time.Minute)); err != nil || len(cleaner.private) != 0 {
 		t.Fatal("captured operation photo deleted", err)
 	}
-	menu, err := s.SaveMenu(ctx, permission.Actor.UserID, op.ID, input, nil)
+	menu, err := s.SaveMenu(ctx, permission.Actor.UserID, op.ID, input, nil, permission.Entitlements)
 	if err != nil || len(menu.Recipes) != 1 || menu.Recipes[0].Title != first.Content.Title {
 		t.Fatal("captured operation changed after library deletion", err)
 	}
@@ -371,5 +371,45 @@ func TestPersonalAndGeneratedQueuesShareSevenSlotsWithoutExtraCommercialGates(t 
 	}
 	if _, err := s.QueuePersonalRecipe(ctx, permission.Actor, permission.Entitlements, second.ID, second.VersionID, week, strings.Repeat("d", 32), now); !errors.Is(err, ErrFavoriteConflict) {
 		t.Fatal("personal queue ignored occupied generated slots", err)
+	}
+}
+
+func TestPersonalPlanRechecksEntitlementAfterCapture(t *testing.T) {
+	s, _, permission, recipe, now := personalPlanningFixture(t)
+	ctx := t.Context()
+	if err := s.DB.Exec("UPDATE users SET email='plan-entitlement@example.test', email_key='plan-entitlement@example.test' WHERE user_id=?", permission.Actor.UserID).Error; err != nil {
+		t.Fatal(err)
+	}
+	reader, revoke := testEntitlementSwitch(t, s, permission.Actor, entitlementIdentity(t, s, permission.Actor.UserID), fixedEntitlementClock(now))
+	permission.Entitlements = reader
+	week := "2026-11-09"
+	queued, err := s.QueuePersonalRecipe(ctx, permission.Actor, permission.Entitlements, recipe.ID, recipe.VersionID, week, strings.Repeat("b", 32), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := domain.MenuInput{Dates: []string{week}, Adults: 2, MaxMinutes: 30, Budget: "low", Region: "BE", Creativity: 3, FavoriteRevisions: map[string]string{week: queued.Revision}}
+	var captured []domain.PlannedFavorite
+	if err := s.DB.Transaction(func(tx *gorm.DB) error {
+		var err error
+		captured, err = CaptureFavorites(tx, permission.Actor.UserID, input, func([]string) {}, permission)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	request, _ := json.Marshal(domain.GenerationRequest{MenuInput: input, Favorites: captured})
+	op := Generation{UserID: permission.Actor.UserID, Key: "captured-before-revocation", RequestHash: "hash", RequestJSON: string(request), Status: "running", Stage: "saving"}
+	if err := s.DB.Create(&op).Error; err != nil {
+		t.Fatal(err)
+	}
+	revoke()
+	if _, err := s.SaveMenu(ctx, permission.Actor.UserID, op.ID, input, nil, reader); !errors.Is(err, ErrPersonalPermission) {
+		t.Fatal("plan used Premium captured at admission", err)
+	}
+	var menus, consumed int
+	if err := s.SQL.QueryRow("SELECT COUNT(*) FROM menus WHERE user_id=?", permission.Actor.UserID).Scan(&menus); err != nil || menus != 0 {
+		t.Fatal("denied plan wrote a menu", menus, err)
+	}
+	if err := s.SQL.QueryRow("SELECT COUNT(*) FROM personal_recipe_queue WHERE consumed_operation IS NOT NULL").Scan(&consumed); err != nil || consumed != 0 {
+		t.Fatal("denied plan consumed queued personal recipe", consumed, err)
 	}
 }

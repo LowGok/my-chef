@@ -62,7 +62,7 @@ func (g Generation) Operation() domain.Operation {
 	return domain.Operation{ID: strconv.FormatInt(g.ID, 10), Status: g.Status, Stage: g.Stage, MenuID: mid, ErrorCode: g.ErrorCode, ErrorMessage: g.ErrorMessage}
 }
 
-func (s *Store) SaveMenu(ctx context.Context, userID, operationID int64, input domain.MenuInput, recipes []domain.RecipeContent) (domain.Menu, error) {
+func (s *Store) SaveMenu(ctx context.Context, userID, operationID int64, input domain.MenuInput, recipes []domain.RecipeContent, readers ...PersonalEntitlementReader) (domain.Menu, error) {
 	if err := input.Validate(); err != nil {
 		return domain.Menu{}, err
 	}
@@ -88,6 +88,18 @@ func (s *Store) SaveMenu(ctx context.Context, userID, operationID int64, input d
 		favorites := map[string]domain.PlannedFavorite{}
 		for _, f := range captured.Favorites {
 			favorites[f.Date] = f
+		}
+		for _, f := range captured.Favorites {
+			if f.Recipe.Source != nil {
+				var reader PersonalEntitlementReader
+				if len(readers) > 0 {
+					reader = readers[0]
+				}
+				if err := requirePlanEntitlement(ctx, tx, userID, reader); err != nil {
+					return err
+				}
+				break
+			}
 		}
 		if err := CheckMenuReplacement(tx, userID, input); err != nil {
 			return err

@@ -65,7 +65,7 @@ func TestRecipeImportWorkerLedgerSurvivesMatchedAppRestore(t *testing.T) {
 		}
 		request := imports.WorkerRequest{OperationID: op.ID, AccountID: op.OwnerInstance, Source: op.Private.Source}
 		fetched := rpc("/v1/check-page", request, 200)
-		op, err = db.CompleteRecipeImport(t.Context(), actor, vault, lease, fetched.Private, now)
+		op, err = db.CompleteRecipeImport(t.Context(), actor, premium, vault, lease, fetched.Private, now)
 		if err != nil || op.Stage != "awaiting-ai" || op.Private.Inspection == nil {
 			t.Fatal("fallback source unavailable", err)
 		}
@@ -130,7 +130,7 @@ func TestRecipeImportAbandonLeaseCannotPurgeForeignOrReadyDraft(t *testing.T) {
 		t.Fatal("foreign or guessed lease erased source", err)
 	}
 	draft := importDraft(t, op.Private.Source)
-	if _, err := s.CompleteRecipeImport(t.Context(), actor, vault, lease, imports.PrivateDraft{Source: op.Private.Source, Draft: &draft}, now); err != nil {
+	if _, err := s.CompleteRecipeImport(t.Context(), actor, premium, vault, lease, imports.PrivateDraft{Source: op.Private.Source, Draft: &draft}, now); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.AbandonRecipeImport(t.Context(), actor.UserID, op.OwnerInstance, lease, now); err != nil {

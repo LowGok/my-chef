@@ -169,7 +169,14 @@ func Restore(ctx context.Context, backup, destination string, options ...Account
 		}
 		// Old snapshots must never resurrect consumed refresh credentials.
 		// The trigger also removes native access actors and their anchors.
-		return copy.DB.WithContext(ctx).Exec("DELETE FROM native_families").Error
+		return copy.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			if err := tx.Exec("DELETE FROM native_families").Error; err != nil {
+				return err
+			}
+			// Fixture authorization is ephemeral across a restore, even when
+			// the account and its configured test lease are still valid.
+			return retireFixtureEntitlements(tx)
+		})
 	})
 }
 

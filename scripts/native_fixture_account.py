@@ -55,7 +55,12 @@ def seed(port, origin, capability, username="nativefixture"):
     if status != 200 or not user.get("user"):
         raise RuntimeError("Verified fixture account could not sign in")
     account = user["user"]
-    if call("POST", "fixture/personal-recipes/entitlement",
-            dict(accountId=account["id"], accountInstance=account["accountInstance"], state="premium"), fixture)[0] != 204:
+    route = "fixture/personal-recipes/entitlement"
+    status, lease, _ = call("GET", route, headers=fixture)
+    generation = lease.get("generation", "")
+    if status != 200 or not re.fullmatch(r"[0-9a-f]{32}", generation):
+        raise RuntimeError("Fixture entitlement generation is unavailable")
+    if call("POST", route, dict(accountId=account["id"], accountInstance=account["accountInstance"],
+                                state="premium", generation=generation, operationId=secrets.token_hex(16)), fixture)[0] != 204:
         raise RuntimeError("Fixture Premium access could not be granted")
     return {"email": profile["email"], "password": password}

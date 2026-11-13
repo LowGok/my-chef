@@ -5,13 +5,14 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"io"
 	"mime"
 	"net/http"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/LowGok/my-chef/internal/config"
@@ -25,46 +26,29 @@ type PersonalFixture struct {
 	store    *store.Store
 	settings config.FixtureInbox
 	now      func() time.Time
-	mu       sync.Mutex
-	grants   map[string]store.PersonalEntitlement
+	lease    store.FixtureEntitlementLease
 }
 
 func NewPersonalFixture(db *store.Store, settings config.FixtureInbox, now func() time.Time) *PersonalFixture {
 	if now == nil {
 		now = time.Now
 	}
-	return &PersonalFixture{store: db, settings: settings, now: now, grants: map[string]store.PersonalEntitlement{}}
-}
-
-func personalSyntheticAccount(tx *gorm.DB, user int64, incarnation string) bool {
-	var email string
-	err := tx.Raw(`SELECT u.email FROM users u JOIN account_incarnations a ON a.user_id=u.user_id
-WHERE u.user_id=? AND a.incarnation=? AND u.email_verified_at IS NOT NULL AND u.email_verified_at>0`, user, incarnation).Row().Scan(&email)
-	if err != nil {
-		return false
-	}
-	display, _, err := store.EmailIdentity(email)
-	return err == nil && strings.HasSuffix(strings.ToLower(display[strings.LastIndexByte(display, '@')+1:]), ".test")
+	hash := sha256.New()
+	hash.Write(settings.CapabilityHash[:])
+	hash.Write([]byte(settings.Expires.UTC().Format(time.RFC3339Nano)))
+	lease := store.FixtureEntitlementLease{ID: hex.EncodeToString(hash.Sum(nil)), Expires: settings.Expires}
+	return &PersonalFixture{store: db, settings: settings, now: now, lease: lease}
 }
 
 func (f *PersonalFixture) ReadEntitlement(ctx context.Context, tx *gorm.DB, user int64, incarnation string) (store.PersonalEntitlement, error) {
-	if !personalSyntheticAccount(tx.WithContext(ctx), user, incarnation) {
-		return store.PersonalEntitlement{}, nil
-	}
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if !f.now().Before(f.settings.Expires) {
-		clear(f.grants)
-		return store.PersonalEntitlement{}, nil
-	}
-	return f.grants[incarnation], nil
+	return store.EntitlementReader(f.lease, f.now)(ctx, tx, user, incarnation)
 }
 
 func (f *PersonalFixture) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	deny := func() { http.NotFound(w, r) }
-	if r.Method != http.MethodPost || r.URL.RawQuery != "" || r.Header.Get("Origin") != f.settings.Origin || !f.now().Before(f.settings.Expires) {
+	if (r.Method != http.MethodGet && r.Method != http.MethodPost) || r.URL.RawQuery != "" || r.Header.Get("Origin") != f.settings.Origin || !f.now().Before(f.settings.Expires) {
 		deny()
 		return
 	}
@@ -83,6 +67,18 @@ func (f *PersonalFixture) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		deny()
 		return
 	}
+	if r.Method == http.MethodGet {
+		generation, err := f.store.FixtureEntitlementGeneration(r.Context(), f.lease, f.now)
+		if err != nil {
+			deny()
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(struct {
+			Generation string `json:"generation"`
+		}{Generation: generation})
+		return
+	}
 	media, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 	if err != nil || media != "application/json" {
 		deny()
@@ -92,6 +88,8 @@ func (f *PersonalFixture) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		AccountID       string `json:"accountId"`
 		AccountInstance string `json:"accountInstance"`
 		State           string `json:"state"`
+		Generation      string `json:"generation"`
+		OperationID     string `json:"operationId"`
 	}
 	payload, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 2048))
 	if err != nil || jsonv2.Unmarshal(payload, &input, jsonv2.RejectUnknownMembers(true)) != nil {
@@ -103,37 +101,10 @@ func (f *PersonalFixture) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		deny()
 		return
 	}
-	var state store.PersonalEntitlement
-	switch input.State {
-	case "premium":
-		state = store.PersonalEntitlement{Premium: true, ExpiresUnix: f.settings.Expires.Unix()}
-	case "expired":
-		state = store.PersonalEntitlement{Premium: true, ExpiresUnix: f.now().Add(-time.Second).Unix()}
-	case "free":
-	default:
-		deny()
-		return
-	}
-	err = f.store.DB.WithContext(r.Context()).Transaction(func(tx *gorm.DB) error {
-		if !personalSyntheticAccount(tx, user, input.AccountInstance) {
-			return store.ErrPersonalNotFound
-		}
-		f.mu.Lock()
-		defer f.mu.Unlock()
-		if !f.now().Before(f.settings.Expires) {
-			clear(f.grants)
-			return store.ErrPersonalNotFound
-		}
-		if input.State == "free" {
-			delete(f.grants, input.AccountInstance)
-			return nil
-		}
-		if _, exists := f.grants[input.AccountInstance]; !exists && len(f.grants) >= 256 {
-			return store.ErrPersonalPermission
-		}
-		f.grants[input.AccountInstance] = state
-		return nil
-	})
+	err = f.store.SetFixtureEntitlement(r.Context(), f.lease, store.FixtureEntitlementOperation{
+		ID: input.OperationID, Generation: input.Generation, Incarnation: input.AccountInstance,
+		State: input.State, UserID: user,
+	}, f.now)
 	if err != nil {
 		deny()
 		return

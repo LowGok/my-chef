@@ -31,6 +31,8 @@ func PublicMessage(code string) string {
 		return "The recipe provider timed out. Check this request before explicitly starting a new one."
 	case "provider_invalid":
 		return "The provider returned recipes that did not meet this request. Review your preferences before trying a new menu."
+	case "premium_required":
+		return "Premium is needed to plan personal recipes. No menu was saved."
 	case "storage_unavailable":
 		return "The menu could not be saved. No partial menu was kept. Try again when storage is available."
 	case "interrupted":

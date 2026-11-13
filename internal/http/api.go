@@ -98,6 +98,7 @@ func (a *API) Handler(frontend http.Handler) http.Handler {
 	}
 	if a.Config.PersonalFixture != nil {
 		mux.Handle("POST /api/v1/fixture/personal-recipes/entitlement", a.Config.PersonalFixture)
+		mux.Handle("GET /api/v1/fixture/personal-recipes/entitlement", a.Config.PersonalFixture)
 	}
 	mux.HandleFunc("GET /api/v1/version", func(w http.ResponseWriter, r *http.Request) {
 		a.write(w, 200, map[string]string{"version": a.Config.Version, "runtime": "go"})

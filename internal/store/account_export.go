@@ -56,6 +56,10 @@ type exportPart struct {
 }
 
 var accountExportParts = []exportPart{
+	{Name: "entitlements.json", Query: `SELECT CASE WHEN g.source='fixture' THEN 'fixture' ELSE 'other' END AS source,
+g.starts_ns AS startsNanoseconds,g.ends_ns AS endsNanoseconds,g.revoked_ns AS revokedNanoseconds
+FROM entitlement_grants g JOIN account_incarnations a ON a.incarnation=g.incarnation
+WHERE a.user_id=? ORDER BY g.starts_ns,g.ends_ns,g.id`},
 	{Name: "native-installations.json", Query: `SELECT f.id,f.platform,f.expires_unix AS expiresUnix FROM native_families f JOIN sessions s ON s.hash=f.anchor_hash WHERE s.user_id=? ORDER BY f.id`, IDs: map[string]string{"id": "installation"}},
 	{Name: "recipe-import-drafts.json"},
 	{Name: "personal-import-sources.json", Query: `SELECT s.version_id AS versionId,s.source_kind AS kind,s.source_url AS url,s.source_title AS title,s.imported_ns AS importedNanoseconds FROM personal_recipe_import_sources s JOIN personal_recipe_versions v ON v.id=s.version_id JOIN personal_recipes r ON r.id=v.recipe_id WHERE r.user_id=? ORDER BY s.version_id`, IDs: map[string]string{"versionId": "personal-version"}},
@@ -344,7 +348,7 @@ func (s *Store) WriteAccountExport(ctx context.Context, actor AccountActor, w io
 	if err != nil {
 		return err
 	}
-	if _, err = io.WriteString(guide, "MyChef account data\n\nVersion 2. JSON files are arrays grouped by category.\nThis includes owned history, favorites, shopping choices, planning inputs, feedback and private ratings.\nPersonal recipes include every retained saved version, source links and queued snapshots. Deleted library sources may still be referenced by planned meals.\nRecipe imports include saved source attribution and still-retained private drafts. Source uploads and dispatch capabilities are excluded.\nRelated records use identifiers local to this download. Normalized uploaded photos are in photos/; personal-photos.json maps their identifiers to files. Existing generated images remain URL references.\nNative installation metadata includes only its platform, expiry and export-local identifier. Passwords, session credentials, browser sessions, verification links, private provider targets, upload receipts, security logs and opaque legacy fields are excluded.\nKeep this archive private. MyChef does not retain a copy or send it by email.\n"); err != nil {
+	if _, err = io.WriteString(guide, "MyChef account data\n\nVersion 2. JSON files are arrays grouped by category.\nThis includes owned history, favorites, shopping choices, planning inputs, feedback and private ratings.\nPersonal recipes include every retained saved version, source links and queued snapshots. Deleted library sources may still be referenced by planned meals.\nRecipe imports include saved source attribution and still-retained private drafts. Source uploads and dispatch capabilities are excluded.\nRelated records use identifiers local to this download. Normalized uploaded photos are in photos/; personal-photos.json maps their identifiers to files. Existing generated images remain URL references.\nEntitlements include grant categories and dates; internal grant and fixture identifiers are excluded.\nNative installation metadata includes only its platform, expiry and export-local identifier. Passwords, session credentials, browser sessions, verification links, private provider targets, upload receipts, security logs and opaque legacy fields are excluded.\nKeep this archive private. MyChef does not retain a copy or send it by email.\n"); err != nil {
 		return err
 	}
 	for _, part := range accountExportParts {

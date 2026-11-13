@@ -244,7 +244,7 @@ func (s *RecipeImportService) launch(tracked context.Context, release func(), ac
 		if err != nil || call.Err() != nil {
 			return
 		}
-		if _, err = s.store.CompleteRecipeImport(call, actor, s.vault, lease, result.Private, time.Now().UTC()); err == nil {
+		if _, err = s.store.CompleteRecipeImport(call, actor, s.reader, s.vault, lease, result.Private, time.Now().UTC()); err == nil {
 			finished = true
 		}
 	}()

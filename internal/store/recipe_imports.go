@@ -269,11 +269,14 @@ func (s *Store) ReadRecipeImport(ctx context.Context, actor PersonalActor, vault
 	})
 	return out, err
 }
-func (s *Store) CompleteRecipeImport(ctx context.Context, actor PersonalActor, vault *imports.DraftVault, lease RecipeImportLease, private imports.PrivateDraft, now time.Time) (RecipeImport, error) {
+func (s *Store) CompleteRecipeImport(ctx context.Context, actor PersonalActor, reader PersonalEntitlementReader, vault *imports.DraftVault, lease RecipeImportLease, private imports.PrivateDraft, now time.Time) (RecipeImport, error) {
 	var out RecipeImport
 	err := s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		incarnation, err := personalAuthority(tx, actor, now)
 		if err != nil {
+			return err
+		}
+		if err := personalPermission(ctx, tx, actor, incarnation, reader, now); err != nil {
 			return err
 		}
 		row, err := loadImport(tx, actor, incarnation, lease.ID, now)

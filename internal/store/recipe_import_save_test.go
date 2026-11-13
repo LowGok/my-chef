@@ -18,7 +18,7 @@ func readyImportSave(t *testing.T, s *Store, actor PersonalActor, premium Person
 		t.Fatal(err)
 	}
 	draft := importDraft(t, op.Private.Source)
-	op, err = s.CompleteRecipeImport(t.Context(), actor, vault, lease, imports.PrivateDraft{Source: op.Private.Source, Draft: &draft}, now)
+	op, err = s.CompleteRecipeImport(t.Context(), actor, premium, vault, lease, imports.PrivateDraft{Source: op.Private.Source, Draft: &draft}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,7 +172,7 @@ func TestRecipeImportDeletionAndMatchedRestoreFenceLateCompletion(t *testing.T) 
 		t.Fatal(err)
 	}
 	draft := importDraft(t, late.Private.Source)
-	if _, err := s.CompleteRecipeImport(t.Context(), actor, vault, lease, imports.PrivateDraft{Source: late.Private.Source, Draft: &draft}, now); err == nil {
+	if _, err := s.CompleteRecipeImport(t.Context(), actor, premium, vault, lease, imports.PrivateDraft{Source: late.Private.Source, Draft: &draft}, now); err == nil {
 		t.Fatal("deleted account accepted late content")
 	}
 	destination := filepath.Join(t.TempDir(), "restored-imports.db")

@@ -56,7 +56,7 @@ func TestRecipeImportStoreOwnershipIdempotencyEncryptionAndRestart(t *testing.T)
 	}
 	source := input.Source
 	draft := importDraft(t, source)
-	result, err := s.CompleteRecipeImport(ctx, actor, vault, lease, imports.PrivateDraft{Source: source, Draft: &draft}, now)
+	result, err := s.CompleteRecipeImport(ctx, actor, premium, vault, lease, imports.PrivateDraft{Source: source, Draft: &draft}, now)
 	if err != nil || result.Stage != "ready" || result.Draft == nil {
 		t.Fatal("private draft unavailable", err)
 	}
@@ -79,7 +79,7 @@ func TestRecipeImportStoreOwnershipIdempotencyEncryptionAndRestart(t *testing.T)
 	if err != nil || got.Draft == nil || got.Draft.Content.Title != draft.Content.Title {
 		t.Fatal("draft lost across restart", err)
 	}
-	if _, err := reopened.CompleteRecipeImport(ctx, actor, vault, lease, imports.PrivateDraft{Source: source, Draft: &draft}, now); !errors.Is(err, ErrRecipeImportConflict) {
+	if _, err := reopened.CompleteRecipeImport(ctx, actor, premium, vault, lease, imports.PrivateDraft{Source: source, Draft: &draft}, now); !errors.Is(err, ErrRecipeImportConflict) {
 		t.Fatal("completed source replay accepted", err)
 	}
 }
@@ -129,7 +129,7 @@ func TestRecipeImportStorePermissionConcurrencyCancelAndExpiry(t *testing.T) {
 		t.Fatal(err)
 	}
 	draft := importDraft(t, input.Source)
-	if _, err := s.CompleteRecipeImport(ctx, actor, vault, lease, imports.PrivateDraft{Source: input.Source, Draft: &draft}, now); err == nil {
+	if _, err := s.CompleteRecipeImport(ctx, actor, premium, vault, lease, imports.PrivateDraft{Source: input.Source, Draft: &draft}, now); err == nil {
 		t.Fatal("late completion recreated cancelled data")
 	}
 	if _, _, err := s.BeginRecipeImport(ctx, actor, premium, vault, next, now); err != nil {
@@ -156,7 +156,7 @@ func TestRecipeImportStoreExplicitAIAndRestartFences(t *testing.T) {
 		t.Fatal(err)
 	}
 	inspection := imports.PageInspection{Candidates: []imports.StructuredCandidate{}, FallbackText: "private-visible-recipe-canary"}
-	op, err = s.CompleteRecipeImport(ctx, actor, vault, lease, imports.PrivateDraft{Source: input.Source, Inspection: &inspection}, now)
+	op, err = s.CompleteRecipeImport(ctx, actor, premium, vault, lease, imports.PrivateDraft{Source: input.Source, Inspection: &inspection}, now)
 	if err != nil || !op.CanReadWithAI || op.Stage != "awaiting-ai" {
 		t.Fatal("explicit fallback not available", err)
 	}
@@ -175,7 +175,7 @@ func TestRecipeImportStoreExplicitAIAndRestartFences(t *testing.T) {
 		t.Fatal("restart did not fence ambiguous dispatch", err)
 	}
 	draft := importDraft(t, input.Source)
-	if _, err := s.CompleteRecipeImport(ctx, actor, vault, ai, imports.PrivateDraft{Source: input.Source, Draft: &draft}, now); err == nil {
+	if _, err := s.CompleteRecipeImport(ctx, actor, premium, vault, ai, imports.PrivateDraft{Source: input.Source, Draft: &draft}, now); err == nil {
 		t.Fatal("stale provider result accepted after restart")
 	}
 	replay, again, err := s.BeginRecipeImport(ctx, actor, premium, vault, input, now)
@@ -200,7 +200,7 @@ func TestRecipeImportStoreSelectionPhotosAndRevocation(t *testing.T) {
 		t.Fatal(err)
 	}
 	inspection := imports.PageInspection{Candidates: []imports.StructuredCandidate{{ID: strings.Repeat("1", 64), Draft: first, Complete: false}, {ID: strings.Repeat("2", 64), Draft: second, Complete: false}}}
-	op, err = s.CompleteRecipeImport(ctx, actor, vault, lease, imports.PrivateDraft{Source: input.Source, Inspection: &inspection}, now)
+	op, err = s.CompleteRecipeImport(ctx, actor, premium, vault, lease, imports.PrivateDraft{Source: input.Source, Inspection: &inspection}, now)
 	if err != nil || op.Stage != "selection" || len(op.Candidates) != 2 || op.Draft != nil {
 		t.Fatal("multiple recipes silently selected", err)
 	}
@@ -226,7 +226,7 @@ func TestRecipeImportStoreSelectionPhotosAndRevocation(t *testing.T) {
 		t.Fatal(err)
 	}
 	draft := importDraft(t, photo.Source)
-	if _, err := s.CompleteRecipeImport(ctx, actor, vault, lease, imports.PrivateDraft{Source: photo.Source, Draft: &draft}, now); !errors.Is(err, ErrPersonalSession) {
+	if _, err := s.CompleteRecipeImport(ctx, actor, premium, vault, lease, imports.PrivateDraft{Source: photo.Source, Draft: &draft}, now); !errors.Is(err, ErrPersonalSession) {
 		t.Fatal("revoked session completed import", err)
 	}
 	if err := s.DB.Delete(&User{}, actor.UserID).Error; err != nil {
@@ -298,7 +298,7 @@ func TestRecipeImportExpiryRunsWithoutWorker(t *testing.T) {
 		t.Fatal(err)
 	}
 	draft := importDraft(t, op.Private.Source)
-	if _, err := s.CompleteRecipeImport(t.Context(), actor, vault, lease, imports.PrivateDraft{Source: op.Private.Source, Draft: &draft}, now); err != nil {
+	if _, err := s.CompleteRecipeImport(t.Context(), actor, premium, vault, lease, imports.PrivateDraft{Source: op.Private.Source, Draft: &draft}, now); err != nil {
 		t.Fatal(err)
 	}
 	ticks := make(chan time.Time, 1)
@@ -310,5 +310,37 @@ func TestRecipeImportExpiryRunsWithoutWorker(t *testing.T) {
 	var row recipeImportOperation
 	if err := s.DB.Where("id=?", op.ID).Take(&row).Error; err != nil || row.Stage != "expired" || len(row.Cipher) != 0 {
 		t.Fatal("worker-disabled expiry retained private draft", err)
+	}
+}
+
+func TestRecipeImportCompletionRequiresCurrentPremium(t *testing.T) {
+	s, actor, _, _, now := personalFixture(t)
+	ctx := t.Context()
+	if err := s.DB.Exec("UPDATE users SET email='import-entitlement@example.test', email_key='import-entitlement@example.test' WHERE user_id=?", actor.UserID).Error; err != nil {
+		t.Fatal(err)
+	}
+	owner := entitlementIdentity(t, s, actor.UserID)
+	at := now
+	reader, revoke := testEntitlementSwitch(t, s, actor, owner, func() time.Time { return at })
+	vault := importVault(t)
+	input := importInput(strings.Repeat("d", 32), now)
+	op, lease, err := s.BeginRecipeImport(ctx, actor, reader, vault, input, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CheckRecipeImportDispatch(ctx, actor, reader, vault, lease, false, true, now); err != nil {
+		t.Fatal(err)
+	}
+	revoke()
+	draft := importDraft(t, op.Private.Source)
+	if _, err := s.CompleteRecipeImport(ctx, actor, reader, vault, lease, imports.PrivateDraft{Source: op.Private.Source, Draft: &draft}, now); !errors.Is(err, ErrPersonalPermission) {
+		t.Fatal("late extraction committed after revocation", err)
+	}
+	retained, err := s.ReadRecipeImport(ctx, actor, vault, op.ID, now)
+	if err != nil || retained.Stage != "checking" || retained.Draft != nil {
+		t.Fatal("rejected extraction changed stored draft", err)
+	}
+	if err := s.AbandonRecipeImport(ctx, actor.UserID, owner, lease, now); err != nil {
+		t.Fatal("cleanup required Premium", err)
 	}
 }
