@@ -55,3 +55,6 @@ var NativeSessions string
 
 //go:embed 018_entitlement_grants.sql
 var EntitlementGrants string
+
+//go:embed 019_newsletter.sql
+var Newsletter string

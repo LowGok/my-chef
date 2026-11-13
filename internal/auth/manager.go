@@ -42,7 +42,8 @@ func (m *Manager) Load(ctx context.Context, token string) (store.Session, error)
 	var session store.Session
 	err := m.Store.DB.WithContext(ctx).Where(`hash = ? AND expires_unix > ?
 AND NOT EXISTS (SELECT 1 FROM native_accesses n WHERE n.hash=sessions.hash)
-AND NOT EXISTS (SELECT 1 FROM native_families f WHERE f.anchor_hash=sessions.hash)`, Hash(token), time.Now().UTC().Unix()).First(&session).Error
+AND NOT EXISTS (SELECT 1 FROM native_families f WHERE f.anchor_hash=sessions.hash)
+AND NOT EXISTS (SELECT 1 FROM users u WHERE u.user_id=sessions.user_id AND u.isNewsletterOnly=1)`, Hash(token), time.Now().UTC().Unix()).First(&session).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return session, ErrSession
 	}
@@ -62,6 +63,9 @@ func newSession(userID *int64, now time.Time) (string, store.Session, error) {
 }
 
 func rotateSession(tx *gorm.DB, session store.Session, old string, now int64) error {
+	if err := requireAppUser(tx, session.UserID); err != nil {
+		return err
+	}
 	if len(old) == 64 {
 		if err := tx.Where("hash = ?", Hash(old)).Delete(&store.Session{}).Error; err != nil {
 			return err
@@ -135,7 +139,7 @@ func (m *Manager) verifyLogin(ctx context.Context, address, raw string) (verifie
 		return verifiedLogin{}, ErrCredentials
 	}
 	var u store.User
-	err = m.Store.DB.WithContext(ctx).Where("email_key = ?", emailKey).First(&u).Error
+	err = m.Store.DB.WithContext(ctx).Where("email_key = ? AND isNewsletterOnly=0", emailKey).First(&u).Error
 	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		return verifiedLogin{}, err
 	}
@@ -168,7 +172,7 @@ func (m *Manager) completeLogin(ctx context.Context, login verifiedLogin, old st
 	}
 	var current store.User
 	err := m.Store.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		err := tx.Where("user_id = ? AND password = ? AND email_key = ?", login.user.ID, login.user.Password, login.user.EmailKey).
+		err := tx.Where("user_id = ? AND password = ? AND email_key = ? AND isNewsletterOnly=0", login.user.ID, login.user.Password, login.user.EmailKey).
 			Take(&current).Error
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return ErrCredentials

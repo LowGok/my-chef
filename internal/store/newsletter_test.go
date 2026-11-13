@@ -3,8 +3,14 @@ package store
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 )
+
+// Historical upgrade tests permit only the requested additive user column.
+func withoutNewsletterColumn(schema string) string {
+	return strings.Replace(schema, ", isNewsletterOnly BOOLEAN NOT NULL DEFAULT 0 CHECK(isNewsletterOnly IN (0,1))", "", 1)
+}
 
 func TestNewsletterMigrationPreservesAccounts(t *testing.T) {
 	ctx := context.Background()

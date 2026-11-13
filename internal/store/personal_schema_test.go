@@ -41,7 +41,7 @@ func TestPersonalMigrationPreservesExistingIdentityAndSchema(t *testing.T) {
 		"SELECT binding||':'||stage FROM lifecycle_binding WHERE singleton=1": beforeBinding,
 	} {
 		var got string
-		if err := s.SQL.QueryRowContext(t.Context(), query).Scan(&got); err != nil || got != want {
+		if err := s.SQL.QueryRowContext(t.Context(), query).Scan(&got); err != nil || withoutNewsletterColumn(got) != want {
 			t.Fatal("upgrade changed existing identity/schema", err)
 		}
 	}

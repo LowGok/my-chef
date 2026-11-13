@@ -279,7 +279,7 @@ func TestRecipeImportMigrationRollbackAndPreservation(t *testing.T) {
 					t.Fatal("migration replay failed", err)
 				}
 				var after string
-				if err := s.SQL.QueryRow("SELECT sql FROM sqlite_schema WHERE name='users'").Scan(&after); err != nil || after != before {
+				if err := s.SQL.QueryRow("SELECT sql FROM sqlite_schema WHERE name='users'").Scan(&after); err != nil || withoutNewsletterColumn(after) != before {
 					t.Fatal("migration changed existing identity schema", err)
 				}
 				if err := s.Validate(t.Context()); err != nil {
