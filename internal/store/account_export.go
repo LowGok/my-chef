@@ -56,6 +56,7 @@ type exportPart struct {
 }
 
 var accountExportParts = []exportPart{
+	{Name: "weekly-reminders.json", Query: `SELECT p.zone,p.current_enabled AS currentEnabled,p.advance_enabled AS advanceEnabled,p.advance_day AS advanceWeekday,p.advance_minute AS advanceMinute FROM reminder_preferences p JOIN account_incarnations a ON a.incarnation=p.incarnation WHERE a.user_id=?`},
 	{Name: "entitlements.json", Query: `SELECT CASE WHEN g.source='fixture' THEN 'fixture' ELSE 'other' END AS source,
 g.starts_ns AS startsNanoseconds,g.ends_ns AS endsNanoseconds,g.revoked_ns AS revokedNanoseconds
 FROM entitlement_grants g JOIN account_incarnations a ON a.incarnation=g.incarnation
@@ -348,7 +349,7 @@ func (s *Store) WriteAccountExport(ctx context.Context, actor AccountActor, w io
 	if err != nil {
 		return err
 	}
-	if _, err = io.WriteString(guide, "MyChef account data\n\nVersion 2. JSON files are arrays grouped by category.\nThis includes owned history, favorites, shopping choices, planning inputs, feedback and private ratings.\nPersonal recipes include every retained saved version, source links and queued snapshots. Deleted library sources may still be referenced by planned meals.\nRecipe imports include saved source attribution and still-retained private drafts. Source uploads and dispatch capabilities are excluded.\nRelated records use identifiers local to this download. Normalized uploaded photos are in photos/; personal-photos.json maps their identifiers to files. Existing generated images remain URL references.\nEntitlements include grant categories and dates; internal grant and fixture identifiers are excluded.\nNative installation metadata includes only its platform, expiry and export-local identifier. Passwords, session credentials, browser sessions, verification links, private provider targets, upload receipts, security logs and opaque legacy fields are excluded.\nKeep this archive private. MyChef does not retain a copy or send it by email.\n"); err != nil {
+	if _, err = io.WriteString(guide, "MyChef account data\n\nVersion 2. JSON files are arrays grouped by category.\nThis includes owned history, favorites, shopping choices, planning inputs, feedback and private ratings.\nPersonal recipes include every retained saved version, source links and queued snapshots. Deleted library sources may still be referenced by planned meals.\nRecipe imports include saved source attribution and still-retained private drafts. Source uploads and dispatch capabilities are excluded.\nRelated records use identifiers local to this download. Normalized uploaded photos are in photos/; personal-photos.json maps their identifiers to files. Existing generated images remain URL references.\nWeekly planning reminders include preferences and exclude push tokens.\nEntitlements include grant categories and dates; internal grant and fixture identifiers are excluded.\nNative installation metadata includes only its platform, expiry and export-local identifier. Passwords, session credentials, browser sessions, verification links, private provider targets, upload receipts, security logs and opaque legacy fields are excluded.\nKeep this archive private. MyChef does not retain a copy or send it by email.\n"); err != nil {
 		return err
 	}
 	for _, part := range accountExportParts {

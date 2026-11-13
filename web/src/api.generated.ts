@@ -630,6 +630,208 @@ export type EmailVerificationResendWritable = {
 
 export type EmailFlowCsrf = string;
 
+export type OpenPlanningReminderData = {
+    body: {
+        reference: string;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/planning-reminders/open';
+};
+
+export type OpenPlanningReminderErrors = {
+    /**
+     * Invalid request.
+     */
+    400: unknown;
+    /**
+     * Sign in required.
+     */
+    401: unknown;
+    /**
+     * Reminder unavailable.
+     */
+    404: unknown;
+};
+
+export type OpenPlanningReminderResponses = {
+    /**
+     * Authorized week.
+     */
+    200: {
+        week: string;
+    };
+};
+
+export type OpenPlanningReminderResponse = OpenPlanningReminderResponses[keyof OpenPlanningReminderResponses];
+
+export type GetPlanningRemindersData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/planning-reminders';
+};
+
+export type GetPlanningRemindersErrors = {
+    /**
+     * Invalid request.
+     */
+    400: unknown;
+    /**
+     * Sign in required.
+     */
+    401: unknown;
+    /**
+     * Reminder not allowed.
+     */
+    403: unknown;
+    /**
+     * Reminders are unavailable.
+     */
+    404: unknown;
+};
+
+export type GetPlanningRemindersResponses = {
+    /**
+     * Current reminder state.
+     */
+    200: {
+        zone: string;
+        current: boolean;
+        advance: boolean;
+        advanceDay: number;
+        advanceMinute: number;
+        revision: number;
+        premium: boolean;
+        deviceEnabled: boolean;
+    };
+};
+
+export type GetPlanningRemindersResponse = GetPlanningRemindersResponses[keyof GetPlanningRemindersResponses];
+
+export type SetPlanningRemindersData = {
+    body: {
+        zone: string;
+        current: boolean;
+        advance: boolean;
+        advanceDay: number;
+        advanceMinute: number;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/planning-reminders';
+};
+
+export type SetPlanningRemindersErrors = {
+    /**
+     * Invalid request.
+     */
+    400: unknown;
+    /**
+     * Sign in required.
+     */
+    401: unknown;
+    /**
+     * Reminder not allowed.
+     */
+    403: unknown;
+    /**
+     * Reminders are unavailable.
+     */
+    404: unknown;
+};
+
+export type SetPlanningRemindersResponses = {
+    /**
+     * Current reminder state.
+     */
+    200: {
+        zone: string;
+        current: boolean;
+        advance: boolean;
+        advanceDay: number;
+        advanceMinute: number;
+        revision: number;
+        premium: boolean;
+        deviceEnabled: boolean;
+    };
+};
+
+export type SetPlanningRemindersResponse = SetPlanningRemindersResponses[keyof SetPlanningRemindersResponses];
+
+export type RemovePlanningReminderDeviceData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/native/v1/planning-reminders/installation';
+};
+
+export type RemovePlanningReminderDeviceErrors = {
+    /**
+     * Invalid request.
+     */
+    400: unknown;
+    /**
+     * Sign in required.
+     */
+    401: unknown;
+    /**
+     * Reminder not allowed.
+     */
+    403: unknown;
+    /**
+     * Reminders are unavailable.
+     */
+    404: unknown;
+};
+
+export type RemovePlanningReminderDeviceResponses = {
+    /**
+     * Installation updated.
+     */
+    204: void;
+};
+
+export type RemovePlanningReminderDeviceResponse = RemovePlanningReminderDeviceResponses[keyof RemovePlanningReminderDeviceResponses];
+
+export type RegisterPlanningReminderDeviceData = {
+    body: {
+        token: string;
+        osAllowed: true;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/native/v1/planning-reminders/installation';
+};
+
+export type RegisterPlanningReminderDeviceErrors = {
+    /**
+     * Invalid request.
+     */
+    400: unknown;
+    /**
+     * Sign in required.
+     */
+    401: unknown;
+    /**
+     * Reminder not allowed.
+     */
+    403: unknown;
+    /**
+     * Reminders are unavailable.
+     */
+    404: unknown;
+};
+
+export type RegisterPlanningReminderDeviceResponses = {
+    /**
+     * Installation updated.
+     */
+    204: void;
+};
+
+export type RegisterPlanningReminderDeviceResponse = RegisterPlanningReminderDeviceResponses[keyof RegisterPlanningReminderDeviceResponses];
+
 export type ExportAccountData = {
     body: AccountExportRequest;
     path?: never;

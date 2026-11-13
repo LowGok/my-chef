@@ -31,7 +31,7 @@ if (
   (group !== "core" &&
     group !== "media" &&
     group !== "pages" &&
-    group !== "account") ||
+    group !== "account" && group !== "reminders") ||
   !state ||
   !/^\/.*mychef-installed-[A-Za-z0-9_-]+$/.test(state)
 )
@@ -1074,6 +1074,47 @@ async function accountJourneys() {
   });
 }
 
+async function reminderJourney() {
+  const group = page.locator(".planning-reminders");
+  const settings = async () => {
+    await profile();
+    await group.locator("summary").click();
+  };
+  await check("native reminders start disabled and require explicit consent", async () => {
+    await login();
+    await settings();
+    await expect(group.getByText(/Monday at 17:00/)).toBeVisible();
+    await expect(group.getByRole("button", { name: "Turn on for this device" })).toBeDisabled();
+    await group.getByLabel("Time zone").fill("Europe/Brussels");
+    await group.getByLabel("Monday reminder").check();
+    await button("Save reminder preferences").click();
+    await expect(group.getByRole("status")).toHaveText("Reminder preferences saved.");
+    await expect(button("Turn on for this device")).toBeEnabled();
+  });
+  await check("installed app registers only after notification permission and removes on opt out", async () => {
+    await button("Turn on for this device").click();
+    const denyButton = /resource-id="com\.(?:google\.)?android\.permissioncontroller:id\/permission_deny_button"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/;
+    let denied = false;
+    await expect.poll(() => {
+      if (denied) return true;
+      adb("shell", "uiautomator", "dump", "/data/local/tmp/mychef-reminder-dialog.xml");
+      const match = adb("shell", "cat", "/data/local/tmp/mychef-reminder-dialog.xml").match(denyButton);
+      if (!match) return false;
+      const [, x1, y1, x2, y2] = match.map(Number);
+      adb("shell", "input", "tap", String(Math.floor((x1 + x2) / 2)), String(Math.floor((y1 + y2) / 2)));
+      denied = true;
+      return true;
+    }).toBe(true);
+    await expect(button("Open notification settings")).toBeVisible();
+    adb("shell", "pm", "grant", app, "android.permission.POST_NOTIFICATIONS");
+    await button("Turn on for this device").click();
+    await expect(group.getByText("Reminders are on for this device.")).toBeVisible();
+    await button("Turn off on this device").click();
+    await expect(button("Turn on for this device")).toBeEnabled();
+    await expect(group.getByText("Reminders are on for this device.")).toHaveCount(0);
+  });
+}
+
 try {
   await connect();
   await {
@@ -1081,6 +1122,7 @@ try {
     media: mediaJourneys,
     pages: pageImportJourney,
     account: accountJourneys,
+    reminders: reminderJourney,
   }[group]();
   await writeFile(
     join(state, `native-android-journeys-${group}.json`),

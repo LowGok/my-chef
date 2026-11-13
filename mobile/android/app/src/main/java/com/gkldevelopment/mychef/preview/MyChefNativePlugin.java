@@ -43,7 +43,9 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.util.UUID;
 
-@CapacitorPlugin(name = "MyChefNative")
+@CapacitorPlugin(name = "MyChefNative", permissions = {
+    @com.getcapacitor.annotation.Permission(strings = { android.Manifest.permission.POST_NOTIFICATIONS }, alias = "reminders")
+})
 public class MyChefNativePlugin extends Plugin {
     private final Map<String, Call> calls = new ConcurrentHashMap<>();
     private final OkHttpClient http = new OkHttpClient.Builder()
@@ -56,6 +58,8 @@ public class MyChefNativePlugin extends Plugin {
     private URI origin;
     private ConnectivityManager connectivity;
     private ConnectivityManager.NetworkCallback networkCallback;
+    private final java.util.concurrent.atomic.AtomicLong reminderPermissionGeneration = new java.util.concurrent.atomic.AtomicLong();
+    private final Map<String, Long> reminderPermissionRequests = new ConcurrentHashMap<>();
     private void traceNativeCheck(String path, String method, String result) {
         if (origin == null || !"localhost".equals(origin.getHost())
                 || (getContext().getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) == 0) return;
@@ -86,9 +90,69 @@ public class MyChefNativePlugin extends Plugin {
                 try { result.put("link",NativeBoundary.accountLink(origin,link)); }
                 catch (Exception ignored) { result.put("invalidLink",true); }
             }
+            String reminder = ReminderNotifications.take(SystemClock.elapsedRealtime());
+            if (reminder != null) result.put("reminder", reminder);
             reply(call,result);
         } catch (Exception ignored) { call.reject("App state is unavailable", "native_runtime"); }
     }
+    @PluginMethod public void reminderPermission(PluginCall call) {
+        MainActivity activity = (MainActivity)getActivity();
+        long generation = reminderPermissionGeneration.incrementAndGet();
+        if (!ReminderRegistration.available(activity) && !isReminderFixture()) {
+            finishReminderPermission(call, false);
+            return;
+        }
+        if (!ReminderNotifications.allowed(activity) && Boolean.TRUE.equals(call.getBoolean("prompt"))
+                && android.os.Build.VERSION.SDK_INT >= 33 && getPermissionState("reminders") == com.getcapacitor.PermissionState.PROMPT) {
+            reminderPermissionRequests.clear();
+            reminderPermissionRequests.put(call.getCallbackId(), generation);
+            requestPermissionForAlias("reminders", call, "reminderPermissionResult");
+            return;
+        }
+        finishReminderPermission(call, ReminderNotifications.allowed(activity));
+    }
+    @com.getcapacitor.annotation.PermissionCallback
+    private void reminderPermissionResult(PluginCall call) {
+        Long generation = reminderPermissionRequests.remove(call.getCallbackId());
+        finishReminderPermission(call, generation != null && generation == reminderPermissionGeneration.get()
+                && ReminderNotifications.allowed(getContext()));
+    }
+    private boolean isReminderFixture() {
+        return origin != null && "https://localhost:8977".equals(origin.toString())
+                && (getContext().getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0;
+    }
+    private void finishReminderPermission(PluginCall call, boolean allowed) {
+        if (allowed) {
+            if (isReminderFixture()) {
+                long generation = ReminderNotifications.begin(getContext());
+                if (generation >= 0) ReminderNotifications.registered("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", generation);
+            } else {
+                ReminderRegistration.start((MainActivity)getActivity());
+            }
+        }
+        JSObject result = new JSObject();
+        result.put("allowed", allowed);
+        reply(call, result);
+    }
+    @PluginMethod public void reminderRegistration(PluginCall call) {
+        boolean allowed = ReminderNotifications.allowed(getContext());
+        if (!allowed) ReminderRegistration.stop(getContext());
+        JSObject result = new JSObject();
+        result.put("allowed", allowed);
+        result.put("token", allowed && ReminderNotifications.token() != null ? ReminderNotifications.token() : org.json.JSONObject.NULL);
+        reply(call, result);
+    }
+    @PluginMethod public void stopReminderRegistration(PluginCall call) {
+        reminderPermissionGeneration.incrementAndGet();
+        reminderPermissionRequests.clear();
+        ReminderRegistration.stop(getContext());
+        reply(call);
+    }
+    @PluginMethod public void openReminderSettings(PluginCall call) {
+        getActivity().startActivity(ReminderNotifications.settings(getContext()));
+        reply(call);
+    }
+
     private volatile PluginCall mediaPending;
     private volatile boolean mediaOutstanding;
     private volatile long mediaEpoch;

@@ -184,7 +184,7 @@ def main():
                 original.backup(candidate)
             migrate(CACHE / "mychef-migrate", "up", "--db", upgraded)
             with sqlite3.connect(upgraded) as candidate:
-                assert candidate.execute("SELECT version,dirty FROM schema_migrations").fetchone() == (18, 0)
+                assert candidate.execute("SELECT version,dirty FROM schema_migrations").fetchone() == (19, 0)
                 assert candidate.execute("SELECT COUNT(*) FROM entitlement_grants").fetchone()[0] == 0
                 assert {"personal_recipes", "personal_recipe_versions", "personal_photo_assets", "personal_recipe_queue"}.issubset(
                     {row[0] for row in candidate.execute("SELECT name FROM sqlite_master WHERE type='table'")})

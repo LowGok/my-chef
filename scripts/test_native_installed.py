@@ -10,6 +10,7 @@ import plistlib
 import re
 import shutil
 import ssl
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -101,7 +102,7 @@ def fixture(state, stack, journeys=False):
     db = str(state / "app.db")
     app_env = dict(ENV, **email, MYCHEF_ADDR="127.0.0.1:18137", MYCHEF_ORIGIN=ORIGIN,
                    MYCHEF_DB=db, MYCHEF_LIFECYCLE_DB=db + ".lifecycle", MYCHEF_DEV="1",
-                   MYCHEF_PROVIDER="fixture", MYCHEF_E2E="1", MYCHEF_FEEDBACK_TO="operator@example.test")
+                   MYCHEF_PROVIDER="fixture", MYCHEF_E2E="1", MYCHEF_PUSH_FIXTURE="1", MYCHEF_FEEDBACK_TO="operator@example.test")
     if journeys:
         app_env.update(stack.enter_context(fixture_imports(ROOT, state, app_env)))
     subprocess.run([str(state / "mychef-migrate"), "up", "--db", db], env=app_env, check=True, timeout=60)
@@ -210,7 +211,7 @@ def fixture(state, stack, journeys=False):
                 self.wfile.write(body)
                 # Fixed route groups only: no IDs, query values or response bodies.
                 route = self.path.split("?", 1)[0].removeprefix("/api/native/v1/")
-                event_kind = route if route in ("session", "refresh", "login", "profile", "menus", "generations", "personal-recipes", "feedback") else "feature"
+                event_kind = route if route in ("session", "refresh", "login", "profile", "menus", "generations", "personal-recipes", "feedback", "planning-reminders/installation", "planning-reminders/open") else "feature"
                 if re.fullmatch(r"favorite-weeks/\d{4}-\d{2}-\d{2}", route):
                     event_kind = "favorite-week"
                 events.append((self.command, event_kind, response.status))
@@ -369,7 +370,7 @@ def android(state, stack, ca, apk):
     return metadata, launch, stop, diagnostics
 
 
-def ios(state, stack, ca, package):
+def ios(state, stack, ca, package, reminder_inputs=None):
     # Verify the archive before booting the simulator. The host Mach-O tools
     # do not need CoreSimulator, and can otherwise contend with its first boot.
     command("/usr/bin/ditto", "-x", "-k", str(package), str(state))
@@ -445,12 +446,50 @@ def ios(state, stack, ca, package):
         codes = sorted(set(re.findall(r"(?:NSURLErrorDomain Code=|error\s+)(-\d{2,6})\b", output)))
         print("Simulator network error codes: " + (", ".join(codes) or "none recorded"), flush=True)
 
+    launches = 0
+    def launch():
+        nonlocal launches
+        launches += 1
+        if launches != 2 or reminder_inputs is None:
+            return sim("launch", identifier, APP)
+        container = Path(sim("get_app_container", identifier, APP, "data"))
+        temporary = container / "tmp"
+        if not temporary.is_dir() or not temporary.resolve().is_relative_to(container.resolve()):
+            raise RuntimeError("Unexpected disposable simulator container")
+        (temporary / "mychef-reminder-fixture.json").write_text(json.dumps(reminder_inputs))
+        return sim("launch", identifier, APP, "--mychef-reminder-fixture")
+
     return ({"runtime": runtime, "model": device["name"], "hostArchitecture": os.uname().machine,
              "signing": "simulator linker entitlements only", "keychainIdentity": access_group},
-            lambda: sim("launch", identifier, APP), lambda: sim("terminate", identifier, APP), diagnostics)
+            launch, lambda: sim("terminate", identifier, APP), diagnostics)
 
 
-def android_journeys(state, receipt, metadata, events):
+def ios_reminder_inputs(state):
+    from datetime import datetime, timezone, timedelta
+    from native_fixture_account import seed
+    import secrets
+
+    capability = json.loads((state / "fixture-inbox.json").read_text())["capability"]
+    account = seed(18137, ORIGIN, capability, "nativeiosreminder")
+    now = datetime.now(timezone.utc)
+    target = (now.date() - timedelta(days=now.weekday())).isoformat()
+    occurrence, reference, family = (secrets.token_hex(16) for _ in range(3))
+    # The synthetic dispatch is already marked accepted. The simulator must
+    # still use the real signed-in open route; no provider is called.
+    with closing(sqlite3.connect(state / "app.db", timeout=10)) as db, db:
+        owner, = db.execute("SELECT a.incarnation FROM account_incarnations a JOIN users u ON u.user_id=a.user_id WHERE u.email=?",
+                            (account["email"],)).fetchone()
+        db.execute("INSERT INTO reminder_preferences(incarnation,zone,current_enabled,advance_enabled,advance_day,advance_minute,revision,next_evaluation) "
+                   "VALUES(?, 'UTC', 1, 0, 0, 0, 1, ?)", (owner, int(now.timestamp()) + 86400))
+        db.execute("INSERT INTO reminder_occurrences(id,incarnation,purpose,target_week,scheduled,deadline,revision,frozen) "
+                   "VALUES(?, ?, 'current', ?, ?, ?, 1, 1)",
+                   (occurrence, owner, target, int(now.timestamp()) - 1, int(now.timestamp()) + 1200))
+        db.execute("INSERT INTO reminder_dispatches VALUES(?, ?, ?, 'accepted', ?, 1)",
+                   (reference, occurrence, family, int(now.timestamp())))
+    return dict(account, reference=reference)
+
+
+def android_journeys(state, receipt, metadata, events, reminders=False):
     from native_android_probe import build
     from native_fixture_account import seed
 
@@ -475,14 +514,14 @@ def android_journeys(state, receipt, metadata, events):
                     if re.fullmatch(r"INSTRUMENTATION_(?:STATUS|RESULT): (?:probe=(?:ready|failed)|probeReason=(?:launch|webview|pinch-disabled|probe-timeout|instrumentation|native-control|native-window-(?:unfocused|bounds)|control-timeout|input-denied|picker-(?:window|target|activation|confirmation|return)|accessibility-controls))|INSTRUMENTATION_CODE: -?[0-9]+", line)]
             print("Disposable probe status: " + "; ".join(safe[-8:]), flush=True)
 
-    groups = (("core", 7), ("media", 5), ("pages", 1), ("account", 4))
+    groups = (("reminders", 2),) if reminders else (("core", 7), ("media", 5), ("pages", 1), ("account", 4))
     passed = {}
     failed = []
     adb = lambda *args: command(adb_path, "-s", "emulator-5554", *args)
     for group, count in groups:
         print("Starting installed Android group: " + group, flush=True)
         try:
-            if group != "core":
+            if group not in ("core", "reminders"):
                 for marker in ("native-network-offline", "native-shopping-conflict", "native-personal-save-drop"):
                     (state / marker).unlink(missing_ok=True)
                 adb("shell", "svc", "wifi", "enable")
@@ -492,8 +531,16 @@ def android_journeys(state, receipt, metadata, events):
                     raise RuntimeError("Disposable Android app state could not be cleared")
             account = seed(18137, ORIGIN, capability, "nativeandroid" + group)
             (state / "native-android-account.json").write_text(json.dumps(account))
+            before = len(events)
             output = command("bun", "scripts/native-android-journeys.ts", str(state), group, timeout=270)
             print(output, flush=True)
+            if group == "reminders":
+                registration = [event for event in events[before:] if event[1] == "planning-reminders/installation"]
+                if any(event[1] == "planning-reminders/installation" for event in events[:before]) or registration != [
+                    ("DELETE", "planning-reminders/installation", 204), ("PUT", "planning-reminders/installation", 204),
+                    ("DELETE", "planning-reminders/installation", 204),
+                ]:
+                    raise RuntimeError("Unexpected installed reminder registration sequence")
             result = json.loads((state / f"native-android-journeys-{group}.json").read_text())
             checks = result.get("passed") if isinstance(result, dict) else None
             if (not isinstance(result, dict) or result.get("group") != group
@@ -519,11 +566,15 @@ def android_journeys(state, receipt, metadata, events):
 def main():
     os.umask(0o077)
     if os.environ.get("GITHUB_ACTIONS") != "true" or os.environ.get("GITHUB_REPOSITORY") != "LowGok/my-chef" or PLATFORM not in ("android", "ios-simulator"):
-        raise SystemExit("This check requires the private hosted native workflow.")
+        raise SystemExit("This check requires the public hosted native verification workflow.")
     event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
     receipt = json.loads((ARTIFACTS / "compilation.json").read_text())
     package = ARTIFACTS / receipt["artifact"]
-    if (event.get("label", {}).get("name") not in ("native-installed", f"native-installed-{PLATFORM}")
+    label = event.get("label", {}).get("name")
+    reminders = label == "native-reminder-fixture"
+    if (label not in ("native-installed", f"native-installed-{PLATFORM}", "native-reminder-fixture")
+            or (reminders and (event["pull_request"]["head"].get("ref") != "feat/weekly-reminders"
+                              or str(event.get("number")) != os.environ.get("NATIVE_REMINDER_PR")))
             or event.get("sender", {}).get("login") != "LowGok"
             or receipt["platform"] != PLATFORM or receipt["candidate"]["sourceCommit"] != event["pull_request"]["head"]["sha"]
             or hashlib.sha256(package.read_bytes()).hexdigest() != receipt["artifactSha256"]):
@@ -531,8 +582,12 @@ def main():
     journeys = PLATFORM == "android" and os.environ.get("NATIVE_ANDROID_JOURNEYS") == "1"
     with tempfile.TemporaryDirectory(prefix="mychef-installed-") as directory, ExitStack() as stack:
         state = Path(directory).resolve()
-        ca, events, rejected_tls = fixture(state, stack, journeys=journeys)
-        metadata, launch, stop, diagnostics = android(state, stack, ca, package) if PLATFORM == "android" else ios(state, stack, ca, package)
+        ca, events, rejected_tls = fixture(state, stack, journeys=journeys and not reminders)
+        if PLATFORM == "android":
+            metadata, launch, stop, diagnostics = android(state, stack, ca, package)
+        else:
+            metadata, launch, stop, diagnostics = ios(state, stack, ca, package,
+                                                      ios_reminder_inputs(state) if reminders else None)
         verify_stage(lambda: ("POST", "session", 201) in events and ("GET", "session", 200) in events,
                      "native HTTPS session", events, rejected_tls, diagnostics, launch=launch)
         print("Installed app opened a native HTTPS session", flush=True)
@@ -543,12 +598,22 @@ def main():
                      "refresh after process relaunch", events, rejected_tls, diagnostics,
                      launch=launch, event_start=before, tls_start=tls_before)
         print("Relaunch refreshed the native session from platform storage", flush=True)
+        if reminders and any(event[1] == "planning-reminders/installation" for event in events):
+            raise RuntimeError("Signed-out install or relaunch attempted reminder registration")
         result = dict(platform=PLATFORM, source=receipt["candidate"], artifactSha256=receipt["artifactSha256"],
                       device=metadata, passed=["install and launch", "native session over verified HTTPS", "refresh after process relaunch"],
                       limitations="Anonymous session smoke only; signed-in journeys, accessibility and iPhone TestFlight not exercised.")
         (ARTIFACTS / "installed-smoke.json").write_text(json.dumps(result, indent=2) + "\n")
+        if reminders and PLATFORM == "ios-simulator":
+            wait_for(lambda: ("POST", "planning-reminders/open", 200) in events[before:],
+                     "owner-bound reminder open after simulator sign-in", 65)
+            if ("POST", "login", 200) not in events[before:] or any(event[:2] == ("POST", "generations") for event in events[before:]):
+                raise RuntimeError("Simulator did not open the reminder through sign-in without planning")
+            result.update(passed=result["passed"] + ["signed-out cold reminder handoff and open after login"],
+                          limitations="Synthetic simulator handoff; no APNs delivery or physical iPhone permission check.")
+            (ARTIFACTS / "installed-journeys.json").write_text(json.dumps(result, indent=2) + "\n")
         if journeys:
-            android_journeys(state, receipt, metadata, events)
+            android_journeys(state, receipt, metadata, events, reminders)
 
 
 if __name__ == "__main__":

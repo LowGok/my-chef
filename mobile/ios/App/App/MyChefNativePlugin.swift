@@ -1,7 +1,9 @@
+import UserNotifications
 import Foundation
 import Security
 import Capacitor
 import UIKit
+import WebKit
 
 func nativeReply(_ call: CAPPluginCall?, _ data: [String: Any] = [:]) {
     guard let call = call else { return }
@@ -82,6 +84,10 @@ public class MyChefNativePlugin: CAPPlugin, CAPBridgedPlugin, URLSessionDataDele
     public let jsName = "MyChefNative"
     public let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "readRuntime", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "reminderPermission", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "reminderRegistration", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "stopReminderRegistration", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "openReminderSettings", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "configuration", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "readRefresh", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "writeRefresh", returnType: CAPPluginReturnPromise),
@@ -132,6 +138,75 @@ public class MyChefNativePlugin: CAPPlugin, CAPBridgedPlugin, URLSessionDataDele
             nativeReply(call, NativeRuntime.shared.snapshot(origin: origin))
         }
     }
+    private var reminderPermissionGeneration = 0
+
+    #if targetEnvironment(simulator)
+    fileprivate var isReminderFixture: Bool { origin == "https://localhost:8977" }
+    #endif
+
+    private func reminderAllowed(_ status: UNAuthorizationStatus) -> Bool {
+        status == .authorized || status == .provisional || status == .ephemeral
+    }
+
+    @objc func reminderPermission(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { [self] in
+            reminderPermissionGeneration += 1
+            let generation = reminderPermissionGeneration
+            let center = UNUserNotificationCenter.current()
+            func finish(_ allowed: Bool) {
+                DispatchQueue.main.async { [self] in
+                    let active = generation == reminderPermissionGeneration && allowed
+                    if active {
+                        #if targetEnvironment(simulator)
+                        if origin == "https://localhost:8977" { NativeRuntime.shared.startFixtureReminderRegistration() }
+                        #else
+                        NativeRuntime.shared.startReminderRegistration()
+                        #endif
+                    }
+                    nativeReply(call, ["allowed": active])
+                }
+            }
+            center.getNotificationSettings { [self] settings in
+                if settings.authorizationStatus == .notDetermined && call.getBool("prompt") == true {
+                    center.requestAuthorization(options: [.alert, .sound]) { allowed, _ in finish(allowed) }
+                } else {
+                    finish(reminderAllowed(settings.authorizationStatus))
+                }
+            }
+        }
+    }
+
+    @objc func reminderRegistration(_ call: CAPPluginCall) {
+        UNUserNotificationCenter.current().getNotificationSettings { [self] settings in
+            DispatchQueue.main.async { [self] in
+                let allowed = reminderAllowed(settings.authorizationStatus)
+                if !allowed { NativeRuntime.shared.stopReminderRegistration() }
+                let token = allowed ? NativeRuntime.shared.currentReminderToken() : nil
+                nativeReply(call, ["allowed": allowed, "token": token as Any? ?? NSNull()])
+            }
+        }
+    }
+
+    @objc func stopReminderRegistration(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { [self] in
+            reminderPermissionGeneration += 1
+            NativeRuntime.shared.stopReminderRegistration()
+            nativeReply(call)
+        }
+    }
+
+    @objc func openReminderSettings(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { [self] in
+            let target: String
+            if #available(iOS 15.4, *) { target = UIApplication.openNotificationSettingsURLString }
+            else { target = UIApplication.openSettingsURLString }
+            if let url = URL(string: target) {
+                UIApplication.shared.open(url)
+            }
+            nativeReply(call)
+        }
+    }
+
     @objc func configuration(_ call: CAPPluginCall) {
         guard let origin = origin else { call.reject("Private API configuration is unavailable", "native_configuration"); return }
         nativeReply(call, ["platform": "ios", "apiOrigin": origin])
@@ -319,6 +394,51 @@ public class MyChefNativePlugin: CAPPlugin, CAPBridgedPlugin, URLSessionDataDele
 
 final class MyChefBridgeViewController: CAPBridgeViewController {
     private let nativePlugin = MyChefNativePlugin()
-    override func capacitorDidLoad() { bridge?.registerPluginInstance(nativePlugin) }
+    override func capacitorDidLoad() {
+        bridge?.registerPluginInstance(nativePlugin)
+        #if targetEnvironment(simulator)
+        if nativePlugin.isReminderFixture && ProcessInfo.processInfo.arguments.contains("--mychef-reminder-fixture") {
+            runReminderFixture()
+        }
+        #endif
+    }
+
+    #if targetEnvironment(simulator)
+    private func runReminderFixture() {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("mychef-reminder-fixture.json")
+        guard let data = try? Data(contentsOf: file), data.count < 1024,
+              let input = (try? JSONSerialization.jsonObject(with: data)) as? [String: String],
+              let email = input["email"], email.hasSuffix("@example.test"),
+              let password = input["password"], let reference = input["reference"],
+              let credentials = try? JSONSerialization.data(withJSONObject: [email, password]),
+              let json = String(data: credentials, encoding: .utf8) else { return }
+        try? FileManager.default.removeItem(at: file)
+        NativeRuntime.shared.receiveReminder(reference)
+        func login(_ remaining: Int) {
+            guard remaining > 0 else { return }
+            self.webView?.evaluateJavaScript("""
+                (() => {
+                  const form = document.querySelector('#sign-in-email')?.form;
+                  const password = form?.querySelector('input[autocomplete=current-password]');
+                  const email = form?.querySelector('#sign-in-email');
+                  if (!form || !password || !email) return false;
+                  const credentials = \(json);
+                  for (const [index, input] of [email, password].entries()) {
+                    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, credentials[index]);
+                    input.dispatchEvent(new Event('input', {bubbles:true}));
+                  }
+                  setTimeout(() => form.requestSubmit(), 1500);
+                  return true;
+                })();
+                """) { result, _ in
+                if result as? Bool != true {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1) { login(remaining - 1) }
+                }
+            }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { login(30) }
+    }
+    #endif
+
     deinit { nativePlugin.shutdown() }
 }
