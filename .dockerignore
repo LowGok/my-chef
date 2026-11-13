@@ -244,3 +244,16 @@ internal/email/mailqueue/**
 !internal/store/entitlements.go
 !migrations/018_entitlement_grants.sql
 !internal/store/entitlement_fixture.go
+!internal/newsletter/
+internal/newsletter/**
+!internal/newsletter/capture.go
+!internal/newsletter/proofs.go
+!internal/newsletter/expiry.go
+!cmd/mychef/newsletter.go
+!cmd/mychef/newsletter_runtime.go
+!internal/config/newsletter.go
+!internal/email/mailqueue/newsletter.go
+!internal/http/newsletter.go
+!internal/store/newsletter.go
+!internal/store/newsletter_lifecycle.go
+!migrations/019_newsletter.sql
