@@ -108,6 +108,12 @@ func (j *LifecycleJournal) DeleteAccount(ctx context.Context, actor AccountActor
 	if confirmation != "DELETE" || !opaqueLifecycleID(operation) {
 		return AccountDeletion{}, ErrAccountConfirmation
 	}
+	return j.deleteAccount(ctx, actor.UserID, operation, now, opts, func(tx *gorm.DB) error {
+		return accountAuthority(tx, actor, now)
+	})
+}
+
+func (j *LifecycleJournal) deleteAccount(ctx context.Context, userID int64, operation string, now time.Time, opts AccountDeletionOptions, authorize func(*gorm.DB) error) (AccountDeletion, error) {
 	j.app.AccountWork.Lock()
 	defer j.app.AccountWork.Unlock()
 	tx := j.app.DB.WithContext(ctx).Begin()
@@ -115,11 +121,11 @@ func (j *LifecycleJournal) DeleteAccount(ctx context.Context, actor AccountActor
 		return AccountDeletion{}, ErrAccountDeletion
 	}
 	defer func() { _ = tx.Rollback().Error }()
-	if err := accountAuthority(tx, actor, now); err != nil {
+	if err := authorize(tx); err != nil {
 		return AccountDeletion{}, err
 	}
 	var user User
-	if err := tx.First(&user, actor.UserID).Error; err != nil {
+	if err := tx.First(&user, userID).Error; err != nil {
 		return AccountDeletion{}, ErrAccountAccess
 	}
 	var incarnation string

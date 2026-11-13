@@ -37,6 +37,8 @@ func main() {
 			return
 		case "account-cleanup":
 			os.Exit(runAccountCleanupStatus(os.Args[2:]))
+		case "newsletter":
+			os.Exit(runNewsletter(os.Args[2:], os.Stdin, os.Stdout, os.Stderr))
 		case "import-photo-normalize":
 			os.Exit(runImportPhotoNormalize(os.Args[2:]))
 		case "photo-normalize":
