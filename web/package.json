@@ -22,7 +22,7 @@
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "bun-types": "1.4.4",
-    "prettier": "3.9.10",
+    "prettier": "3.10.1",
     "typescript": "5.9.3",
     "vite": "8.3.6",
     "@hey-api/openapi-ts": "0.99.0"
