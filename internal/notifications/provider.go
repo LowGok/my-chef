@@ -264,12 +264,25 @@ func (s *PushSender) Send(ctx context.Context, d Delivery) Result {
 		return Result{State: Uncertain}
 	}
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode == http.StatusOK {
+	if resp.StatusCode == http.StatusOK && d.Provider == "apns" {
 		return Result{State: Accepted}
 	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 8193))
 	if err != nil || len(data) > 8192 {
 		return Result{State: Uncertain}
+	}
+	if resp.StatusCode == http.StatusOK {
+		var accepted struct {
+			Name string `json:"name"`
+		}
+		if json.Unmarshal(data, &accepted) != nil {
+			return Result{State: Uncertain}
+		}
+		parts := strings.Split(accepted.Name, "/")
+		if len(parts) != 4 || parts[0] != "projects" || parts[1] == "" || parts[2] != "messages" || parts[3] == "" {
+			return Result{State: Uncertain}
+		}
+		return Result{State: Accepted}
 	}
 	var reply struct {
 		Reason string `json:"reason"`
