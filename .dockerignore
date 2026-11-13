@@ -198,6 +198,7 @@ internal/email/mailqueue/**
 !web/embed.go
 !web/index.html
 !web/package.json
+!web/public/Montserrat-LICENSE.txt
 !web/public/sw.js
 !web/src/Account.tsx
 !web/src/App.tsx
@@ -220,6 +221,7 @@ internal/email/mailqueue/**
 !web/src/dates.ts
 !web/src/effort.ts
 !web/src/main.tsx
+!web/src/mychef-logo.png
 !web/src/scroll.ts
 !web/src/shopping-cache.ts
 !web/src/shopping-order.ts
