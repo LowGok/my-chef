@@ -196,9 +196,9 @@ public class MyChefNativePlugin: CAPPlugin, CAPBridgedPlugin, URLSessionDataDele
     }
 
     @objc func openReminderSettings(_ call: CAPPluginCall) {
-        DispatchQueue.main.async { [self] in
+        DispatchQueue.main.async {
             let target: String
-            if #available(iOS 15.4, *) { target = UIApplication.openNotificationSettingsURLString }
+            if #available(iOS 16.0, *) { target = UIApplication.openNotificationSettingsURLString }
             else { target = UIApplication.openSettingsURLString }
             if let url = URL(string: target) {
                 UIApplication.shared.open(url)
