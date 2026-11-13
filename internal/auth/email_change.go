@@ -345,6 +345,9 @@ func (c *EmailChange) Decide(ctx context.Context, token string) (EmailChangeResu
 }
 
 func (c *EmailChange) finishChange(ctx context.Context, tx *gorm.DB, now time.Time, user store.User, pending store.PendingEmailChange) error {
+	if err := store.InvalidateNewsletterConsent(ctx, tx, user.ID, now); err != nil {
+		return err
+	}
 	if err := tx.Model(&user).Updates(map[string]any{
 		"email": pending.ProposedEmail, "email_key": pending.ProposedKey,
 		"email_verified_at": now.Unix(), "email_changed_at": now.Unix(),

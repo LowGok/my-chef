@@ -6,13 +6,44 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"errors"
+	"time"
 
 	"github.com/LowGok/my-chef/migrations"
+	"gorm.io/gorm"
 )
 
 func newsletterSchemaChecksum() string {
 	sum := sha256.Sum256([]byte(entitlementSchemaChecksum() + migrations.Newsletter))
 	return hex.EncodeToString(sum[:])
+}
+
+// InvalidateNewsletterConsent joins an owned email-change transaction.
+func InvalidateNewsletterConsent(ctx context.Context, tx *gorm.DB, userID int64, now time.Time) error {
+	var order int64
+	if err := tx.WithContext(ctx).Raw("UPDATE newsletter_sequence SET value=value+1 WHERE singleton=1 RETURNING value").Row().Scan(&order); err != nil {
+		return err
+	}
+	if err := tx.Exec(`UPDATE newsletter_subscriptions SET status='unsubscribed',revision=revision+1,proved_order=?,withdrawn_unix=? WHERE user_id=?`, order, now.Unix(), userID).Error; err != nil {
+		return err
+	}
+	if err := tx.Exec(`UPDATE newsletter_proofs SET consumed_unix=COALESCE(consumed_unix,?),proposal='' WHERE user_id=?`, now.Unix(), userID).Error; err != nil {
+		return err
+	}
+	return tx.Exec(`UPDATE email_outbox SET data=json_remove(data,'$.links'),state=CASE WHEN state IN ('queued','sending') THEN 'failed' ELSE state END,reason=CASE WHEN state IN ('queued','sending') THEN 'proof_invalidated' ELSE reason END,updated_at=?
+WHERE key LIKE 'newsletter/%' AND id IN(SELECT m.outbox_id FROM account_mail_owners m JOIN account_incarnations a ON a.incarnation=m.incarnation WHERE a.user_id=?)`, now.Unix(), userID).Error
+}
+
+// RecordNewsletterErasure prevents older anonymous jobs from recreating a user.
+func RecordNewsletterErasure(ctx context.Context, tx *gorm.DB, rateKey []byte, emailKey string) error {
+	tag, err := EmailRateBucket(rateKey, "newsletter/erasure", emailKey)
+	if err != nil {
+		return err
+	}
+	var order int64
+	if err := tx.WithContext(ctx).Raw("UPDATE newsletter_sequence SET value=value+1 WHERE singleton=1 RETURNING value").Row().Scan(&order); err != nil {
+		return err
+	}
+	return tx.Exec(`INSERT INTO newsletter_erasures(address_tag,through_order) VALUES(?,?) ON CONFLICT(address_tag) DO UPDATE SET through_order=MAX(through_order,excluded.through_order)`, tag, order).Error
 }
 
 func (s *Store) migrateNewsletter(ctx context.Context) error {

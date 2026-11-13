@@ -39,7 +39,7 @@ func accountAuthority(tx *gorm.DB, actor AccountActor, now time.Time) error {
 	}
 	var count int64
 	if err := tx.Raw(`SELECT COUNT(*) FROM users u JOIN sessions s ON s.user_id=u.user_id
- WHERE u.user_id=? AND u.password=? AND s.hash=? AND s.expires_unix>?`, actor.UserID, actor.PasswordHash, actor.SessionHash, now.Unix()).Scan(&count).Error; err != nil {
+ WHERE u.user_id=? AND u.password=? AND u.isNewsletterOnly=0 AND s.hash=? AND s.expires_unix>?`, actor.UserID, actor.PasswordHash, actor.SessionHash, now.Unix()).Scan(&count).Error; err != nil {
 		return ErrAccountExport
 	}
 	if count != 1 {
@@ -56,6 +56,8 @@ type exportPart struct {
 }
 
 var accountExportParts = []exportPart{
+	{Name: "newsletter.json", Query: `SELECT status,locale,consent_version AS consentVersion,source,requested_unix AS requestedUnix,confirmed_unix AS confirmedUnix,withdrawn_unix AS withdrawnUnix FROM newsletter_subscriptions WHERE user_id=?`},
+	{Name: "newsletter-proofs.json", Query: `SELECT purpose,created_unix AS createdUnix,expires_unix AS expiresUnix,consumed_unix AS consumedUnix FROM newsletter_proofs WHERE user_id=? ORDER BY created_unix,purpose`},
 	{Name: "entitlements.json", Query: `SELECT CASE WHEN g.source='fixture' THEN 'fixture' ELSE 'other' END AS source,
 g.starts_ns AS startsNanoseconds,g.ends_ns AS endsNanoseconds,g.revoked_ns AS revokedNanoseconds
 FROM entitlement_grants g JOIN account_incarnations a ON a.incarnation=g.incarnation
