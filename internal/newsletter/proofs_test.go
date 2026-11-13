@@ -6,8 +6,41 @@ import (
 	"testing"
 	"time"
 
+	"bytes"
 	"github.com/LowGok/my-chef/internal/email/mailqueue"
+	"github.com/LowGok/my-chef/internal/store"
 )
+
+func TestErasurePreventsOlderQueuedCapture(t *testing.T) {
+	s, now := fixture(t)
+	request(t, s, "erase@example.test", "en")
+	step(t, s)
+	journal, err := s.Store.InitializeLifecycleJournal(t.Context(), s.Store.Path+".lifecycle")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = journal.Close() }()
+	var actor store.NewsletterContactAuthority
+	if err := s.Store.DB.Raw("SELECT u.user_id,u.email_key,a.incarnation FROM users u JOIN account_incarnations a ON a.user_id=u.user_id").Scan(&actor).Error; err != nil {
+		t.Fatal(err)
+	}
+	actor.RequestReference = "verified-erasure"
+	*now = now.Add(61 * time.Second)
+	request(t, s, "erase@example.test", "en")
+	if _, err := journal.EraseNewsletterContact(t.Context(), actor, bytes.Repeat([]byte{8}, 32), *now, store.AccountDeletionOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	step(t, s)
+	if count(t, s, "users") != 0 {
+		t.Fatal("older job recreated erased contact")
+	}
+	*now = now.Add(time.Hour)
+	request(t, s, "erase@example.test", "en")
+	step(t, s)
+	if count(t, s, "users") != 1 {
+		t.Fatal("fresh deliberate request was blocked")
+	}
+}
 
 func links(t *testing.T, s *Service) (string, string) {
 	t.Helper()
