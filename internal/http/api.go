@@ -43,6 +43,7 @@ type Config struct {
 	FixtureInbox         http.Handler
 	PersonalFixture      http.Handler
 	PersonalEntitlements store.PersonalEntitlementReader
+	Reminders            *store.ReminderSettings
 	TrustedProxies       []netip.Addr
 	EmailRateKey         []byte
 	SignUp               *auth.SignUp
@@ -135,6 +136,7 @@ func (a *API) Handler(frontend http.Handler) http.Handler {
 	a.feedbackRoutes(mux)
 	a.personalRoutes(mux)
 	a.recipeImportRoutes(mux)
+	a.reminderRoutes(mux)
 	mux.HandleFunc("GET /api/v1/profile", a.guardVerified(a.profile))
 	mux.HandleFunc("PUT /api/v1/profile", a.guardVerified(a.updateProfile))
 	mux.HandleFunc("PUT /api/v1/account/password", a.guardVerified(a.changePassword))

@@ -130,7 +130,7 @@ def main():
         env.update(MYCHEF_ADDR="127.0.0.1:18137", MYCHEF_ORIGIN="http://127.0.0.1:18137",
                    MYCHEF_DB=str(Path(directory) / "test.db"),
                    MYCHEF_LIFECYCLE_DB=str(Path(directory) / "test.db.lifecycle"), MYCHEF_DEV="1",
-                   MYCHEF_PROVIDER="fixture", MYCHEF_E2E="1",
+                   MYCHEF_PROVIDER="fixture", MYCHEF_E2E="1", MYCHEF_PUSH_FIXTURE="1",
                    MYCHEF_FEEDBACK_TO="operator@example.test")
         tools = root / ".test-artifacts/rewrite-tools"
         subprocess.run([str(tools / "mychef-migrate"), "up", "--db", env["MYCHEF_DB"]], check=True)

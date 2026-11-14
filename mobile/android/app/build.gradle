@@ -1,5 +1,24 @@
 apply plugin: 'com.android.application'
 
+def pushPreview = providers.gradleProperty('mychefPushPreview').map { it == 'true' }.orElse(false).get()
+if (pushPreview) {
+    def fileName = providers.gradleProperty('mychefFirebaseResources').orNull
+    if (!fileName) throw new GradleException('Private Firebase Android resources are required')
+    def resources = file(fileName)
+    if (!resources.isDirectory() || !new File(resources, 'values/mychef-firebase.xml').isFile()) {
+        throw new GradleException('Private Firebase Android resources are unavailable')
+    }
+    android.sourceSets.main.res.srcDir(resources)
+    android.sourceSets.main.java.srcDir('src/push/java')
+    android.sourceSets.debug.manifest.srcFile('src/push/AndroidManifest.xml')
+    dependencyLocking.lockFile = file("$rootDir/dependency-locks/_app-push-preview.lockfile")
+    androidComponents.beforeVariants(androidComponents.selector().withBuildType('release')) { variant ->
+        variant.enable = false
+    }
+} else {
+    android.sourceSets.main.java.srcDir('src/noPush/java')
+}
+
 android {
     namespace = "com.gkldevelopment.mychef.preview"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -36,6 +55,8 @@ repositories {
 }
 
 dependencies {
+    if (pushPreview) implementation 'com.google.firebase:firebase-messaging:25.1.3'
+
     // Independent cookie jar: Capacitor installs a global Java CookieHandler.
     implementation 'com.squareup.okhttp3:okhttp:5.5.1'
     implementation fileTree(include: ['*.jar'], dir: 'libs')

@@ -175,6 +175,12 @@ func Restore(ctx context.Context, backup, destination string, options ...Account
 			}
 			// Fixture authorization is ephemeral across a restore, even when
 			// the account and its configured test lease are still valid.
+			if err := tx.Exec("UPDATE reminder_preferences SET current_enabled=0,advance_enabled=0,revision=revision+1").Error; err != nil {
+				return err
+			}
+			if err := tx.Exec("DELETE FROM reminder_occurrences").Error; err != nil {
+				return err
+			}
 			return retireFixtureEntitlements(tx)
 		})
 	})

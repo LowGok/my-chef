@@ -1,3 +1,4 @@
+import { captureReminderOpen } from "./reminder-device";
 import type { ProofEntry } from "./EmailVerification";
 import type { RecoveryEntry } from "./PasswordRecovery";
 export type NativeProof = ProofEntry | RecoveryEntry;
@@ -7,6 +8,7 @@ export type RuntimeSnapshot = {
   back: boolean;
   link?: string;
   invalidLink?: boolean;
+  reminder?: string;
 };
 export type NativeRuntimeBridge = { readRuntime(): Promise<RuntimeSnapshot> };
 type RuntimeEvent =
@@ -71,6 +73,7 @@ export function createNativeRuntime(
             : null;
         publish(entry ? { type: "proof", entry } : { type: "invalid-link" });
       }
+      if (value.reminder !== undefined) captureReminderOpen(value.reminder);
       if (value.back) publish({ type: "back" });
     } catch {
       if (!stopped) publish({ type: "unavailable" });

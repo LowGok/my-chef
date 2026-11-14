@@ -246,3 +246,15 @@ internal/email/mailqueue/**
 !internal/store/entitlements.go
 !migrations/018_entitlement_grants.sql
 !internal/store/entitlement_fixture.go
+!internal/notifications/
+internal/notifications/**
+!internal/notifications/schedule.go
+!internal/store/notification_settings.go
+!migrations/019_weekly_reminders.sql
+!internal/http/notifications.go
+!internal/store/notification_dispatch.go
+!internal/notifications/dispatch.go
+!internal/notifications/provider.go
+!cmd/mychef/notifications.go
+!web/src/PlanningReminders.tsx
+!web/src/reminder-device.ts

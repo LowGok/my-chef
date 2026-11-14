@@ -9,7 +9,16 @@ import androidx.activity.OnBackPressedCallback;
 public class MainActivity extends BridgeActivity {
     final NativeRuntimeState runtime = new NativeRuntimeState();
     volatile boolean active;
+    private static volatile java.lang.ref.WeakReference<MainActivity> reminderActivity = new java.lang.ref.WeakReference<>(null);
+    static MainActivity activeReminderActivity() { return reminderActivity.get(); }
     private void accept(Intent intent) {
+        if (intent != null) {
+            Bundle extras = intent.getExtras();
+            if (extras != null && extras.get("reminder") instanceof String) {
+                ReminderNotifications.receive((String)extras.get("reminder"), SystemClock.elapsedRealtime());
+            }
+            intent.removeExtra("reminder");
+        }
         if (intent != null && intent.getData() != null && Intent.ACTION_VIEW.equals(intent.getAction())) {
             runtime.link(intent.getDataString(), SystemClock.elapsedRealtime());
             // Capacitor captures the launch URI. Strip it before handing over.
@@ -27,7 +36,7 @@ public class MainActivity extends BridgeActivity {
     @Override protected void onNewIntent(Intent intent) {
         accept(intent); super.onNewIntent(intent); setIntent(intent); signalRuntime();
     }
-    @Override public void onResume() { super.onResume(); active = true; signalRuntime(); }
+    @Override public void onResume() { super.onResume(); active = true; reminderActivity = new java.lang.ref.WeakReference<>(this); signalRuntime(); }
     @Override public void onPause() { active = false; signalRuntime(); super.onPause(); }
     void signalRuntime() {
         if (getBridge() == null || getBridge().getPlugin("MyChefNative") == null) return;

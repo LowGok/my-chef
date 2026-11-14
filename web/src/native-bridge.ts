@@ -5,6 +5,10 @@ export type RawNativeBridge = Record<
 const methods = [
   "configuration",
   "readRuntime",
+  "reminderPermission",
+  "reminderRegistration",
+  "stopReminderRegistration",
+  "openReminderSettings",
   "readRefresh",
   "writeRefresh",
   "readShopping",

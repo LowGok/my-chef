@@ -30,6 +30,28 @@ import native_fixture_account
 
 
 class NativeVerificationTest(unittest.TestCase):
+    def test_ios_notification_actions_reach_the_same_handler_on_scene_connection(self):
+        # The simulator fixture injects an opaque reference after launch and
+        # cannot detect a missing UIKit cold-start callback.
+        ios = ROOT / "mobile/ios/App/App"
+        with (ios / "Info.plist").open("rb") as file:
+            manifest = plistlib.load(file)["UIApplicationSceneManifest"]
+        self.assertIn("UIWindowSceneSessionRoleApplication", manifest["UISceneConfigurations"])
+        scene = (ios / "SceneDelegate.swift").read_text()
+        app = (ios / "AppDelegate.swift").read_text()
+        self.assertRegex(scene, r"receiveReminderResponse\(connectionOptions\.notificationResponse\)")
+        self.assertRegex(app, r"receiveReminderResponse\(response\)")
+
+    def test_ios_reminder_journey_requires_the_rendered_week_and_controls(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            result = Path(temporary) / "mychef-reminder-result.json"
+            self.assertFalse(installed.ios_reminder_ui_passed(result))
+            for value in ({"weekAndMeal": True}, {"weekAndMeal": True, "scaledControls": False}):
+                result.write_text(json.dumps(value))
+                self.assertFalse(installed.ios_reminder_ui_passed(result))
+            result.write_text('{"weekAndMeal":true,"scaledControls":true}')
+            self.assertTrue(installed.ios_reminder_ui_passed(result))
+
     def test_android_groups_continue_on_failure_without_issuing_a_full_receipt(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

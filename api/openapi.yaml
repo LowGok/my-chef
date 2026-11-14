@@ -6,6 +6,314 @@
     "description": "Meal/account IDs and quantities are decimal strings. Personal recipe/version/entry/photo IDs are opaque 32-character lowercase hex handles; unscheduled personal snapshot and ingredient IDs use a personal: prefix. Dates are calendar dates; history uses an exclusive to date. Cookie-authenticated writes require the configured exact Origin and X-CSRF-Token. Generation is asynchronous and never automatically retries a paid provider call. Authenticated responses identify the acting session in X-MyChef-User; clients discard responses from a superseded session. Native clients use /api/native/v1 equivalents with opaque access credentials, rotating refresh credentials and no browser cookies. Native bootstrap/refresh never grant Premium; account verification and server permissions are shared."
   },
   "paths": {
+    "/api/v1/planning-reminders/open": {
+      "post": {
+        "operationId": "openPlanningReminder",
+        "description": "Authorize an opaque reminder reference for the current account and return the permitted week. This does not write a plan.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "reference"
+                ],
+                "properties": {
+                  "reference": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{32}$"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Authorized week.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "week"
+                  ],
+                  "properties": {
+                    "week": {
+                      "type": "string",
+                      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request."
+          },
+          "401": {
+            "description": "Sign in required."
+          },
+          "404": {
+            "description": "Reminder unavailable."
+          }
+        }
+      }
+    },
+    "/api/v1/planning-reminders": {
+      "get": {
+        "operationId": "getPlanningReminders",
+        "description": "Read the signed-in account reminder settings and current eligibility.",
+        "responses": {
+          "200": {
+            "description": "Current reminder state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "zone",
+                    "current",
+                    "advance",
+                    "advanceDay",
+                    "advanceMinute",
+                    "revision",
+                    "premium",
+                    "deviceEnabled"
+                  ],
+                  "properties": {
+                    "zone": {
+                      "type": "string",
+                      "maxLength": 100
+                    },
+                    "current": {
+                      "type": "boolean"
+                    },
+                    "advance": {
+                      "type": "boolean"
+                    },
+                    "advanceDay": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 6
+                    },
+                    "advanceMinute": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 1439
+                    },
+                    "revision": {
+                      "type": "integer"
+                    },
+                    "premium": {
+                      "type": "boolean"
+                    },
+                    "deviceEnabled": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request."
+          },
+          "401": {
+            "description": "Sign in required."
+          },
+          "403": {
+            "description": "Reminder not allowed."
+          },
+          "404": {
+            "description": "Reminders are unavailable."
+          }
+        }
+      },
+      "put": {
+        "operationId": "setPlanningReminders",
+        "description": "Confirm the time zone and explicit reminder choices. Advance requires Premium.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "zone",
+                  "current",
+                  "advance",
+                  "advanceDay",
+                  "advanceMinute"
+                ],
+                "properties": {
+                  "zone": {
+                    "type": "string",
+                    "maxLength": 100
+                  },
+                  "current": {
+                    "type": "boolean"
+                  },
+                  "advance": {
+                    "type": "boolean"
+                  },
+                  "advanceDay": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 6
+                  },
+                  "advanceMinute": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 1439
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Current reminder state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "zone",
+                    "current",
+                    "advance",
+                    "advanceDay",
+                    "advanceMinute",
+                    "revision",
+                    "premium",
+                    "deviceEnabled"
+                  ],
+                  "properties": {
+                    "zone": {
+                      "type": "string",
+                      "maxLength": 100
+                    },
+                    "current": {
+                      "type": "boolean"
+                    },
+                    "advance": {
+                      "type": "boolean"
+                    },
+                    "advanceDay": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 6
+                    },
+                    "advanceMinute": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 1439
+                    },
+                    "revision": {
+                      "type": "integer"
+                    },
+                    "premium": {
+                      "type": "boolean"
+                    },
+                    "deviceEnabled": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request."
+          },
+          "401": {
+            "description": "Sign in required."
+          },
+          "403": {
+            "description": "Reminder not allowed."
+          },
+          "404": {
+            "description": "Reminders are unavailable."
+          }
+        }
+      }
+    },
+    "/api/native/v1/planning-reminders/installation": {
+      "put": {
+        "operationId": "registerPlanningReminderDevice",
+        "description": "Register the live native installation only after opt-in and OS permission.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "token",
+                  "osAllowed"
+                ],
+                "properties": {
+                  "token": {
+                    "type": "string",
+                    "maxLength": 512
+                  },
+                  "osAllowed": {
+                    "type": "boolean",
+                    "const": true
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Installation updated."
+          },
+          "400": {
+            "description": "Invalid request."
+          },
+          "401": {
+            "description": "Sign in required."
+          },
+          "403": {
+            "description": "Reminder not allowed."
+          },
+          "404": {
+            "description": "Reminders are unavailable."
+          }
+        }
+      },
+      "delete": {
+        "operationId": "removePlanningReminderDevice",
+        "description": "Stop reminders on the live native installation.",
+        "responses": {
+          "204": {
+            "description": "Installation updated."
+          },
+          "400": {
+            "description": "Invalid request."
+          },
+          "401": {
+            "description": "Sign in required."
+          },
+          "403": {
+            "description": "Reminder not allowed."
+          },
+          "404": {
+            "description": "Reminders are unavailable."
+          }
+        }
+      }
+    },
     "/api/v1/account/export": {
       "post": {
         "operationId": "exportAccount",
