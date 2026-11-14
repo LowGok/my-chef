@@ -145,14 +145,21 @@ func TestReminderRechecksTimezoneRulesBeforeSending(t *testing.T) {
 			if change.elapsed == 0 {
 				clock(start.Add(time.Hour))
 				sent, err := service.RunReminderStep(ctx, send)
-				if err != nil || sent == change.frozen {
+				if err != nil || !sent {
 					t.Fatalf("updated schedule send: %t %v", sent, err)
 				}
-				if !change.frozen && !delivery.Deadline.Equal(start.Add(25*time.Hour)) {
-					t.Fatal("send used the old expiry")
+				deadline := start.Add(25 * time.Hour)
+				if change.frozen {
+					deadline = start.Add(24 * time.Hour)
+				}
+				if !delivery.Deadline.Equal(deadline) {
+					t.Fatal("send did not respect the updated and already promised expiry")
 				}
 			}
 			expected := 1
+			if change.frozen {
+				expected = 2
+			}
 			if change.elapsed > 0 {
 				expected = 0
 			}

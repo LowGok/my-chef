@@ -167,9 +167,15 @@ WHERE d.state='pending' AND d.next_attempt<=? AND o.deadline>? ORDER BY d.next_a
 			if err := tx.Raw("SELECT id,incarnation,purpose,target_week,scheduled,deadline,revision FROM reminder_occurrences WHERE id=?", candidate.Occurrence).Scan(&o).Error; err != nil {
 				return err
 			}
-			active, err := s.reminderEligible(ctx, tx, o, at, true)
+			window, active, err := s.reminderWindow(ctx, tx, o, at, true, false)
 			if err != nil {
 				return err
+			}
+			if active && at.Before(window.Scheduled) {
+				if err := tx.Exec("UPDATE reminder_dispatches SET next_attempt=? WHERE reference=?", window.Scheduled.Unix(), candidate.Reference).Error; err != nil {
+					return err
+				}
+				continue
 			}
 			var registration reminderRegistration
 			if active {
@@ -197,6 +203,7 @@ WHERE d.state='pending' AND d.next_attempt<=? AND o.deadline>? ORDER BY d.next_a
 				}
 				continue
 			}
+			o.Deadline = window.Deadline.Unix()
 			return mark(o, candidate, registration, token)
 		}
 		var pending []reminderOccurrence
@@ -211,10 +218,11 @@ ORDER BY o.next_check,o.scheduled,o.id LIMIT 64`, at.Unix(), at.Unix(), at.Unix(
 			return err
 		}
 		for _, o := range pending {
-			active, err := s.reminderEligible(ctx, tx, o, at, true)
+			window, active, err := s.reminderWindow(ctx, tx, o, at, false, false)
 			if err != nil {
 				return err
 			}
+			active = active && window.Due(at)
 			var first reminderDispatch
 			var registration reminderRegistration
 			var token []byte
@@ -269,57 +277,65 @@ ORDER BY o.next_check,o.scheduled,o.id LIMIT 64`, at.Unix(), at.Unix(), at.Unix(
 	return delivery, dispatch, tokenTag, err
 }
 
-func (s *ReminderSettings) reminderEligible(ctx context.Context, tx *gorm.DB, o reminderOccurrence, at time.Time, sending bool) (bool, error) {
+func (s *ReminderSettings) reminderWindow(ctx context.Context, tx *gorm.DB, o reminderOccurrence, at time.Time, frozen, opening bool) (notifications.Occurrence, bool, error) {
+	var window notifications.Occurrence
 	if at.Unix() >= o.Deadline || at.Unix() < o.Scheduled {
-		return false, nil
+		return window, false, nil
 	}
 	p, err := loadReminderPreferences(tx, o.Incarnation)
 	if err != nil {
-		return false, err
+		return window, false, err
 	}
 	if p.Revision == 0 || (o.Purpose == "advance" && !p.Advance) || (o.Purpose == "current" && !p.Current) {
-		return false, nil
+		return window, false, nil
 	}
 	var user int64
 	err = tx.Raw(`SELECT a.user_id FROM account_incarnations a JOIN users u ON u.user_id=a.user_id
 WHERE a.incarnation=? AND u.email_verified_at>0`, o.Incarnation).Row().Scan(&user)
 	if errors.Is(err, sql.ErrNoRows) {
-		return false, nil
+		return window, false, nil
 	}
 	if err != nil {
-		return false, err
+		return window, false, err
 	}
 	premium := false
 	if o.Purpose == "advance" {
 		premium, err = s.reminderPremium(ctx, tx, user, o.Incarnation, at)
 		if err != nil {
-			return false, err
+			return window, false, err
 		}
 	}
 	zone, err := s.loadLocation(p.Zone)
 	if err != nil {
-		return false, nil
+		return window, false, nil
 	}
 	if !notifications.OpenWeekAllowed(at, zone, o.TargetWeek, o.Purpose == "advance", premium) {
-		return false, nil
+		return window, false, nil
 	}
-	if !sending {
-		return true, nil
+	if opening {
+		return window, true, nil
 	}
-	// Zone rules can change independently of a saved preference revision.
-	// Revalidate in the same transaction as the send marker. The scheduler
-	// can rewrite an unfrozen occurrence when the new window opens; never
-	// rewrite a frozen one or send its remaining copies under a stale window.
-	current := notifications.CurrentWeek(at, zone)
+	// Recompute immediately before the send marker. Zone rules can change
+	// without a preference change. An unfrozen row is updated by evaluation.
+	window = notifications.CurrentWeek(at, zone)
 	if o.Purpose == "advance" {
-		current = notifications.AdvanceWeek(at, zone, time.Weekday(p.AdvanceDay), p.AdvanceMinute)
+		window = notifications.AdvanceWeek(at, zone, time.Weekday(p.AdvanceDay), p.AdvanceMinute)
 	}
-	if current.Scheduled.Unix() != o.Scheduled || current.Deadline.Unix() != o.Deadline {
-		return false, nil
+	moved := window.Scheduled.Unix() != o.Scheduled || window.Deadline.Unix() != o.Deadline
+	if moved && (!frozen || p.Revision != o.Revision) {
+		return window, false, nil
+	}
+	if frozen && window.Deadline.Unix() > o.Deadline {
+		// Keep the original cutoff for an already started batch. Move only
+		// pending copies; accepted or uncertain copies never enter this path.
+		window.Deadline = time.Unix(o.Deadline, 0)
+	}
+	if !at.Before(window.Deadline) || !window.Scheduled.Before(window.Deadline) {
+		return window, false, nil
 	}
 	var planned bool
 	err = tx.Raw(`SELECT EXISTS(SELECT 1 FROM meals WHERE creator_id=? AND creationdate>=? AND creationdate<date(?,'+7 days'))`, user, o.TargetWeek, o.TargetWeek).Row().Scan(&planned)
-	return !planned, err
+	return window, !planned, err
 }
 
 func (s *ReminderSettings) RunReminderStep(ctx context.Context, send notifications.Send) (bool, error) {
@@ -388,7 +404,7 @@ WHERE o.incarnation=? AND d.reference=? AND d.state IN ('sending','accepted','un
 		if err != nil {
 			return err
 		}
-		ok, err := s.reminderEligible(ctx, tx, o, at, false)
+		_, ok, err := s.reminderWindow(ctx, tx, o, at, false, true)
 		if err != nil {
 			return err
 		}
