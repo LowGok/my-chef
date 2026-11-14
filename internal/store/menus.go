@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/LowGok/my-chef/internal/analytics"
 	"github.com/LowGok/my-chef/internal/domain"
 	"gorm.io/gorm"
 )
@@ -70,6 +71,9 @@ func (s *Store) SaveMenu(ctx context.Context, userID, operationID int64, input d
 		if err := r.Validate(input, domain.EmptyPreferences()); err != nil {
 			return domain.Menu{}, err
 		}
+	}
+	if s.Analytics != nil {
+		ctx = s.Analytics.GenerationContext(ctx, operationID, userID)
 	}
 	menu := MenuRecord{UserID: userID, CreatedUnix: time.Now().UTC().Unix()}
 	saved := []domain.Recipe{}
@@ -163,7 +167,7 @@ func (s *Store) SaveMenu(ctx context.Context, userID, operationID int64, input d
 		if result.RowsAffected != 1 {
 			return errors.New("generation changed while saving")
 		}
-		return nil
+		return analytics.CaptureEvent(ctx, tx, userID, "meal_plan_saved", analytics.OperationReceipt("generation", operationID))
 	})
 	if err != nil {
 		return domain.Menu{}, err

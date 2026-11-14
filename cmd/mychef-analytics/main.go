@@ -12,7 +12,13 @@ import (
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	if err := analyticsdataset.Run(ctx, os.Args[1:], os.Stdout, os.Stderr); err != nil {
+	run := analyticsdataset.Run
+	args := os.Args[1:]
+	if len(args) > 0 && args[0] == "live" {
+		run = liveCommand
+		args = args[1:]
+	}
+	if err := run(ctx, args, os.Stdout, os.Stderr); err != nil {
 		os.Exit(1)
 	}
 }

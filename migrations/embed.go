@@ -55,3 +55,18 @@ var NativeSessions string
 
 //go:embed 018_entitlement_grants.sql
 var EntitlementGrants string
+
+//go:embed 019_analytics.sql
+var Analytics string
+
+//go:embed 020_analytics_generation.sql
+var AnalyticsGeneration string
+
+//go:embed 021_analytics_installation.sql
+var AnalyticsInstallation string
+
+//go:embed 022_analytics_signup_source.sql
+var AnalyticsSignupSource string
+
+//go:embed 023_analytics_gaps.sql
+var AnalyticsGaps string

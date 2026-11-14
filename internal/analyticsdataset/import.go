@@ -291,6 +291,10 @@ func batchDigest(b Batch) string {
 }
 
 func (d *Dataset) Import(ctx context.Context, b Batch) (bool, error) {
+	if d.production {
+		return false, ErrDataset
+	}
+
 	if d.readOnly {
 		return false, ErrDataset
 	}

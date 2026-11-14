@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/LowGok/my-chef/internal/analytics"
 	"github.com/LowGok/my-chef/internal/domain"
 	"github.com/LowGok/my-chef/internal/providers"
 	"github.com/LowGok/my-chef/internal/store"
@@ -171,6 +172,9 @@ func (s *Service) start(ctx context.Context, user int64, key string, input domai
 			return err
 		}
 		if err := tx.Create(&row).Error; err != nil {
+			return err
+		}
+		if err := analytics.SaveGenerationCapture(ctx, tx, row.ID); err != nil {
 			return err
 		}
 		snapshot := domain.GenerationRequest{MenuInput: input, Preferences: owner.Preferences(), CurrentDate: time.Now().UTC().Format(time.DateOnly), OperationID: strconv.FormatInt(row.ID, 10), Favorites: favorites}

@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/LowGok/my-chef/internal/analytics"
 	"github.com/LowGok/my-chef/internal/domain"
 	"gorm.io/gorm"
 )
@@ -56,6 +57,7 @@ type exportPart struct {
 }
 
 var accountExportParts = []exportPart{
+	{Name: "analytics.json"},
 	{Name: "entitlements.json", Query: `SELECT CASE WHEN g.source='fixture' THEN 'fixture' ELSE 'other' END AS source,
 g.starts_ns AS startsNanoseconds,g.ends_ns AS endsNanoseconds,g.revoked_ns AS revokedNanoseconds
 FROM entitlement_grants g JOIN account_incarnations a ON a.incarnation=g.incarnation
@@ -247,6 +249,15 @@ func (m exportMapper) row(part exportPart, columns []string, values []any) (map[
 	return out, nil
 }
 func writeExportPart(ctx context.Context, tx *gorm.DB, part exportPart, user int64, m exportMapper, w io.Writer, options ...AccountExportOptions) error {
+	if part.Name == "analytics.json" {
+		if len(options) > 0 && len(options[0].analytics) > 0 {
+			_, e := w.Write(options[0].analytics)
+			return e
+		}
+		_, e := io.WriteString(w, `{"preference":{"enabled":false},"history":[],"events":[],"monthlyContributions":[]}`)
+		return e
+	}
+
 	if part.Name == "recipe-import-drafts.json" {
 		var opts AccountExportOptions
 		if len(options) > 0 {
@@ -304,6 +315,24 @@ func writeExportPart(ctx context.Context, tx *gorm.DB, part exportPart, user int
 // No archive or complete category is buffered or persisted by the service.
 // On any failure the ZIP is intentionally not finalized.
 func (s *Store) WriteAccountExport(ctx context.Context, actor AccountActor, w io.Writer, now time.Time, options ...AccountExportOptions) error {
+	s.AccountWork.RLock()
+	defer s.AccountWork.RUnlock()
+	var analyticsData []byte
+	if s.Analytics != nil {
+		ctxWithLimit, cancel := context.WithTimeout(ctx, analytics.ReadLeaseLimit)
+		defer cancel()
+		ctx = ctxWithLimit
+		w = analytics.OutputWriter{Context: ctx, Output: w}
+		data, release, err := s.Analytics.PersonalExportLease(ctx, actor.UserID)
+		if err != nil {
+			return err
+		}
+		defer release()
+		analyticsData = data
+	} else if s.analyticsRequired(ctx) {
+		return ErrAccountExport
+	}
+
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -319,6 +348,7 @@ func (s *Store) WriteAccountExport(ctx context.Context, actor AccountActor, w io
 	if len(options) > 0 {
 		opts = options[0]
 	}
+	opts.analytics = analyticsData
 	opts.now = now
 	var mapper exportMapper
 	if _, err := rand.Read(mapper.key[:]); err != nil {

@@ -41,7 +41,11 @@ The [analytics command and data dictionary](docs/reference/analytics-dataset.md)
 describe a separate SQLite extract with 1,000 synthetic participants, aggregate
 reports, retention and subject deletion. Build it with
 `go build -o .test-artifacts/mychef-analytics ./cmd/mychef-analytics`.
-Real event collection and provider ingestion require a later integration.
+The core app-event integration uses a first-party SQLite journal and curated
+extracts. Live collection stays disabled pending the recorded lawful-basis
+assessment and separate activation approval. The guide records the remaining
+iOS simulator and Android emulator verification. Provider ingestion remains
+outside this integration.
 The [catalogue ERD reconciliation](docs/reference/implemented-catalogue-erd.md)
 documents the separately maintained recipe pipeline and its application links.
 
