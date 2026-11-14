@@ -64,6 +64,13 @@ func EntitlementReader(lease FixtureEntitlementLease, now func() time.Time) Pers
 }
 
 func resolveEntitlement(ctx context.Context, tx *gorm.DB, user int64, incarnation string, lease FixtureEntitlementLease, now time.Time) (PersonalEntitlement, error) {
+	var contact bool
+	if err := tx.WithContext(ctx).Model(&User{}).Where("user_id=?", user).Select("isNewsletterOnly").Scan(&contact).Error; err != nil {
+		return PersonalEntitlement{}, err
+	}
+	if contact {
+		return PersonalEntitlement{}, nil
+	}
 	if lease.ID == "" || !now.Before(lease.Expires) {
 		return PersonalEntitlement{}, nil
 	}

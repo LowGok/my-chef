@@ -70,3 +70,6 @@ var AnalyticsSignupSource string
 
 //go:embed 023_analytics_gaps.sql
 var AnalyticsGaps string
+
+//go:embed 024_newsletter.sql
+var Newsletter string

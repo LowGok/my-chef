@@ -21,6 +21,7 @@ type Queue struct {
 	ProofKeys               *mailqueue.ProofKeys
 	AllowLoopbackProofLinks bool
 	RecoveryWork            *store.RecoveryWork
+	Lifecycle               *store.LifecycleJournal
 }
 
 func (q Queue) now() time.Time {

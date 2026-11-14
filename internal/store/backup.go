@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/LowGok/my-chef/internal/analytics"
 	"github.com/ncruces/go-sqlite3/driver"
@@ -235,6 +236,9 @@ func Restore(ctx context.Context, backup, destination string, options ...Account
 		// Old snapshots must never resurrect consumed refresh credentials.
 		// The trigger also removes native access actors and their anchors.
 		return copy.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			if err := resetRestoredNewsletter(ctx, tx, time.Now().UTC()); err != nil {
+				return err
+			}
 			if err := tx.Exec("DELETE FROM native_families").Error; err != nil {
 				return err
 			}

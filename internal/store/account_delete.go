@@ -21,6 +21,7 @@ type AccountDeletionOptions struct {
 	Cleanup     func(*gorm.DB, User) error
 	Capture     func(*gorm.DB, User, string) error
 	FinalNotice func(*gorm.DB, User, string) error
+	AfterDelete func(*gorm.DB, User) error
 	Fault       func(string) error
 }
 
@@ -108,8 +109,17 @@ func (j *LifecycleJournal) DeleteAccount(ctx context.Context, actor AccountActor
 	if confirmation != "DELETE" || !opaqueLifecycleID(operation) {
 		return AccountDeletion{}, ErrAccountConfirmation
 	}
+	return j.deleteAccount(ctx, actor.UserID, operation, now, opts, func(tx *gorm.DB) error {
+		return accountAuthority(tx, actor, now)
+	})
+}
+
+func (j *LifecycleJournal) deleteAccount(ctx context.Context, userID int64, operation string, now time.Time, opts AccountDeletionOptions, authorize func(*gorm.DB) error) (AccountDeletion, error) {
 	j.app.AccountWork.Lock()
 	defer j.app.AccountWork.Unlock()
+	if err := j.CheckReady(ctx); err != nil {
+		return AccountDeletion{}, err
+	}
 	if j.app.Analytics != nil {
 		var result AccountDeletion
 		err := j.app.Analytics.WithDeletionFence(ctx, func(revoke func(string) error) error {
@@ -124,7 +134,7 @@ func (j *LifecycleJournal) DeleteAccount(ctx context.Context, actor AccountActor
 				return nil
 			}
 			var err error
-			result, err = j.deleteAccountLocked(ctx, actor, operation, now, opts)
+			result, err = j.deleteAccountLocked(ctx, userID, operation, now, opts, authorize)
 			return err
 		})
 		return result, err
@@ -132,19 +142,19 @@ func (j *LifecycleJournal) DeleteAccount(ctx context.Context, actor AccountActor
 	if j.app.analyticsRequired(ctx) {
 		return AccountDeletion{}, ErrAccountDeletion
 	}
-	return j.deleteAccountLocked(ctx, actor, operation, now, opts)
+	return j.deleteAccountLocked(ctx, userID, operation, now, opts, authorize)
 }
-func (j *LifecycleJournal) deleteAccountLocked(ctx context.Context, actor AccountActor, operation string, now time.Time, opts AccountDeletionOptions) (AccountDeletion, error) {
+func (j *LifecycleJournal) deleteAccountLocked(ctx context.Context, userID int64, operation string, now time.Time, opts AccountDeletionOptions, authorize func(*gorm.DB) error) (AccountDeletion, error) {
 	tx := j.app.DB.WithContext(ctx).Begin()
 	if tx.Error != nil {
 		return AccountDeletion{}, ErrAccountDeletion
 	}
 	defer func() { _ = tx.Rollback().Error }()
-	if err := accountAuthority(tx, actor, now); err != nil {
+	if err := authorize(tx); err != nil {
 		return AccountDeletion{}, err
 	}
 	var user User
-	if err := tx.First(&user, actor.UserID).Error; err != nil {
+	if err := tx.First(&user, userID).Error; err != nil {
 		return AccountDeletion{}, ErrAccountAccess
 	}
 	var incarnation string
@@ -199,6 +209,11 @@ func (j *LifecycleJournal) deleteAccountLocked(ctx context.Context, actor Accoun
 	}
 	if err := deletionFault(opts, "user"); err != nil {
 		return AccountDeletion{}, ErrAccountDeletion
+	}
+	if opts.AfterDelete != nil {
+		if err := opts.AfterDelete(tx, user); err != nil {
+			return AccountDeletion{}, err
+		}
 	}
 	if err := tx.Exec("INSERT INTO lifecycle_operations(operation,incarnation,created_ns,notice) VALUES(?,?,?,?)", operation, incarnation, now.UnixNano(), notice).Error; err != nil {
 		return AccountDeletion{}, ErrAccountDeletion

@@ -24,6 +24,12 @@ const SignUpProofTemplate = "signup-proof/v1"
 const EmailVerificationTemplate = "email-verification/v1"
 const EmailChangeCurrentTemplate = "email-change-current/v1"
 const EmailChangeProposedTemplate = "email-change-proposed/v1"
+const NewsletterENTemplate = "newsletter-confirmation-en/v1"
+const NewsletterFRTemplate = "newsletter-confirmation-fr/v1"
+const NewsletterNLTemplate = "newsletter-confirmation-nl/v1"
+const NewsletterWithdrawalENTemplate = "newsletter-withdrawal-en/v1"
+const NewsletterWithdrawalFRTemplate = "newsletter-withdrawal-fr/v1"
+const NewsletterWithdrawalNLTemplate = "newsletter-withdrawal-nl/v1"
 
 var ErrProofUnavailable = errors.New("protected email proof unavailable")
 var ErrProofExpired = errors.New("email proof expired")
@@ -136,6 +142,10 @@ func proofLinkFields(name string) []string {
 		return []string{"link"}
 	case EmailChangeCurrentTemplate:
 		return []string{"approve", "cancel"}
+	case NewsletterENTemplate, NewsletterFRTemplate, NewsletterNLTemplate:
+		return []string{"confirm", "unsubscribe"}
+	case NewsletterWithdrawalENTemplate, NewsletterWithdrawalFRTemplate, NewsletterWithdrawalNLTemplate:
+		return []string{"unsubscribe"}
 	default:
 		return nil
 	}

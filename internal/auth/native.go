@@ -112,6 +112,9 @@ func nativeBind(tx *gorm.DB, anchor store.Session, platform string, now time.Tim
 }
 
 func nativeIssue(tx *gorm.DB, family store.NativeFamily, userID *int64, now time.Time) (NativeTokens, error) {
+	if err := requireAppUser(tx, userID); err != nil {
+		return NativeTokens{}, err
+	}
 	access, err := nativeSecret(32)
 	if err != nil {
 		return NativeTokens{}, err
@@ -148,7 +151,7 @@ func (m *Manager) NativeLoad(ctx context.Context, token string) (NativeSession, 
 		Joins("JOIN native_accesses a ON a.hash=s.hash").
 		Joins("JOIN native_families f ON f.id=a.family_id").
 		Joins("JOIN sessions root ON root.hash=f.anchor_hash").
-		Where("s.hash=? AND s.expires_unix>unixepoch() AND f.expires_unix>unixepoch() AND root.expires_unix>unixepoch() AND s.user_id IS root.user_id", Hash(token)).Take(&row).Error
+		Where("s.hash=? AND s.expires_unix>unixepoch() AND f.expires_unix>unixepoch() AND root.expires_unix>unixepoch() AND s.user_id IS root.user_id AND NOT EXISTS (SELECT 1 FROM users u WHERE u.user_id=s.user_id AND u.isNewsletterOnly=1)", Hash(token)).Take(&row).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return NativeSession{}, ErrSession
 	}

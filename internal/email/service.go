@@ -66,6 +66,9 @@ func (s *Service) Ready(ctx context.Context) bool {
 	if s.failed.Load() {
 		return false
 	}
+	if s.worker.Queue.Lifecycle != nil && s.worker.Queue.Lifecycle.CheckReady(ctx) != nil {
+		return false
+	}
 	return s.worker.Queue.Store.SQL.QueryRowContext(ctx, "SELECT count(*) FROM (SELECT id FROM email_outbox LIMIT 1)").Scan(new(int)) == nil
 }
 

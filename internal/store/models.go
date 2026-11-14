@@ -3,6 +3,7 @@ package store
 import "github.com/LowGok/my-chef/internal/domain"
 
 type User struct {
+	IsNewsletterOnly bool    `gorm:"column:isNewsletterOnly"`
 	ID               int64   `gorm:"column:user_id;primaryKey;autoIncrement"`
 	FirstName        string  `gorm:"column:firstname"`
 	LastName         string  `gorm:"column:lastname"`

@@ -84,3 +84,189 @@ and `e2e`, `python3 scripts/test_postgres_import.py`,
 SQLite upgrade tests project synthetic API-created data into the retained
 version-three migrations and exercise current upgrade, backup and restore paths.
 Third-party CI services and native signing inputs are outside this source edition.
+
+## Journal newsletter capture
+
+The published analytics migrations retain versions 19 through 23 and their
+checksums. Newsletter schema 24 follows them. Disposable databases from the
+unreleased newsletter schema 19 are incompatible and are refused by migration;
+recreate those fixtures. Do not renumber or modify published migrations.
+
+Schema 24 adds the constrained SQL boolean `users.isNewsletterOnly`, durable
+newsletter requests, subscriptions and protected action proofs. Existing app
+users keep their IDs and default to false. New email-only contacts receive an
+allocated ID and true. Their password is empty and a random internal username
+satisfies the existing unique constraint. Contact admission guards cover app
+sessions, login, recovery and entitlements. Consent status is independent of
+account type.
+
+Normal verified signup promotes a newsletter-only contact in place, preserving
+its userID and subscription provenance. The mailbox owner still completes the
+normal profile and password steps. Signup does not confirm newsletter consent.
+Existing newsletter action links for the unchanged address retain their original
+purpose and expiry. A signup proof bound to an erased or replaced contact is
+rejected; the reader must request a fresh signup link.
+Queued signup requests accepted before contact erasure are discarded as well.
+
+A verified app email change may use an address held by a newsletter-only
+contact. The normal password, session and mailbox proofs still apply. The
+existing app account keeps its ID, credential and data; the placeholder is
+retired through the independent lifecycle journal. Only destination-address
+consent transfers. Confirmed consent receives a fresh withdrawal link. Pending
+or withdrawn consent needs a fresh newsletter request and confirmation.
+Destinations owned by another full app account retain the usual conflict result.
+
+### Runtime configuration
+
+Apply the explicit migration with the migration executable and the independent
+lifecycle journal before starting the application. The container's explicit
+`.dockerignore` allowlist includes the newsletter production sources and SQL.
+
+```sh
+mychef-migrate up --db /data/mychef.db --lifecycle-db /journal/mychef.lifecycle
+```
+
+`MYCHEF_NEWSLETTER_MODE` defaults to `disabled`. `enabled` selects the production
+configuration. `fixture` requires explicit development mode, fixture providers,
+fake email and a literal loopback listener. HTTP fixture capture accepts only
+addresses ending in `.test` or `.invalid`.
+
+| Setting | Meaning |
+| --- | --- |
+| `MYCHEF_NEWSLETTER_ORIGIN` | Exact public HTTPS origin, default `https://mychef.dev` |
+| `MYCHEF_NEWSLETTER_CONSENT_VERSION` | Published localized consent version, default `newsletter-v1` |
+| `MYCHEF_NEWSLETTER_CONTACT` | Approved controller contact email |
+| `MYCHEF_NEWSLETTER_PENDING_DAYS` | Approved pending-contact retention, 1–3650 days |
+| `MYCHEF_NEWSLETTER_WITHDRAWN_DAYS` | Approved withdrawn-contact retention, 1–3650 days |
+| `MYCHEF_NEWSLETTER_OPERATIONS_READY` | Set to `1` after verifying contact export/erasure procedures |
+| `MYCHEF_NEWSLETTER_COLLECT` | Set to `0` to pause new capture while preserving proof actions |
+| `MYCHEF_CREDENTIALS` | Existing protected credential JSON, extended with `newsletter_service_token` |
+| `MYCHEF_EMAIL_PROOF_KEYS_FILE` | Existing protected encryption keyring and separate rate key |
+
+The service credential is 32–256 visible ASCII characters. Store it in the
+protected credential file and the Sites server environment. Preserve the rate
+key through key rotation because it binds durable rate and erasure records.
+Retain encryption keys needed by outstanding protected messages and proposals.
+
+The authenticated backend accepts only the newsletter JSON contracts through
+`POST /api/v1/newsletter/subscribe`, `/confirm` and `/unsubscribe`. The Sites
+Worker supplies the fixed canonical Origin and trusted source address. The
+browser receives generic acknowledgement, failure and retry guidance.
+Confirmation and withdrawal require an explicit POST after opening the fragment
+link. Capture queues encrypted durable work before identity lookup. Identity,
+consent proposal, proofs and protected mail outbox issuance commit together.
+Existing outbox retry and idempotency limits apply.
+
+Operators can request `GET /internal/newsletter/readiness` directly from the
+backend with the service Bearer credential through their protected client. It
+returns `ready` and boolean `checks` for each prerequisite, including storage,
+email, proof keys and worker health. The public Sites gateway excludes this
+route. Keep the credential in the protected client's header configuration.
+
+Public capture currently reports `identityCompatibility: false`. The local
+implementation of [the signup and email-change dependency](https://github.com/LowGok/my-chef/issues/14)
+must be independently reviewed, released and verified against the deployed
+backend before that capability changes. Launch also needs
+the approved controller/privacy and retention information, durable hosted
+backend and backup, verified sender/reply route, service connection and release
+approval. A fixture's synthetic compatibility result supports local testing.
+
+The worker checks expiry hourly in batches of at most 100 contacts. Pending and
+withdrawn contact erasure rechecks the exact email, incarnation, account type,
+consent status, revision and cutoff inside the lifecycle deletion transaction.
+Confirmed contacts and promoted app users remain governed by their own request
+process. Expired queued requests are removed. Routine tests use fake delivery.
+
+### Transfer recovery and restored subscriptions
+
+Placeholder retirement prepares an independent journal intent, then commits
+the address/consent transfer, placeholder deletion and application receipt in
+one SQL transaction. The independent marker is completed afterward. A failed
+SQL transaction cancels its intent after rollback. An uncertain commit or
+unfinished marker blocks new identity and newsletter work and cannot report
+ready. The email worker checks journal readiness before claiming or sending a
+message, so unsettled intents leave queued mail and attempt counts untouched.
+Reconcile against the authoritative application database before retrying. If
+the mail worker has stopped, restart the service after reconciliation.
+An older backup's missing receipt is not evidence that an intent was rolled back.
+Restore refuses unresolved intents rather than publishing an uncertain database.
+
+Every database restore resets surviving newsletter subscriptions to pending
+before publishing the restored copy. It invalidates previous newsletter proofs,
+queued capture requests and newsletter email links, while preserving app userIDs,
+credentials, account classification and data. Ordinary app email is unaffected.
+Historical consent timestamps remain historical; recovery records no new opt-in
+or subscriber-initiated withdrawal. Contact retention keeps the original request
+age, so restore does not extend the approved retention period.
+
+Restore sends no automatic emails. A reader must submit a fresh newsletter
+request and confirm the new link before becoming eligible again. Signing into
+the app does not restore newsletter consent. Take a verified database/journal
+backup before an approved migration, retain schema-compatible code for rollback,
+and do not downgrade to pre-newsletter code with live contact records. Recovery
+verification uses disposable SQL, fake delivery and crash/failure injection.
+
+### Contact export and erasure
+
+Verify mailbox ownership through the operator's established request procedure.
+Record its opaque request reference. In a maintenance window with the app
+stopped, use the protected SQL connection to select the exact allocated ID,
+normalized email key and `account_incarnations.incarnation`. Place that
+verified authority in a permission-0600 file outside source control.
+
+```json
+{
+  "emailKey": "contact@example.test",
+  "incarnation": "COPY_THE_CURRENT_OPAQUE_INCARNATION",
+  "requestReference": "verified-request-reference"
+}
+```
+
+Set the existing protected proof-key file, then run the contact command with
+that authority on stdin. Substitute the verified ID and protected paths.
+
+```sh
+mychef newsletter export --db /data/mychef.db --lifecycle-db /journal/mychef.lifecycle --user-id 47 --output /protected/contact-export.json < /protected/authority.json
+mychef newsletter erase --db /data/mychef.db --lifecycle-db /journal/mychef.lifecycle --user-id 47 < /protected/authority.json
+```
+
+Export creates a new permission-0600 file and refuses an existing destination.
+Its contents include the contact's email, userID and consent/proof-time history.
+Erasure records the independent lifecycle receipt and prevents older queued
+capture from recreating the identity. Changed email/incarnation and promoted
+app accounts fail contact authority. Console results contain opaque IDs and
+status. Resume the app and process the verified request through the approved
+private response channel.
+
+### SQL group examples and restore
+
+Use the protected SQL connection for aggregate counts. These queries distinguish
+account classification from newsletter eligibility.
+
+```sql
+SELECT isNewsletterOnly, count(*) AS identities
+FROM users GROUP BY isNewsletterOnly;
+
+SELECT n.status, u.isNewsletterOnly, count(*) AS subscriptions
+FROM newsletter_subscriptions n JOIN users u ON u.user_id = n.user_id
+GROUP BY n.status, u.isNewsletterOnly;
+
+SELECT count(*) AS confirmed_current_addresses
+FROM newsletter_subscriptions n JOIN users u ON u.user_id = n.user_id
+WHERE n.status = 'confirmed' AND n.email_key = u.email_key;
+```
+
+Create a verified snapshot before an approved migration. Restore to a fresh
+application database with the retained independent lifecycle journal, then
+check schema readiness, allocated IDs and consent records before service.
+
+```sh
+mychef-migrate backup --db /data/mychef.db --lifecycle-db /journal/mychef.lifecycle --file /protected/newsletter-backup.db
+mychef-migrate restore --db /data/restored.db --lifecycle-db /journal/mychef.lifecycle --file /protected/newsletter-backup.db
+```
+
+A website rollback pauses or removes capture while SQL records remain durable.
+The independent journal reconciles deletion receipts during restore. Database
+restore is a separate operator decision. The local container check exercises
+fake confirmation delivery, restart and withdrawal, alongside the existing
+app backup/restore and private-artifact checks.
