@@ -84,6 +84,17 @@ def main() -> None:
                     "web/src/native-platform.ts"}.issubset(paths), "required native API and web inputs were excluded"
             assert {"internal/store/entitlements.go", "internal/store/entitlement_fixture.go",
                     "migrations/018_entitlement_grants.sql"}.issubset(paths), "entitlement resolver and migration were excluded"
+            required_analytics_inputs = {
+                "cmd/mychef/analytics.go", "internal/analytics/contract.go",
+                "internal/analytics/delivery.go", "internal/analytics/worker.go",
+                "internal/analyticsdataset/production.go", "internal/analyticsdataset/schema.sql",
+                "internal/analyticsdataset/queries.sql", "internal/http/analytics.go",
+                "internal/store/analytics_schema.go", "migrations/019_analytics.sql",
+                "migrations/023_analytics_gaps.sql", "web/src/AnalyticsPreferences.tsx",
+                "web/src/analytics-state.ts",
+            }
+            assert required_analytics_inputs.issubset(paths), "analytics runtime inputs were excluded"
+            assert not any(p.startswith("docs/") for p in paths), "private planning documents entered the app container context"
             assert not any(p.startswith("mobile/") for p in paths), "native projects entered the app container context"
             assert not any(any(word in p for word in ("secret", "canary", "node_modules", "test-results", ".streamlit", ".git/", "mychefApp", "_test.go")) for p in paths), "private or generated file entered the build context"
         if "MYCHEF_CONTAINER_IMAGE" not in env:
