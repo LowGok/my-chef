@@ -91,6 +91,22 @@ satisfies the existing unique constraint. Contact admission guards cover app
 sessions, login, recovery and entitlements. Consent status is independent of
 account type.
 
+Normal verified signup promotes a newsletter-only contact in place, preserving
+its userID and subscription provenance. The mailbox owner still completes the
+normal profile and password steps. Signup does not confirm newsletter consent.
+Existing newsletter action links for the unchanged address retain their original
+purpose and expiry. A signup proof bound to an erased or replaced contact is
+rejected; the reader must request a fresh signup link.
+Queued signup requests accepted before contact erasure are discarded as well.
+
+A verified app email change may use an address held by a newsletter-only
+contact. The normal password, session and mailbox proofs still apply. The
+existing app account keeps its ID, credential and data; the placeholder is
+retired through the independent lifecycle journal. Only destination-address
+consent transfers. Confirmed consent receives a fresh withdrawal link. Pending
+or withdrawn consent needs a fresh newsletter request and confirmation.
+Destinations owned by another full app account retain the usual conflict result.
+
 ### Runtime configuration
 
 Apply the explicit migration with the migration executable and the independent
@@ -138,10 +154,10 @@ returns `ready` and boolean `checks` for each prerequisite, including storage,
 email, proof keys and worker health. The public Sites gateway excludes this
 route. Keep the credential in the protected client's header configuration.
 
-Public capture currently reports `identityCompatibility: false`. Issue
-[#14](https://github.com/LowGok/my-chef/issues/14) must supply and verify signup
-promotion with the same subscriber ID and verified email-change handling for
-newsletter-only destinations before that capability changes. Launch also needs
+Public capture currently reports `identityCompatibility: false`. The local
+implementation of [the signup and email-change dependency](https://github.com/LowGok/my-chef/issues/14)
+must be independently reviewed, released and verified against the deployed
+backend before that capability changes. Launch also needs
 the approved controller/privacy and retention information, durable hosted
 backend and backup, verified sender/reply route, service connection and release
 approval. A fixture's synthetic compatibility result supports local testing.
@@ -151,6 +167,32 @@ withdrawn contact erasure rechecks the exact email, incarnation, account type,
 consent status, revision and cutoff inside the lifecycle deletion transaction.
 Confirmed contacts and promoted app users remain governed by their own request
 process. Expired queued requests are removed. Routine tests use fake delivery.
+
+### Transfer recovery and restored subscriptions
+
+Placeholder retirement prepares an independent journal intent, then commits
+the address/consent transfer, placeholder deletion and application receipt in
+one SQL transaction. The independent marker is completed afterward. A failed
+SQL transaction cancels its intent after rollback. An uncertain commit or
+unfinished marker blocks new identity and newsletter work and cannot report
+ready. Reconcile against the authoritative application database before retrying.
+An older backup's missing receipt is not evidence that an intent was rolled back.
+Restore refuses unresolved intents rather than publishing an uncertain database.
+
+Every database restore resets surviving newsletter subscriptions to pending
+before publishing the restored copy. It invalidates previous newsletter proofs,
+queued capture requests and newsletter email links, while preserving app userIDs,
+credentials, account classification and data. Ordinary app email is unaffected.
+Historical consent timestamps remain historical; recovery records no new opt-in
+or subscriber-initiated withdrawal. Contact retention keeps the original request
+age, so restore does not extend the approved retention period.
+
+Restore sends no automatic emails. A reader must submit a fresh newsletter
+request and confirm the new link before becoming eligible again. Signing into
+the app does not restore newsletter consent. Take a verified database/journal
+backup before an approved migration, retain schema-compatible code for rollback,
+and do not downgrade to pre-newsletter code with live contact records. Recovery
+verification uses disposable SQL, fake delivery and crash/failure injection.
 
 ### Contact export and erasure
 
