@@ -40,6 +40,7 @@ type Service struct {
 	Origin         string
 	ConsentVersion string
 	Now            func() time.Time
+	Lifecycle      *store.LifecycleJournal
 }
 
 type requestRecord struct {
@@ -197,6 +198,11 @@ func (s *Service) Request(ctx context.Context, source string, input Input) (int,
 // Step commits recipient resolution, proofs, email and job removal together.
 func (s *Service) Step(ctx context.Context) (bool, error) {
 	if !s.valid() {
+		return false, ErrUnavailable
+	}
+	s.Store.AccountWork.RLock()
+	defer s.Store.AccountWork.RUnlock()
+	if s.Lifecycle != nil && s.Lifecycle.CheckReady(ctx) != nil {
 		return false, ErrUnavailable
 	}
 	s.Store.AccountWork.RLock()
@@ -381,4 +387,68 @@ func proofHash(token string) (string, error) {
 	}
 	sum := sha256.Sum256(raw)
 	return hex.EncodeToString(sum[:]), nil
+}
+
+// ContactConsent is an internal transaction snapshot, never a public contract.
+type ContactConsent struct {
+	state subscription
+	found bool
+}
+
+func ReadContactConsent(tx *gorm.DB, userID int64) (ContactConsent, error) {
+	var saved ContactConsent
+	err := tx.Where("user_id=?", userID).Take(&saved.state).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return saved, nil
+	}
+	saved.found = err == nil
+	return saved, err
+}
+
+// TransferContactConsent joins verified email change after placeholder deletion.
+func (s *Service) TransferContactConsent(ctx context.Context, tx *gorm.DB, now time.Time, saved ContactConsent, account store.User) error {
+	if !saved.found {
+		return nil
+	}
+	if !s.valid() {
+		return ErrUnavailable
+	}
+	var previous int64
+	if err := tx.Raw("SELECT COALESCE(MAX(revision),0) FROM newsletter_subscriptions WHERE user_id=?", account.ID).Scan(&previous).Error; err != nil {
+		return err
+	}
+	order, err := nextOrder(tx)
+	if err != nil {
+		return err
+	}
+	sub := saved.state
+	if sub.EmailKey != account.EmailKey {
+		return ErrProof
+	}
+	sub.UserID, sub.EmailKey = account.ID, account.EmailKey
+	sub.Revision, sub.ProvedOrder = max(previous, sub.Revision)+1, order
+	if err := tx.Where("user_id=?", account.ID).Delete(&subscription{}).Error; err != nil {
+		return err
+	}
+	if err := tx.Create(&sub).Error; err != nil {
+		return err
+	}
+	if sub.Status != "confirmed" {
+		return nil
+	}
+	token, hash, err := newProof()
+	if err != nil {
+		return err
+	}
+	proof := proofRecord{Hash: hash, UserID: account.ID, Purpose: "unsubscribe", EmailKey: account.EmailKey, Revision: sub.Revision, RequestOrder: order, CreatedUnix: now.Unix()}
+	if err := tx.Create(&proof).Error; err != nil {
+		return err
+	}
+	prefix, ok := localePath(sub.Locale)
+	if !ok {
+		return ErrUnavailable
+	}
+	template := map[string]string{"en": mailqueue.NewsletterWithdrawalENTemplate, "fr-BE": mailqueue.NewsletterWithdrawalFRTemplate, "nl-BE": mailqueue.NewsletterWithdrawalNLTemplate}[sub.Locale]
+	_, err = mailqueue.EnqueueProtected(ctx, s.Store, tx, now, now.Add(24*time.Hour), s.Keys, mailqueue.Request{OwnerID: account.ID, Key: "newsletter/" + hash, Recipient: account.Email, Template: template, Fields: map[string]string{"unsubscribe": s.Origin + prefix + "newsletter/unsubscribe/#" + token}})
+	return err
 }

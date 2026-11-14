@@ -263,6 +263,21 @@ func (j *LifecycleJournal) Close() error {
 	return j.store.Close()
 }
 
+// CheckReady excludes unresolved cross-database operations from new identity work.
+func (j *LifecycleJournal) CheckReady(ctx context.Context) error {
+	if err := j.CheckAvailable(ctx); err != nil {
+		return err
+	}
+	var pending int64
+	if err := j.store.DB.WithContext(ctx).Model(&lifecycleDeletion{}).Where("state='prepared'").Count(&pending).Error; err != nil {
+		return ErrLifecycleJournal
+	}
+	if pending != 0 {
+		return ErrLifecycleUncertain
+	}
+	return nil
+}
+
 func (j *LifecycleJournal) PrepareDeletion(ctx context.Context, operation, incarnation string) error {
 	if err := j.CheckAvailable(ctx); err != nil {
 		return err

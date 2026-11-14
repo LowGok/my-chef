@@ -272,7 +272,7 @@ func main() {
 	}
 	defer service.Close()
 	signUp := &auth.SignUp{Store: s, Keys: proofKeys, RateKey: proofSettings.RateKey, Origin: cfg.Origin,
-		AllowLoopbackLink: inboxSettings != nil && inboxSettings.AllowLoopbackLinks}
+		AllowLoopbackLink: inboxSettings != nil && inboxSettings.AllowLoopbackLinks, Lifecycle: journal}
 	recoveryWork := &store.RecoveryWork{}
 	recovery := &auth.Recovery{SignUp: signUp, Work: recoveryWork}
 	if err := recovery.Sweep(ctx); err != nil {
@@ -282,7 +282,11 @@ func main() {
 	mailService := email.NewWithFixtureInbox(email.Queue{Store: s, ProofKeys: proofKeys, RecoveryWork: recoveryWork}, emailCfg, fixtureInbox)
 	var newsletterService *newsletter.Service
 	if newsletterSettings.Mode != "disabled" {
-		newsletterService = &newsletter.Service{Store: s, Keys: proofKeys, RateKey: proofSettings.RateKey, Origin: newsletterSettings.Origin, ConsentVersion: newsletterSettings.ConsentVersion}
+		newsletterService = &newsletter.Service{Store: s, Keys: proofKeys, RateKey: proofSettings.RateKey, Origin: newsletterSettings.Origin, ConsentVersion: newsletterSettings.ConsentVersion, Lifecycle: journal}
+	}
+	signUp.Newsletter = newsletterService
+	if signUp.Newsletter == nil {
+		signUp.Newsletter = &newsletter.Service{Store: s, Keys: proofKeys, RateKey: proofSettings.RateKey, Origin: "https://mychef.dev", ConsentVersion: "newsletter-v1", Lifecycle: journal}
 	}
 	emailCtx, cancelEmail := context.WithCancel(ctx)
 	emailDone := make(chan struct{})
@@ -365,10 +369,10 @@ func main() {
 	}()
 	api := httpapi.New(s, service, httpapi.Config{
 		Newsletter: newsletterService, NewsletterSettings: newsletterSettings, NewsletterReady: func(ctx context.Context) bool {
-			return newsletterReady(newsletterSettings, !lifecycleFailed.Load() && journal.CheckAvailable(ctx) == nil && s.SQL.PingContext(ctx) == nil, mailService.Ready(ctx), proofKeys != nil && len(proofSettings.RateKey) == 32, newsletterFailed.Load())
+			return newsletterReady(newsletterSettings, !lifecycleFailed.Load() && journal.CheckReady(ctx) == nil && s.SQL.PingContext(ctx) == nil, mailService.Ready(ctx), proofKeys != nil && len(proofSettings.RateKey) == 32, newsletterFailed.Load())
 		},
 		NewsletterChecks: func(ctx context.Context) map[string]bool {
-			return newsletterChecks(newsletterSettings, !lifecycleFailed.Load() && journal.CheckAvailable(ctx) == nil && s.SQL.PingContext(ctx) == nil, mailService.Ready(ctx), proofKeys != nil && len(proofSettings.RateKey) == 32, newsletterFailed.Load())
+			return newsletterChecks(newsletterSettings, !lifecycleFailed.Load() && journal.CheckReady(ctx) == nil && s.SQL.PingContext(ctx) == nil, mailService.Ready(ctx), proofKeys != nil && len(proofSettings.RateKey) == 32, newsletterFailed.Load())
 		},
 		Origin: cfg.Origin, Secure: cfg.Secure, Version: version,
 		Lifecycle: journal, TraceDir: os.Getenv("MYCHEF_TRACE_DIR"), AccountMail: !emailCfg.Disabled,

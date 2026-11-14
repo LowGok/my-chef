@@ -15,6 +15,7 @@ import (
 
 	"github.com/LowGok/my-chef/internal/domain"
 	"github.com/LowGok/my-chef/internal/email/mailqueue"
+	"github.com/LowGok/my-chef/internal/newsletter"
 	"github.com/LowGok/my-chef/internal/store"
 	"github.com/ncruces/go-sqlite3"
 	"gorm.io/gorm"
@@ -30,6 +31,8 @@ type SignUp struct {
 	Origin            string
 	AllowLoopbackLink bool
 	Now               func() time.Time
+	Lifecycle         *store.LifecycleJournal
+	Newsletter        *newsletter.Service
 }
 
 type SignUpDetails struct {
@@ -196,6 +199,11 @@ func (s *SignUp) Request(ctx context.Context, source string, request SignUpReque
 // Step resolves one protected request. The token and delivery row share a
 // transaction with deletion of the job, so a retry cannot issue another link.
 func (s *SignUp) Step(ctx context.Context) (bool, error) {
+	s.Store.AccountWork.RLock()
+	defer s.Store.AccountWork.RUnlock()
+	if s.Lifecycle != nil && s.Lifecycle.CheckReady(ctx) != nil {
+		return false, ErrSignUpUnavailable
+	}
 	now := s.now()
 	var processed bool
 	err := s.Store.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -347,6 +355,9 @@ func (s *SignUp) Complete(ctx context.Context, anonymousToken string, input Sign
 	}
 	s.Store.AccountWork.RLock()
 	defer s.Store.AccountWork.RUnlock()
+	if s.Lifecycle != nil && s.Lifecycle.CheckReady(ctx) != nil {
+		return ErrSignUpUnavailable
+	}
 	err = s.Store.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		now := s.now()
 		var session store.Session

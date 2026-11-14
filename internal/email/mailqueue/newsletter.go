@@ -22,3 +22,16 @@ func newsletterTemplates(name string) (string, *texttemplate.Template, *htmltemp
 		return "Confirm your MyChef subscription", newsletterENText, newsletterENHTML
 	}
 }
+
+func newsletterWithdrawalTemplates(name string) (string, *texttemplate.Template, *htmltemplate.Template) {
+	subject, body, heading, label := "Your MyChef newsletter subscription", "Your confirmed newsletter subscription is now linked to your MyChef account. You can unsubscribe here:", "Your MyChef subscription", "Unsubscribe"
+	switch name {
+	case NewsletterWithdrawalFRTemplate:
+		subject, body, heading, label = "Votre inscription aux nouvelles de MyChef", "Votre inscription confirmée est maintenant liée à votre compte MyChef. Vous pouvez vous désinscrire ici :", "Votre inscription MyChef", "Me désinscrire"
+	case NewsletterWithdrawalNLTemplate:
+		subject, body, heading, label = "Je inschrijving voor MyChef-nieuws", "Je bevestigde inschrijving is nu gekoppeld aan je MyChef-account. Je kunt je hier uitschrijven:", "Je MyChef-inschrijving", "Uitschrijven"
+	}
+	text := texttemplate.Must(texttemplate.New(name).Parse(body + "\n{{.unsubscribe}}\n"))
+	html := htmltemplate.Must(htmltemplate.New(name).Parse("<h1>" + heading + "</h1><p>" + body + "</p><p><a href=\"{{.unsubscribe}}\">" + label + "</a></p>"))
+	return subject, text, html
+}

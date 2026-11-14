@@ -21,6 +21,12 @@ func TestNewsletterDestinationEmailChangePreservesAccountAndConsent(t *testing.T
 				change, now, account, cookie := changeFixture(t, true)
 				n, contact, oldConfirmation, oldWithdrawal := contactFixture(t, change.SignUp, "destination@example.test", state)
 				before := readContactConsent(t, change.Store, contact.ID)
+				journal, err := change.Store.InitializeLifecycleJournal(t.Context(), change.Store.Path+".lifecycle")
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer journal.Close()
+				change.Lifecycle, change.Newsletter = journal, n
 				if wait, err := change.Start(t.Context(), account.ID, cookie, "192.0.2.43", contact.Email, changeFixturePassword); err != nil || wait != 0 {
 					t.Fatalf("start: %d %v", wait, err)
 				}

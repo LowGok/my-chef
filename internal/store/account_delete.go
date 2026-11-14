@@ -21,6 +21,7 @@ type AccountDeletionOptions struct {
 	Cleanup     func(*gorm.DB, User) error
 	Capture     func(*gorm.DB, User, string) error
 	FinalNotice func(*gorm.DB, User, string) error
+	AfterDelete func(*gorm.DB, User) error
 	Fault       func(string) error
 }
 
@@ -116,6 +117,9 @@ func (j *LifecycleJournal) DeleteAccount(ctx context.Context, actor AccountActor
 func (j *LifecycleJournal) deleteAccount(ctx context.Context, userID int64, operation string, now time.Time, opts AccountDeletionOptions, authorize func(*gorm.DB) error) (AccountDeletion, error) {
 	j.app.AccountWork.Lock()
 	defer j.app.AccountWork.Unlock()
+	if err := j.CheckReady(ctx); err != nil {
+		return AccountDeletion{}, err
+	}
 	tx := j.app.DB.WithContext(ctx).Begin()
 	if tx.Error != nil {
 		return AccountDeletion{}, ErrAccountDeletion
@@ -180,6 +184,11 @@ func (j *LifecycleJournal) deleteAccount(ctx context.Context, userID int64, oper
 	}
 	if err := deletionFault(opts, "user"); err != nil {
 		return AccountDeletion{}, ErrAccountDeletion
+	}
+	if opts.AfterDelete != nil {
+		if err := opts.AfterDelete(tx, user); err != nil {
+			return AccountDeletion{}, err
+		}
 	}
 	if err := tx.Exec("INSERT INTO lifecycle_operations(operation,incarnation,created_ns,notice) VALUES(?,?,?,?)", operation, incarnation, now.UnixNano(), notice).Error; err != nil {
 		return AccountDeletion{}, ErrAccountDeletion

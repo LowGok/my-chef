@@ -22,6 +22,11 @@ func (s *Service) applyProof(ctx context.Context, token, purpose string) error {
 	if s == nil || s.Store == nil || purpose == "confirm" && !s.valid() {
 		return ErrUnavailable
 	}
+	s.Store.AccountWork.RLock()
+	defer s.Store.AccountWork.RUnlock()
+	if s.Lifecycle != nil && s.Lifecycle.CheckReady(ctx) != nil {
+		return ErrUnavailable
+	}
 	hash, err := proofHash(token)
 	if err != nil {
 		return err
