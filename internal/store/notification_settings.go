@@ -40,6 +40,7 @@ type ReminderSettings struct {
 	vault        cipher.AEAD
 	read         PersonalEntitlementReader
 	now          func() time.Time
+	loadLocation func(string) (*time.Location, error)
 	supports     func(string) bool
 	zoneFailures atomic.Int64
 }
@@ -59,7 +60,7 @@ func NewReminderSettings(s *Store, key []byte, reader PersonalEntitlementReader,
 	if clock == nil {
 		clock = time.Now
 	}
-	return &ReminderSettings{store: s, key: append([]byte(nil), key...), vault: vault, read: reader, now: clock}, nil
+	return &ReminderSettings{store: s, key: append([]byte(nil), key...), vault: vault, read: reader, now: clock, loadLocation: time.LoadLocation}, nil
 }
 
 // SetProviderAvailability configures immutable runtime provider availability before serving.

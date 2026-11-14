@@ -59,7 +59,7 @@ ORDER BY p.next_evaluation,p.incarnation LIMIT 64`, at.Unix()).Scan(&records).Er
 			if err != nil {
 				return err
 			}
-			zone, err := time.LoadLocation(p.Zone)
+			zone, err := s.loadLocation(p.Zone)
 			if err != nil {
 				// A removed tzdata alias must not block unrelated households.
 				s.zoneFailures.Add(1)
@@ -296,7 +296,7 @@ WHERE a.incarnation=? AND u.email_verified_at>0`, o.Incarnation).Row().Scan(&use
 			return false, err
 		}
 	}
-	zone, err := time.LoadLocation(p.Zone)
+	zone, err := s.loadLocation(p.Zone)
 	if err != nil {
 		return false, nil
 	}
@@ -306,16 +306,16 @@ WHERE a.incarnation=? AND u.email_verified_at>0`, o.Incarnation).Row().Scan(&use
 	if !sending {
 		return true, nil
 	}
-	if p.Revision != o.Revision {
-		var current notifications.Occurrence
-		if o.Purpose == "advance" {
-			current = notifications.AdvanceWeek(at, zone, time.Weekday(p.AdvanceDay), p.AdvanceMinute)
-		} else {
-			current = notifications.CurrentWeek(at, zone)
-		}
-		if current.Scheduled.Unix() != o.Scheduled || current.Deadline.Unix() != o.Deadline {
-			return false, nil
-		}
+	// Zone rules can change independently of a saved preference revision.
+	// Revalidate in the same transaction as the send marker. The scheduler
+	// can rewrite an unfrozen occurrence when the new window opens; never
+	// rewrite a frozen one or send its remaining copies under a stale window.
+	current := notifications.CurrentWeek(at, zone)
+	if o.Purpose == "advance" {
+		current = notifications.AdvanceWeek(at, zone, time.Weekday(p.AdvanceDay), p.AdvanceMinute)
+	}
+	if current.Scheduled.Unix() != o.Scheduled || current.Deadline.Unix() != o.Deadline {
+		return false, nil
 	}
 	var planned bool
 	err = tx.Raw(`SELECT EXISTS(SELECT 1 FROM meals WHERE creator_id=? AND creationdate>=? AND creationdate<date(?,'+7 days'))`, user, o.TargetWeek, o.TargetWeek).Row().Scan(&planned)

@@ -99,8 +99,72 @@ func TestReminderDispatchDoesNotQueueEmail(t *testing.T) {
 	}
 }
 
+func TestReminderRechecksTimezoneRulesBeforeSending(t *testing.T) {
+	for _, change := range []struct {
+		name    string
+		offset  int
+		elapsed time.Duration
+		frozen  bool
+	}{
+		{"moved later before first send", 0, 0, false},
+		{"moved later after first send", 0, 0, true},
+		{"deadline moved earlier", 2 * 60 * 60, 23*time.Hour + 30*time.Minute, false},
+	} {
+		t.Run(change.name, func(t *testing.T) {
+			s, service, _, clock := reminderDispatchFixture(t, 2)
+			ctx := t.Context()
+			start := service.now()
+			zone := time.FixedZone("initial rules", 60*60)
+			service.loadLocation = func(string) (*time.Location, error) { return zone, nil }
+			expiry := start.Add(48 * time.Hour).Unix()
+			for _, query := range []string{"UPDATE native_families SET expires_unix=?", "UPDATE sessions SET expires_unix=?"} {
+				if err := s.DB.Exec(query, expiry).Error; err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := service.evaluateReminderPreferences(ctx); err != nil {
+				t.Fatal(err)
+			}
+			calls := 0
+			var delivery notifications.Delivery
+			send := func(_ context.Context, value notifications.Delivery) notifications.Result {
+				calls++
+				delivery = value
+				return notifications.Result{State: notifications.Accepted}
+			}
+			if change.frozen {
+				if sent, err := service.RunReminderStep(ctx, send); !sent || err != nil {
+					t.Fatalf("initial send: %t %v", sent, err)
+				}
+			}
+			zone = time.FixedZone("updated rules", change.offset)
+			clock(start.Add(change.elapsed))
+			if sent, err := service.RunReminderStep(ctx, send); sent || err != nil {
+				t.Fatalf("stale send: %t %v", sent, err)
+			}
+			if change.elapsed == 0 {
+				clock(start.Add(time.Hour))
+				sent, err := service.RunReminderStep(ctx, send)
+				if err != nil || sent == change.frozen {
+					t.Fatalf("updated schedule send: %t %v", sent, err)
+				}
+				if !change.frozen && !delivery.Deadline.Equal(start.Add(25*time.Hour)) {
+					t.Fatal("send used the old expiry")
+				}
+			}
+			expected := 1
+			if change.elapsed > 0 {
+				expected = 0
+			}
+			if calls != expected {
+				t.Fatalf("got %d submissions, want %d", calls, expected)
+			}
+		})
+	}
+}
+
 func TestReminderRegressionFreezeBeginsAtOwnFirstDispatch(t *testing.T) {
-	s, service, _, _ := reminderDispatchFixture(t, 1)
+	s, service, actors, _ := reminderDispatchFixture(t, 1)
 	ctx := t.Context()
 	addDevice := func(i int, zone string) {
 		access := fmt.Sprintf("review-access-%d", i)
@@ -129,16 +193,11 @@ func TestReminderRegressionFreezeBeginsAtOwnFirstDispatch(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	// Distinct, valid local schedules determine which account sends first.
+	if _, err := service.SetPreferences(ctx, actors[0], ReminderPreferences{Zone: "Europe/Athens", Current: true}); err != nil {
+		t.Fatal(err)
+	}
 	addDevice(2, "Europe/Brussels")
-	if err := service.evaluateReminderPreferences(ctx); err != nil {
-		t.Fatal(err)
-	}
-	// Distinct due times make the first account deterministic without relying
-	// on the randomly generated occurrence IDs.
-	if err := s.DB.Exec(`UPDATE reminder_occurrences SET scheduled=scheduled-1
-WHERE incarnation=(SELECT incarnation FROM account_incarnations WHERE user_id=1)`).Error; err != nil {
-		t.Fatal(err)
-	}
 	var seen []string
 	send := func(_ context.Context, d notifications.Delivery) notifications.Result {
 		seen = append(seen, d.Token[:1])
