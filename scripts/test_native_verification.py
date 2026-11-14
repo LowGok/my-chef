@@ -42,6 +42,16 @@ class NativeVerificationTest(unittest.TestCase):
         self.assertRegex(scene, r"receiveReminderResponse\(connectionOptions\.notificationResponse\)")
         self.assertRegex(app, r"receiveReminderResponse\(response\)")
 
+    def test_ios_reminder_journey_requires_the_rendered_week_and_controls(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            result = Path(temporary) / "mychef-reminder-result.json"
+            self.assertFalse(installed.ios_reminder_ui_passed(result))
+            for value in ({"weekAndMeal": True}, {"weekAndMeal": True, "scaledControls": False}):
+                result.write_text(json.dumps(value))
+                self.assertFalse(installed.ios_reminder_ui_passed(result))
+            result.write_text('{"weekAndMeal":true,"scaledControls":true}')
+            self.assertTrue(installed.ios_reminder_ui_passed(result))
+
     def test_android_groups_continue_on_failure_without_issuing_a_full_receipt(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

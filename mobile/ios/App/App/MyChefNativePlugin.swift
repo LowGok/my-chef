@@ -410,6 +410,9 @@ final class MyChefBridgeViewController: CAPBridgeViewController {
               let input = (try? JSONSerialization.jsonObject(with: data)) as? [String: String],
               let email = input["email"], email.hasSuffix("@example.test"),
               let password = input["password"], let reference = input["reference"],
+              let target = input["target"], let meal = input["mealTitle"],
+              let expected = try? JSONSerialization.data(withJSONObject: [target, meal]),
+              let weekAndMeal = String(data: expected, encoding: .utf8),
               let credentials = try? JSONSerialization.data(withJSONObject: [email, password]),
               let json = String(data: credentials, encoding: .utf8) else { return }
         try? FileManager.default.removeItem(at: file)
@@ -431,12 +434,58 @@ final class MyChefBridgeViewController: CAPBridgeViewController {
                   return true;
                 })();
                 """) { result, _ in
-                if result as? Bool != true {
+                if result as? Bool == true {
+                    self.checkReminderFixtureUI(weekAndMeal, in: file.deletingLastPathComponent(), attempts: 40)
+                } else {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1) { login(remaining - 1) }
                 }
             }
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) { login(30) }
+    }
+
+    private func checkReminderFixtureUI(_ expected: String, in directory: URL, attempts: Int) {
+        guard attempts > 0 else { return }
+        webView?.evaluateJavaScript("""
+            (() => {
+              const [week, meal] = \(expected);
+              const current = new URLSearchParams(location.search);
+              const profile = [...document.querySelectorAll('nav button')].find(button => button.textContent.trim() === 'Profile');
+              const check = document.documentElement.dataset;
+              if (!check.reminderFixtureOpened) {
+                const meals = [...document.querySelectorAll('.recipe-card h3')];
+                if (current.get('week') !== week || !meals.some(title => title.textContent === meal) || !profile) return null;
+                check.reminderFixtureOpened = 'true';
+                profile.click();
+                return null;
+              }
+              const panel = document.querySelector('.planning-reminders');
+              if (!panel || !panel.querySelector('.reminder-device-actions')) return null;
+              panel.open = true;
+              const controls = [...panel.querySelectorAll('summary, p, label, input:not([type=checkbox]), select, button')];
+              const root = document.documentElement;
+              const size = root.style.fontSize;
+              const fonts = () => controls.map(node => parseFloat(getComputedStyle(node).fontSize));
+              try {
+                root.style.fontSize = '100%';
+                const normal = fonts();
+                root.style.fontSize = '200%';
+                const doubled = fonts();
+                return {weekAndMeal: true, scaledControls: normal.length > 0 &&
+                  normal.every((font, index) => doubled[index] === 2 * font) && panel.scrollWidth <= panel.clientWidth};
+              } finally {
+                root.style.fontSize = size;
+              }
+            })();
+            """) { result, _ in
+            if let proof = result as? [String: Bool], let data = try? JSONSerialization.data(withJSONObject: proof) {
+                try? data.write(to: directory.appendingPathComponent("mychef-reminder-result.json"), options: .atomic)
+            } else {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                    self.checkReminderFixtureUI(expected, in: directory, attempts: attempts - 1)
+                }
+            }
+        }
     }
     #endif
 

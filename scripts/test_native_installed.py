@@ -447,8 +447,9 @@ def ios(state, stack, ca, package, reminder_inputs=None):
         print("Simulator network error codes: " + (", ".join(codes) or "none recorded"), flush=True)
 
     launches = 0
+    reminder_result = None
     def launch():
-        nonlocal launches
+        nonlocal launches, reminder_result
         launches += 1
         if launches != 2 or reminder_inputs is None:
             return sim("launch", identifier, APP)
@@ -456,12 +457,26 @@ def ios(state, stack, ca, package, reminder_inputs=None):
         temporary = container / "tmp"
         if not temporary.is_dir() or not temporary.resolve().is_relative_to(container.resolve()):
             raise RuntimeError("Unexpected disposable simulator container")
+        reminder_result = temporary / "mychef-reminder-result.json"
+        reminder_result.unlink(missing_ok=True)
         (temporary / "mychef-reminder-fixture.json").write_text(json.dumps(reminder_inputs))
         return sim("launch", identifier, APP, "--mychef-reminder-fixture")
 
+    def reminder_ui_passed():
+        return reminder_result is not None and ios_reminder_ui_passed(reminder_result)
+
     return ({"runtime": runtime, "model": device["name"], "hostArchitecture": os.uname().machine,
              "signing": "simulator linker entitlements only", "keychainIdentity": access_group},
-            launch, lambda: sim("terminate", identifier, APP), diagnostics)
+            launch, lambda: sim("terminate", identifier, APP), diagnostics, reminder_ui_passed)
+
+
+def ios_reminder_ui_passed(path):
+    try:
+        value = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return False
+    return (isinstance(value, dict) and value.keys() == {"weekAndMeal", "scaledControls"}
+            and value["weekAndMeal"] is True and value["scaledControls"] is True)
 
 
 def ios_reminder_inputs(state):
@@ -472,7 +487,10 @@ def ios_reminder_inputs(state):
     capability = json.loads((state / "fixture-inbox.json").read_text())["capability"]
     account = seed(18137, ORIGIN, capability, "nativeiosreminder")
     now = datetime.now(timezone.utc)
-    target = (now.date() - timedelta(days=now.weekday())).isoformat()
+    monday = now.date() - timedelta(days=now.weekday())
+    target = monday.isoformat()
+    meal_date = (monday + timedelta(days=2)).isoformat()
+    meal_title = "Simulator garden pasta"
     occurrence, reference, family = (secrets.token_hex(16) for _ in range(3))
     # The synthetic dispatch is already marked accepted. The simulator must
     # still use the real signed-in open route; no provider is called.
@@ -486,7 +504,10 @@ def ios_reminder_inputs(state):
                    (occurrence, owner, target, int(now.timestamp()) - 1, int(now.timestamp()) + 1200))
         db.execute("INSERT INTO reminder_dispatches VALUES(?, ?, ?, 'accepted', ?, 1)",
                    (reference, occurrence, family, int(now.timestamp())))
-    return dict(account, reference=reference)
+        db.execute("INSERT INTO meals(creator_id,creationdate,recipetitle) "
+                   "SELECT user_id,?,? FROM account_incarnations WHERE incarnation=?",
+                   (meal_date, meal_title, owner))
+    return dict(account, reference=reference, target=target, mealTitle=meal_title)
 
 
 def android_journeys(state, receipt, metadata, events, reminders=False):
@@ -586,8 +607,8 @@ def main():
         if PLATFORM == "android":
             metadata, launch, stop, diagnostics = android(state, stack, ca, package)
         else:
-            metadata, launch, stop, diagnostics = ios(state, stack, ca, package,
-                                                      ios_reminder_inputs(state) if reminders else None)
+            metadata, launch, stop, diagnostics, reminder_ui_passed = ios(
+                state, stack, ca, package, ios_reminder_inputs(state) if reminders else None)
         verify_stage(lambda: ("POST", "session", 201) in events and ("GET", "session", 200) in events,
                      "native HTTPS session", events, rejected_tls, diagnostics, launch=launch)
         print("Installed app opened a native HTTPS session", flush=True)
@@ -609,8 +630,12 @@ def main():
                      "owner-bound reminder open after simulator sign-in", 65)
             if ("POST", "login", 200) not in events[before:] or any(event[:2] == ("POST", "generations") for event in events[before:]):
                 raise RuntimeError("Simulator did not open the reminder through sign-in without planning")
-            result.update(passed=result["passed"] + ["signed-out cold reminder handoff and open after login"],
-                          limitations="Synthetic simulator handoff; no APNs delivery or physical iPhone permission check.")
+            wait_for(reminder_ui_passed, "target week meal and scaled reminder controls in iOS WebView", 45)
+            result.update(passed=result["passed"] + [
+                "signed-out cold reminder handoff and open after login",
+                "target week and saved meal rendered after reminder open",
+                "reminder labels and controls scale at 200 percent in iOS WebView",
+            ], limitations="Synthetic tap and WebView text scaling; no production APNs, lock-screen, OS text setting or VoiceOver verification.")
             (ARTIFACTS / "installed-journeys.json").write_text(json.dumps(result, indent=2) + "\n")
         if journeys:
             android_journeys(state, receipt, metadata, events, reminders)
