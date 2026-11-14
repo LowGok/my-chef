@@ -175,7 +175,10 @@ the address/consent transfer, placeholder deletion and application receipt in
 one SQL transaction. The independent marker is completed afterward. A failed
 SQL transaction cancels its intent after rollback. An uncertain commit or
 unfinished marker blocks new identity and newsletter work and cannot report
-ready. Reconcile against the authoritative application database before retrying.
+ready. The email worker checks journal readiness before claiming or sending a
+message, so unsettled intents leave queued mail and attempt counts untouched.
+Reconcile against the authoritative application database before retrying. If
+the mail worker has stopped, restart the service after reconciliation.
 An older backup's missing receipt is not evidence that an intent was rolled back.
 Restore refuses unresolved intents rather than publishing an uncertain database.
 

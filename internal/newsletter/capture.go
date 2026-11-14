@@ -205,8 +205,6 @@ func (s *Service) Step(ctx context.Context) (bool, error) {
 	if s.Lifecycle != nil && s.Lifecycle.CheckReady(ctx) != nil {
 		return false, ErrUnavailable
 	}
-	s.Store.AccountWork.RLock()
-	defer s.Store.AccountWork.RUnlock()
 	var worked bool
 	err := s.Store.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var job requestRecord

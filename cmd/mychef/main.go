@@ -279,7 +279,7 @@ func main() {
 		logger.Error("password recovery startup cleanup failed")
 		os.Exit(1)
 	}
-	mailService := email.NewWithFixtureInbox(email.Queue{Store: s, ProofKeys: proofKeys, RecoveryWork: recoveryWork}, emailCfg, fixtureInbox)
+	mailService := email.NewWithFixtureInbox(email.Queue{Store: s, ProofKeys: proofKeys, RecoveryWork: recoveryWork, Lifecycle: journal}, emailCfg, fixtureInbox)
 	var newsletterService *newsletter.Service
 	if newsletterSettings.Mode != "disabled" {
 		newsletterService = &newsletter.Service{Store: s, Keys: proofKeys, RateKey: proofSettings.RateKey, Origin: newsletterSettings.Origin, ConsentVersion: newsletterSettings.ConsentVersion, Lifecycle: journal}

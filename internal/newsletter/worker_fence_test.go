@@ -34,7 +34,11 @@ func TestCaptureCompletesWithRetirementWaitingAtReadiness(t *testing.T) {
 	queued := make(chan struct{})
 	ctx := &retirementContext{Context: t.Context()}
 	ctx.queue = func() {
-		go func() { s.Store.AccountWork.Lock(); s.Store.AccountWork.Unlock(); close(writer) }()
+		go func() {
+			s.Store.AccountWork.Lock()
+			defer s.Store.AccountWork.Unlock()
+			close(writer)
+		}()
 		deadline := time.Now().Add(2 * time.Second)
 		for s.Store.AccountWork.TryRLock() {
 			s.Store.AccountWork.RUnlock()
