@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"net/url"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -39,6 +40,54 @@ func restoreCapture(t *testing.T, n *newsletter.Service, address string) (string
 		t.Fatal(err)
 	}
 	return confirmation.Fragment, withdrawal.Fragment
+}
+
+func TestRestoreNewsletterResetFailureDoesNotPublish(t *testing.T) {
+	s, err := store.Open(filepath.Join(t.TempDir(), "app.db"), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if err := s.Migrate(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	j, err := s.InitializeLifecycleJournal(t.Context(), s.Path+".lifecycle")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer j.Close()
+	keys, err := mailqueue.NewProofKeys("test", map[string][]byte{"test": bytes.Repeat([]byte{9}, 32)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	n := &newsletter.Service{Store: s, Keys: keys, RateKey: bytes.Repeat([]byte{8}, 32), Origin: "https://mychef.dev", ConsentVersion: "newsletter-v1", Now: func() time.Time { return now }, Lifecycle: j}
+	proof, _ := restoreCapture(t, n, "contact@example.test")
+	if err := n.Confirm(t.Context(), proof); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DB.Exec("CREATE TRIGGER fail_restore_consent BEFORE UPDATE ON newsletter_subscriptions WHEN NEW.status='pending' BEGIN SELECT RAISE(ABORT,'injected'); END").Error; err != nil {
+		t.Fatal(err)
+	}
+	backup := filepath.Join(t.TempDir(), "backup.db")
+	if err := s.Backup(t.Context(), backup); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(backup)
+	if err != nil {
+		t.Fatal(err)
+	}
+	destination := filepath.Join(t.TempDir(), "refused.db")
+	if err := store.Restore(t.Context(), backup, destination, store.AccountRestoreOptions{JournalPath: j.Path}); err == nil {
+		t.Fatal("injected reset failure accepted")
+	}
+	if _, err := os.Stat(destination); !os.IsNotExist(err) {
+		t.Fatal("partially reset destination published")
+	}
+	after, err := os.ReadFile(backup)
+	if err != nil || !bytes.Equal(before, after) {
+		t.Fatal("source backup changed", err)
+	}
 }
 
 func TestRestoreNewsletterRequiresFreshConfirmationAndKeepsAppAccount(t *testing.T) {

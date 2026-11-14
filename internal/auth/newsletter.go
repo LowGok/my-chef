@@ -32,6 +32,7 @@ func (c *EmailChange) finishNewsletterDestination(ctx context.Context, hash stri
 	var account store.User
 	var pending store.PendingEmailChange
 	_, err := c.Lifecycle.EraseNewsletterContact(ctx, destination, c.RateKey, now, store.AccountDeletionOptions{
+		Fault: c.retirementFault,
 		Capture: func(tx *gorm.DB, contact store.User, incarnation string) error {
 			proof, change, user, err := loadEmailChange(tx, hash, now)
 			if err != nil {

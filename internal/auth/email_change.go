@@ -20,6 +20,7 @@ var errNewsletterDestination = errors.New("verified newsletter destination")
 
 type EmailChange struct {
 	*SignUp
+	retirementFault func(string) error
 }
 
 type EmailChangeView struct {
