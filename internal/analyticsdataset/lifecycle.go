@@ -36,17 +36,24 @@ func (d *Dataset) refresh(ctx context.Context, tx *sql.Tx) error {
 		}
 		o := ReportOptions{Start: month.Unix(), End: min(month.AddDate(0, 1, 0).Unix(), d.reportingUnix+1), audienceAt: min(month.AddDate(0, 1, 0).Unix()-1, d.reportingUnix)}
 		for _, metric := range metricNames() {
+			if d.production && deferredProductionMetric(metric) {
+				continue
+			}
+			metricCoverage, err := d.productionMetricCoverage(ctx, tx, metric, coverage)
+			if err != nil {
+				return err
+			}
 			raw, err := d.observations(ctx, tx, metric, o)
 			if err != nil {
 				return err
 			}
 			for _, v := range raw {
 				status := "complete"
-				if month.Equal(monthStart(d.reportingUnix)) || v.reason != "eligible" || !d.cohortCovered(coverage, metric, o) || v.from < d.cutoff() || v.until > d.reportingUnix+1 {
+				if month.Equal(monthStart(d.reportingUnix)) || v.reason != "eligible" || !d.cohortCovered(metricCoverage, metric, o) || v.from < d.cutoff() || v.until > d.reportingUnix+1 {
 					status = "partial"
 				}
 				for _, source := range queryFor(metric).sources {
-					if !covered(coverage, source, v.from, v.until) {
+					if !covered(metricCoverage, source, v.from, v.until) {
 						status = "partial"
 					}
 				}
@@ -155,6 +162,9 @@ func (d *Dataset) rebuildMetrics(ctx context.Context, tx *sql.Tx) error {
 }
 
 func (d *Dataset) DeleteSubject(ctx context.Context, subject string) error {
+	if d.production {
+		return ErrDataset
+	}
 	if !opaqueID(subject) {
 		return ErrInput
 	}
@@ -185,6 +195,9 @@ func (d *Dataset) DeleteSubject(ctx context.Context, subject string) error {
 }
 
 func (d *Dataset) Expire(ctx context.Context) error {
+	if d.production {
+		return ErrDataset
+	}
 	if d.readOnly {
 		return ErrDataset
 	}
@@ -246,15 +259,19 @@ type MonthlyMetric struct {
 	Metric
 }
 type MonthlyReport struct {
-	ExtractID     string          `json:"extract_id"`
-	SchemaVersion int             `json:"schema_version"`
-	StartMonth    string          `json:"start_month"`
-	EndMonth      string          `json:"end_month"`
-	Environment   string          `json:"environment"`
-	ReportingUnix int64           `json:"reporting_unix"`
-	Dimension     string          `json:"dimension"`
-	QueryVersion  int             `json:"query_version"`
-	Rows          []MonthlyMetric `json:"metrics"`
+	PrivacyRevision int64           `json:"privacy_revision,omitempty"`
+	ContentRevision int64           `json:"content_revision,omitempty"`
+	MaintenanceUnix int64           `json:"maintenance_unix,omitempty"`
+	Population      string          `json:"population,omitempty"`
+	ExtractID       string          `json:"extract_id"`
+	SchemaVersion   int             `json:"schema_version"`
+	StartMonth      string          `json:"start_month"`
+	EndMonth        string          `json:"end_month"`
+	Environment     string          `json:"environment"`
+	ReportingUnix   int64           `json:"reporting_unix"`
+	Dimension       string          `json:"dimension"`
+	QueryVersion    int             `json:"query_version"`
+	Rows            []MonthlyMetric `json:"metrics"`
 }
 
 func (d *Dataset) Monthly(ctx context.Context, dimension string) (MonthlyReport, error) {
@@ -270,6 +287,15 @@ func (d *Dataset) Monthly(ctx context.Context, dimension string) (MonthlyReport,
 	}
 	defer func() { _ = rows.Close() }()
 	r := MonthlyReport{ExtractID: d.extractID, SchemaVersion: 1, StartMonth: d.firstMonth(), EndMonth: monthStart(d.reportingUnix).Format("2006-01"), Environment: "synthetic", ReportingUnix: d.reportingUnix, Dimension: dimension, QueryVersion: 1, Rows: []MonthlyMetric{}}
+	if d.production {
+		r.Environment = "production"
+		r.SchemaVersion = 2
+		r.PrivacyRevision = d.privacyRevision
+		r.ContentRevision = d.contentRevision
+		r.MaintenanceUnix = d.maintenance
+		r.Population = "enrolled observable participants; opt-outs excluded"
+	}
+
 	seen := map[string]bool{}
 	for rows.Next() {
 		var m MonthlyMetric

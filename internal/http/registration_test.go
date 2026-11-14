@@ -62,8 +62,8 @@ func TestSignUpHTTPKeepsAcknowledgementUniformAndNeverSetsACookie(t *testing.T) 
 		t.Fatal("worker did not produce a proof")
 	}
 	b, _ := json.Marshal(map[string]string{"proof": link.Fragment})
-	if got := post("/api/v1/signup/inspect", string(b)); got.code != 200 || got.body != "{\"firstName\":\"Untrusted\",\"lastName\":\"User\",\"username\":\"candidate\"}\n" {
-		t.Fatal("inspect returned more than the editable suggestions")
+	if got := post("/api/v1/signup/inspect", string(b)); got.code != 200 || got.body != "{\"analyticsEnabled\":false,\"firstName\":\"Untrusted\",\"lastName\":\"User\",\"username\":\"candidate\"}\n" {
+		t.Fatal("inspect did not return only editable suggestions and the disabled analytics preference")
 	}
 	payload := map[string]string{"proof": link.Fragment, "firstName": "Owner", "lastName": "User", "username": "confirmed", "password": "only the mailbox owner chose this"}
 	payload["email"] = "different@example.test"

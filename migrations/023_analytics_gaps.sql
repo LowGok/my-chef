@@ -1,0 +1,1 @@
+CREATE TABLE analytics_gaps(start_unix INTEGER NOT NULL,end_unix INTEGER NOT NULL,code TEXT NOT NULL CHECK(code IN('capture_gap','sequence_gap')),PRIMARY KEY(start_unix,code),CHECK(end_unix>start_unix)) STRICT;

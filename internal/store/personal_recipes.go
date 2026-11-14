@@ -15,6 +15,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/LowGok/my-chef/internal/analytics"
 	"github.com/LowGok/my-chef/internal/domain"
 	"gorm.io/gorm"
 )
@@ -569,7 +570,25 @@ func savePersonalRecipeOn(ctx context.Context, db *gorm.DB, actor PersonalActor,
 			return err
 		}
 		out, err = loadPersonalRecipe(tx, actor, incarnation, root.ID, versionID)
-		return err
+		if err != nil {
+			return err
+		}
+		if previous != nil {
+			before, e := loadPersonalRecipe(tx, actor, incarnation, root.ID, *previous)
+			if e != nil {
+				return e
+			}
+			if len(personalChangedRecipeFields(before, out)) == 0 {
+				return nil
+			}
+		}
+		if err = analytics.CaptureEvent(ctx, tx, actor.UserID, "personal_recipe_saved", versionID); err != nil {
+			return err
+		}
+		if importOperation != nil {
+			return analytics.CaptureEvent(ctx, tx, actor.UserID, "recipe_import_saved", versionID)
+		}
+		return nil
 	})
 	return out, err
 }

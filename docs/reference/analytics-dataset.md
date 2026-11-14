@@ -1,6 +1,6 @@
 # Curated SQLite analytics dataset
 
-MyChef's analytics command creates a private SQLite extract with a deterministic
+MyChef's default analytics command creates a private SQLite extract with a deterministic
 population of 1,000 synthetic participants. Activity, planning, satisfaction,
 push/email observations and optional demographic bands share opaque synthetic
 keys. The application owns its operational schema separately.
@@ -118,10 +118,10 @@ removes that subject's facts and monthly contributions and recomputes aggregates
 in one transaction. A tombstone prevents resurrection for the extract's lifetime.
 Other participants' contributions preserve older report history.
 
-Frozen synthetic extracts remain reproducible when opened later. Real collection
-needs its own accepted consent, ingestion, snapshot expiry and backup/deletion
-propagation design. The existing application analytics draft owns that integration.
-This command accepts the synthetic environment.
+Frozen synthetic extracts remain reproducible when opened later. The original
+commands accept version-1 synthetic files. The separate `live` commands below
+operate on production version 2 through the first-party journal and copy registry.
+Live capture starts disabled.
 
 ## Schema and SQL
 
@@ -451,3 +451,212 @@ intervals. Activation needs the eligibility-selection period. Communication
 conversion needs the complete tap-selection period and its action/tap follow-up
 coverage. Missing observations before the first observed row or after the last
 observed row keep the rate incomplete in both raw and monthly outputs.
+
+
+## Production integration and disabled rollout
+
+The app retains GORM and SQLite. Explicit app migrations 019–023 add account
+preferences and receipts, a bounded transactional outbox, admission context for
+background plans, a restore marker, pending signup choices and source gap windows.
+They preserve operational rows and create zero historical events. Run the existing
+explicit app migration before starting this build; startup performs no migration.
+
+Production stores use different SQLite application IDs: journal `1296253263`,
+independent privacy controls `1296253264` and extracts `1296253265`. Version 2
+validates its environment, app lifecycle binding, schema checksum, migration ledger
+and physical schema fingerprint. The production DDL is constructed in
+`internal/analyticsdataset/production.go`. The linked schema SQL above remains the
+exact version-1 compatibility reference.
+
+The app owns account-to-subject bindings. The independent privacy journal owns
+restore-safe cleanup links, current objection/revision controls and the registered
+copy inventory. Its high-water anchor records monotonic maintenance time and a
+digest of those controls. Keep that journal and anchor outside application and
+analytics recovery snapshots. Missing, older or changed controls stop analytical
+access. App and operator processes share the same file lease through report output,
+export, preference changes, delivery and copy publication.
+
+A production extract contains `processing_periods` with the assessed basis,
+version, notice, enrollment source and revision. Compatibility views feed the
+shared metric SQL. Default enrollment creates a `registration_default` processing
+receipt. Explicit later enrollment uses `explicit_enable`; Off records an objection.
+Version-1 synthetic consent records keep their original meaning.
+
+Seven server commit hooks capture preferences, saved plans, material shopping
+edits, favorites, feedback reports, personal recipes and saved reviewed imports.
+A reviewed import emits both applicable save events. Profile-only edits, unchanged
+saves, read reconciliation, ratings, failed transactions and receipt replays emit
+none. Event payloads contain version, independent random event/subject/period IDs,
+UTC occurrence second, action enum, platform, authoritative plan and sequence.
+Domain receipts remain app-only. No recipe contents or IDs, dietary/profile
+answers, contact details, raw network/device data, feedback content or payment
+information enter the analytical payload.
+
+The initial production authority supports the five ordinary core capabilities.
+Personal-recipe/import authority remains unavailable for real users while the
+app's entitlement adapter is fixture-scoped. Reports disclose capability coverage;
+fixture grants never establish real Premium status. Opens, reminders, surveys,
+communications and demographics remain unavailable collection sources. Reports
+cover enrolled observable participants, including default and explicit enrollment,
+and exclude opt-outs. They do not establish a full signup funnel or representative
+coverage of all accounts.
+
+### Operator configuration
+
+Keep `MYCHEF_ANALYTICS_CONFIG` unset during the disabled rollout. This local
+implementation supplies no live activation file or approved assessment. Public
+and native clients present Off when the matching assessed configuration is absent.
+Existing accounts require an informed explicit enable. A missing/stale signup
+notice creates the account with analytics Off. Pending signup Off choices win
+across retries and competing proofs.
+
+An operator runtime file has these fields:
+
+| Field | Contract |
+| --- | --- |
+| `root` | Absolute private analytics directory. Directories are 0700 and files 0600; symlink paths are refused. |
+| `privacyPath`, `anchorPath` | Independent private files outside the analytics root and recovery snapshots. |
+| `backupKeyFile` | Existing operator secret-storage route supplying exactly 32 binary key bytes, outside backup material. |
+| `collection.Enabled` | False for preparation and rollback. |
+| `collection.NoticeVersion`, `collection.NoticeHash` | Current version and SHA-256 of the exact server `NoticeText`. |
+| `collection.Assessment` | `status`, `basis`, `version`, exact `scope` digest, `noticeVersion`, jurisdiction, audience, device-access assessment and future `validUntil` UTC second. |
+| `collection.OutboxCap` | Optional positive bound; the default is 10,000 pending events. A full queue creates a coverage gap. |
+
+Collection requires Enabled, a matching approved unexpired assessment, the current
+notice hash, private storage/binding and a backup key. The assessment and exact
+live environment, build, notice, storage inventory and backup rehearsal require the
+owner's later activation decision. A configuration flag is a technical gate and
+supplies no finding that the proposed lawful basis is valid.
+
+Initialize empty control storage explicitly with a fresh root and matching migrated
+app, using the operator file. Initialization records no product history:
+
+```sh
+mychef-analytics live init --app /private/app.sqlite --config /private/analytics-config.json
+mychef-analytics live validate --app /private/app.sqlite --config /private/analytics-config.json
+mychef-analytics live maintenance --app /private/app.sqlite --config /private/analytics-config.json
+```
+
+Approved collection uses the existing service. It drains at most 100 records per
+batch every 60 seconds, records source heartbeats/gaps and acknowledgement
+watermarks, and builds a new extract after each completed UTC day. Successful
+product work survives delivery/curation outages. The worker retains privacy
+maintenance when collection is disabled. Health output contains coarse codes,
+queue count and oldest age. Analytical identifiers and content stay out of logs.
+
+These commands operate only on the configured journal and registered copies:
+
+```sh
+mychef-analytics live refresh --app /private/app.sqlite --config /private/analytics-config.json
+mychef-analytics live report --app /private/app.sqlite --config /private/analytics-config.json --start 1793577600 --end 1794182400
+mychef-analytics live report --app /private/app.sqlite --config /private/analytics-config.json --monthly
+mychef-analytics live backup --app /private/app.sqlite --config /private/analytics-config.json --copy /private/analytics/current-extract.sqlite --destination /private/analytics/recovery.enc
+mychef-analytics live restore --app /private/app.sqlite --config /private/analytics-config.json --copy /private/analytics/recovery.enc --destination /private/analytics/restored.sqlite
+mychef-analytics live backup-app --app /private/app.sqlite --config /private/analytics-config.json --lifecycle-db /private/app.lifecycle --destination /private/app-backup.sqlite
+mychef-analytics live restore-app --app /private/restored-app.sqlite --config /private/analytics-config.json --lifecycle-db /private/app.lifecycle --copy /private/app-backup.sqlite
+```
+
+Replace the example paths and report seconds with the approved operator inventory
+and desired interval. Reports run under a privacy lease and retain the original
+reporting date, maintenance timestamp, privacy/content revisions and suppression.
+The default copy is the registered current-extract pointer. Report consumers receive
+thresholded output. Report and account-export reads have a thirty-second limit, with cancellable process/file-lock waits. The fence stays held until the output writer has stopped. Report output supports memory buffers, regular files and deadline-capable pipes. On the Linux service, inherited stdout pipes receive a separate nonblocking descriptor for the same output, verified by file identity; the caller's descriptor flags stay unchanged. Unsupported writers are refused. Redirect CLI output to a private regular file when the terminal cannot provide write deadlines. HTTP exports use the server write deadline and request cancellation. Keep database files operator-only. Synthetic manifests, app
+files, unknown schemas, wrong bindings and unregistered copies are refused.
+
+### Retention, export and recovery
+
+For reporting date R and monotonic maintenance time N, active event membership is
+`[max(R-90*86400,N-90*86400),R]`. The journal and outbox use the current inclusive
+90-day window. Monthly storage intersects the 13 UTC month buckets ending in R
+with the 13 ending in N. Finalized closed-month contributions survive raw expiry;
+missing historical coverage remains unavailable. Each subject/month retains every processing-basis version and enrollment revision whose period overlaps that month. Refresh carries and validates that historical authority; the current assessment cannot relabel earlier months. Expired periods and closed app receipts are removed when no retained observations or monthly authority need them, while the current objection remains as minimal control state. Every new refresh gets a new R.
+Retention and objection cleanup preserve an existing R and advance its content
+revision. The worker maintains at startup and at most 60-second healthy scheduling
+intervals; report/export/backup/restore access maintains before releasing output.
+
+Off cancels the outbox and records the durable collection/report fence before
+acknowledgement. Active raw facts and monthly contributions are erased and
+aggregates/suppression rebuilt. Backup work remains pending separately. A later
+explicit On creates a fresh subject after objection; an unobjected restore pause
+resumes a retained subject with a new epoch and a higher independent revision.
+Old offline actions cannot become current after either transition.
+
+The authenticated account ZIP includes `analytics.json`: current preference,
+retained basis/change history, retrievable events and monthly contributions with
+definitions. It uses the existing password/native authorization and no-store
+incomplete-transfer contract. Account deletion invokes the same independent fence.
+
+Application snapshots register private raw staging before the online copy, then strip analytics payloads, local bindings/preferences,
+receipts, admission context and signup choices, then reclaim deleted bytes. Their
+restore marker requires the current independent privacy journal and anchor.
+Restored collection remains Off. Use `live backup-app` and `live restore-app` with the independent account
+lifecycle journal and existing email-proof key route; retained history stays discoverable for personal export,
+opt-out and account deletion.
+
+Analytical recovery files use AES-GCM with the external operator key. Every copy
+is registered before its first write and expires at creation plus seven days.
+Copying or restoring it cannot extend that deadline. Restored extracts reconcile
+current objections and retention before publication; expired or unreachable copies
+cannot serve reports. Active erasure uses secure deletion, vacuum and verified
+WAL checkpoint/truncation. An unresolved expiry or privacy failure remains an
+operator error and an unfinished cleanup record.
+
+Rollback keeps the runtime file with collection Enabled false so erasure, expiry
+and copy reconciliation continue. Keep independent controls and keys available
+until all cleanup is verified. Schema downgrade requires an explicitly verified
+sanitized restore onto a fresh destination. Build publication, real data migration
+and live collection remain later owner decisions.
+
+### Lawful-basis assessment before real collection
+
+Live collection remains disabled. The controller must record a decision for the
+actual deployment before enabling the proposed default-On signup preference.
+The decision is pending; the fictional approved configurations in tests provide
+technical evidence only.
+
+| Assessment | Evidence needed |
+| --- | --- |
+| Purpose | The product decision supported by each event and the controller responsible for it. |
+| Necessity | Why account-linked pseudonymous observations, each field, ninety days of detail and thirteen monthly buckets are needed, compared with aggregated or shorter-lived alternatives. |
+| Balance | Actual countries, audience and age groups, reasonable expectations, potential effects and the safeguards that protect users' rights. |
+| Device access | Review the actual browser/native cookies, storage, headers and other device access. Determine separately whether any operation requires affirmative consent under applicable ePrivacy rules. |
+| Deployment | Identify storage, recipients, operator access, registered backups and the tested withdrawal, deletion and restore paths. |
+| Recorded decision | Responsible controller, reviewer, date, conclusion, basis/scope version, exact notice and review/expiry date. No approval is recorded by this pull request. |
+
+The proposed GDPR route is Article 6(1)(f), subject to its purpose, necessity and
+balancing tests. Account creation or a preset On switch is default enrollment,
+not an affirmative consent record. The technical configuration checks that an
+operator-supplied assessment matches the collection; it cannot establish the
+legal conclusion. See the [EDPB legitimate-interest guidelines](https://www.edpb.europa.eu/system/files/2026-11/edpb_guidelines_202401_legitimateinterest_v2_en.pdf).
+
+The Belgian DPA states that audience-measurement cookies require consent,
+including first-party cookies. The server-side capture design therefore needs
+its actual client/device operations assessed separately; it supplies no blanket
+exemption. See the [Belgian DPA audience-cookie guidance](https://www.autoriteprotectiondonnees.be/citoyen/faq/si-vous-souhaitez-installer-etou-lire-des-cookies-de-mesure-daudience-encore-connus-comme-cookies-statistiques-ou-analytiques-devez-vous-obtenir-le-consentement-de-lutilisateur-de-votre-site-internet-ou-de-votre-application).
+
+### Remaining simulator and emulator verification
+
+The integration remains in progress. Local checks passed the Go suites,
+web/native unit and Java-boundary tests, nine analytics/native browser journeys,
+builds, lint and the disposable SQLite upgrade/restore rehearsal. Browser fixtures
+covered a 320-pixel viewport and 200-percent text. These results do not establish
+native operating-system behavior.
+
+The following evidence remains unverified on both an iOS simulator and Android
+emulator:
+
+- Signup notice and proposed On/Off choice before account completion.
+- Profile enable/opt-out, stale-revision conflicts and truthful pending deletion
+  and backup-cleanup states.
+- Offline opt-out feedback, reconnect/resume and queued actions retaining their
+  original analytics revision.
+- Accessible labels, keyboard/screen-reader behavior, phone widths and enlarged
+  text throughout those flows.
+- Account export/deletion and session/cache cleanup through the packaged app.
+
+The existing native workflow is restricted to another approved PR/branch and
+does not automatically verify this integration. Compilation or browser bridge
+checks must not be recorded as simulator/emulator results. Record the exact
+candidate, runtime/device configuration and observed journey results before
+closing the native verification criterion. This PR enables no signing,
+distribution, live storage, real-data migration or collection.

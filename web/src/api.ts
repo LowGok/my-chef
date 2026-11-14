@@ -1,4 +1,9 @@
 import {
+  analyticsRevision,
+  clearAnalyticsRevision,
+  rememberAnalyticsRevision,
+} from "./analytics-state";
+import {
   cachedOwner,
   clearPrivateShoppingCache,
   localShoppingSignOut,
@@ -22,6 +27,7 @@ import {
   NativeMediaError,
 } from "./platform-media";
 
+export type AnalyticsPreference = components["schemas"]["AnalyticsPreference"];
 export type Profile = components["schemas"]["Profile"];
 export type Session = components["schemas"]["Session"];
 export type Recipe = components["schemas"]["Recipe"];
@@ -158,6 +164,7 @@ export const sessionEpoch = (): number => epoch;
 export const isStale = (error: unknown): boolean =>
   error instanceof APIError && error.code === "stale_session";
 export function forgetSession(): void {
+  clearAnalyticsRevision();
   clearPlatformMedia();
   forgetPlatformSession();
   clearPrivateShoppingCache();
@@ -206,6 +213,7 @@ export function acceptSession(value: Session, rotated = false): void {
     restricted !== verificationRequired
   ) {
     epoch++;
+    clearAnalyticsRevision();
     clearPlatformMedia();
     feedbackDraft = null;
   }
@@ -266,6 +274,7 @@ const publicProofPaths = [
   "/email/change/inspect",
   "/email/change/decision",
 ];
+const publicInfoPaths = ["/analytics/notice"];
 const verifyPath = "/email/verification/confirm";
 const sessionPaths = ["/session", "/logout", "/login", "/register"];
 
@@ -274,7 +283,10 @@ export async function api<T>(
   options: RequestInit = {},
   responseKind: "json" | "download" = "json",
 ): Promise<T> {
-  if (signedOut() && ![...sessionPaths, ...publicProofPaths].includes(path))
+  if (
+    signedOut() &&
+    ![...sessionPaths, ...publicProofPaths, ...publicInfoPaths].includes(path)
+  )
     throw new APIError("Please sign in.", "unauthenticated", 401);
   if (
     logoutPending() &&
@@ -292,6 +304,13 @@ export async function api<T>(
     headers.set("Content-Type", "application/json");
   if (options.method && options.method !== "GET")
     headers.set("X-CSRF-Token", csrf);
+  if (
+    options.method &&
+    !["GET", "HEAD"].includes(options.method) &&
+    !headers.has("X-MyChef-Analytics-Revision") &&
+    analyticsRevision() !== null
+  )
+    headers.set("X-MyChef-Analytics-Revision", String(analyticsRevision()));
   let response: Response;
   try {
     response = await platformRequest(`/api/v1${path}`, {
@@ -332,6 +351,7 @@ export async function api<T>(
   const authEndpoint = [
     ...sessionPaths,
     ...publicProofPaths,
+    ...publicInfoPaths,
     verifyPath,
   ].includes(path);
   const responseOwner = response.headers.get("X-MyChef-User");
@@ -377,6 +397,7 @@ export async function api<T>(
 async function readSessionInLock(): Promise<Session> {
   const value = await api<Session>("/session");
   acceptSession(value);
+  await refreshAnalyticsPreference().catch(() => undefined);
   return value;
 }
 
@@ -448,6 +469,7 @@ export function signIn(body: string): Promise<Session> {
       acceptSession(value, isNativeTransport());
       explicitShoppingSignIn(value.verificationRequired);
     }
+    await refreshAnalyticsPreference().catch(() => undefined);
     notifyBrowserSignIn();
     return value;
   });
@@ -762,3 +784,41 @@ export const importApi = {
       signal,
     }),
 };
+
+export async function refreshAnalyticsPreference(): Promise<
+  AnalyticsPreference | undefined
+> {
+  if (!identity || restricted) {
+    clearAnalyticsRevision();
+    return undefined;
+  }
+  const started = epoch;
+  try {
+    const p = await api<AnalyticsPreference>("/analytics/preferences");
+    if (started === epoch) {
+      if (p.enabled) rememberAnalyticsRevision(p.revision);
+      else clearAnalyticsRevision();
+    }
+    return p;
+  } catch (e) {
+    if (started === epoch) clearAnalyticsRevision();
+    throw e;
+  }
+}
+export async function saveAnalyticsPreference(
+  enabled: boolean,
+  current: AnalyticsPreference,
+): Promise<AnalyticsPreference> {
+  if (!enabled) clearAnalyticsRevision();
+  const p = await api<AnalyticsPreference>("/analytics/preferences", {
+    method: "PUT",
+    body: JSON.stringify({
+      enabled,
+      noticeVersion: current.noticeVersion,
+      expectedRevision: current.revision,
+    }),
+  });
+  if (p.enabled) rememberAnalyticsRevision(p.revision);
+  else clearAnalyticsRevision();
+  return p;
+}

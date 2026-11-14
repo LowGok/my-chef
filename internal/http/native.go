@@ -52,7 +52,7 @@ func (a *API) nativeGuard(required bool, next http.HandlerFunc) http.HandlerFunc
 		actor := info(r)
 		actor.Session, actor.Token = current.Session, token
 		actor.Family, actor.Platform = current.FamilyID, current.Platform
-		next(w, r.WithContext(context.WithValue(r.Context(), contextKey{}, actor)))
+		next(w, a.instrument(r.WithContext(context.WithValue(r.Context(), contextKey{}, actor)), actor))
 	}
 }
 

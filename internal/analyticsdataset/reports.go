@@ -32,18 +32,27 @@ type Metric struct {
 	ResponseEvents *int     `json:"response_events,omitempty"`
 	smallCell      bool
 }
+type FeatureAvailability struct {
+	Feature string `json:"feature"`
+	Status  string `json:"status"`
+}
 type Report struct {
-	Environment   string               `json:"environment"`
-	ExtractID     string               `json:"extract_id"`
-	ReportingUnix int64                `json:"reporting_unix"`
-	Start         int64                `json:"start_unix"`
-	End           int64                `json:"end_unix"`
-	Dimension     string               `json:"dimension"`
-	SchemaVersion int                  `json:"schema_version"`
-	QueryVersion  int                  `json:"query_version"`
-	TargetFit     *float64             `json:"target_fit"`
-	Coverage      []SourceAvailability `json:"source_coverage"`
-	Rows          []Metric             `json:"metrics"`
+	Capabilities    []FeatureAvailability `json:"capabilities,omitempty"`
+	ContentRevision int64                 `json:"content_revision,omitempty"`
+	Population      string                `json:"population,omitempty"`
+	PrivacyRevision int64                 `json:"privacy_revision,omitempty"`
+	MaintenanceUnix int64                 `json:"maintenance_unix,omitempty"`
+	Environment     string                `json:"environment"`
+	ExtractID       string                `json:"extract_id"`
+	ReportingUnix   int64                 `json:"reporting_unix"`
+	Start           int64                 `json:"start_unix"`
+	End             int64                 `json:"end_unix"`
+	Dimension       string                `json:"dimension"`
+	SchemaVersion   int                   `json:"schema_version"`
+	QueryVersion    int                   `json:"query_version"`
+	TargetFit       *float64              `json:"target_fit"`
+	Coverage        []SourceAvailability  `json:"source_coverage"`
+	Rows            []Metric              `json:"metrics"`
 }
 type SourceAvailability struct {
 	Source string `json:"source"`
@@ -436,6 +445,30 @@ func (d *Dataset) Report(ctx context.Context, o ReportOptions) (Report, error) {
 		return Report{}, err
 	}
 	r := Report{Environment: "synthetic", ExtractID: d.extractID, ReportingUnix: d.reportingUnix, Start: o.Start, End: o.End, Dimension: o.Dimension, SchemaVersion: 1, QueryVersion: 1, Rows: []Metric{}}
+	if d.production {
+		r.Environment = "production"
+		r.SchemaVersion = 2
+		r.Population = "enrolled observable participants; signup default and explicit enrollment; opt-outs excluded"
+		r.PrivacyRevision = d.privacyRevision
+		r.MaintenanceUnix = d.maintenance
+		for _, feature := range coreActions {
+			caps, e := d.productionMetricCoverage(ctx, tx, "adoption_"+feature, coverage)
+			if e != nil {
+				return Report{}, e
+			}
+			status := "unavailable"
+			for _, c := range caps {
+				if c.Source == "eligibility" && c.Status != "unavailable" && c.Start < o.End && c.End > o.Start {
+					status = "partial"
+				}
+			}
+			if covered(caps, "eligibility", o.Start, o.End) {
+				status = "complete"
+			}
+			r.Capabilities = append(r.Capabilities, FeatureAvailability{Feature: feature, Status: status})
+		}
+		r.ContentRevision = d.contentRevision
+	}
 	for _, source := range sources {
 		status := "unavailable"
 		for _, c := range coverage {
@@ -449,11 +482,19 @@ func (d *Dataset) Report(ctx context.Context, o ReportOptions) (Report, error) {
 		r.Coverage = append(r.Coverage, SourceAvailability{Source: source, Status: status, Start: o.Start, End: o.End})
 	}
 	for _, metric := range metricNames() {
+		if d.production && deferredProductionMetric(metric) {
+			r.Rows = append(r.Rows, Metric{Name: metric, Segment: "all", Status: "unavailable"})
+			continue
+		}
 		raw, err := d.observations(ctx, tx, metric, o)
 		if err != nil {
 			return Report{}, err
 		}
-		rows, err := d.groupObservations(metric, o, raw, coverage, lookup)
+		metricCoverage, err := d.productionMetricCoverage(ctx, tx, metric, coverage)
+		if err != nil {
+			return Report{}, err
+		}
+		rows, err := d.groupObservations(metric, o, raw, metricCoverage, lookup)
 		if err != nil {
 			return Report{}, err
 		}
@@ -481,4 +522,8 @@ func scoreFamily(metric string) string {
 	}
 	i := strings.LastIndex(metric, "_")
 	return metric[:i]
+}
+
+func deferredProductionMetric(metric string) bool {
+	return metric == "opens" || metric == "adoption_reminder_enabled" || strings.HasPrefix(metric, "satisfaction_") || strings.HasPrefix(metric, "communication_")
 }

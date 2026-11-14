@@ -50,6 +50,7 @@ const requestHeaders = new Set([
   "content-type",
   "authorization",
   "idempotency-key",
+  "x-mychef-analytics-revision",
   "if-match",
   "if-none-match",
 ]);

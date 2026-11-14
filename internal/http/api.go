@@ -132,6 +132,7 @@ func (a *API) Handler(frontend http.Handler) http.Handler {
 	}
 	mux.HandleFunc("POST /api/v1/account/export", a.guard(true, a.exportAccount))
 	mux.HandleFunc("POST /api/v1/account/deletion", a.guard(true, a.deleteAccount))
+	a.analyticsRoutes(mux)
 	a.feedbackRoutes(mux)
 	a.personalRoutes(mux)
 	a.recipeImportRoutes(mux)
@@ -208,7 +209,7 @@ func (a *API) Handler(frontend http.Handler) http.Handler {
 			return
 		}
 
-		if a.Config.Lifecycle != nil && len(r.URL.Path) >= 5 && r.URL.Path[:5] == "/api/" && r.URL.Path != "/api/v1/account/deletion" && !strings.HasPrefix(r.URL.Path, "/api/v1/personal-") && !strings.HasPrefix(r.URL.Path, "/api/v1/recipe-imports") {
+		if a.Config.Lifecycle != nil && len(r.URL.Path) >= 5 && r.URL.Path[:5] == "/api/" && r.URL.Path != "/api/v1/account/deletion" && r.URL.Path != "/api/v1/account/export" && !strings.HasPrefix(r.URL.Path, "/api/v1/personal-") && !strings.HasPrefix(r.URL.Path, "/api/v1/recipe-imports") {
 			a.Store.AccountWork.RLock()
 			defer a.Store.AccountWork.RUnlock()
 		}
@@ -341,7 +342,7 @@ func (a *API) guard(required bool, next http.HandlerFunc) http.HandlerFunc {
 		current := info(r)
 		current.Session = session
 		current.Token = cookie.Value
-		next(w, r.WithContext(context.WithValue(r.Context(), contextKey{}, current)))
+		next(w, a.instrument(r.WithContext(context.WithValue(r.Context(), contextKey{}, current)), current))
 	}
 }
 func (a *API) cookie(w http.ResponseWriter, token string, authenticated bool) {

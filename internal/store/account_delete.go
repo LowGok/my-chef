@@ -110,6 +110,31 @@ func (j *LifecycleJournal) DeleteAccount(ctx context.Context, actor AccountActor
 	}
 	j.app.AccountWork.Lock()
 	defer j.app.AccountWork.Unlock()
+	if j.app.Analytics != nil {
+		var result AccountDeletion
+		err := j.app.Analytics.WithDeletionFence(ctx, func(revoke func(string) error) error {
+			old := opts.Capture
+			opts.Capture = func(tx *gorm.DB, u User, inc string) error {
+				if err := revoke(inc); err != nil {
+					return err
+				}
+				if old != nil {
+					return old(tx, u, inc)
+				}
+				return nil
+			}
+			var err error
+			result, err = j.deleteAccountLocked(ctx, actor, operation, now, opts)
+			return err
+		})
+		return result, err
+	}
+	if j.app.analyticsRequired(ctx) {
+		return AccountDeletion{}, ErrAccountDeletion
+	}
+	return j.deleteAccountLocked(ctx, actor, operation, now, opts)
+}
+func (j *LifecycleJournal) deleteAccountLocked(ctx context.Context, actor AccountActor, operation string, now time.Time, opts AccountDeletionOptions) (AccountDeletion, error) {
 	tx := j.app.DB.WithContext(ctx).Begin()
 	if tx.Error != nil {
 		return AccountDeletion{}, ErrAccountDeletion
