@@ -293,3 +293,66 @@ func TestNewsletterPromotionAndEmailChangeHaveOneWinner(t *testing.T) {
 		t.Fatal("destination identity was replaced")
 	}
 }
+
+func TestNewsletterExpiryAndSignupPromotionSerialize(t *testing.T) {
+	signup, now := signUpFixture(t)
+	n, user, _, _ := contactFixture(t, signup, "reader@example.test", "pending")
+	j, err := signup.Store.InitializeLifecycleJournal(t.Context(), signup.Store.Path+".lifecycle")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = j.Close() }()
+	*now = now.Add(25 * time.Hour)
+	anonymous, proof := requestContactSignup(t, signup, user.Email)
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	results := make(chan error, 2)
+	wg.Go(func() { <-start; results <- signup.Complete(t.Context(), anonymous, contactCompletion(proof)) })
+	wg.Go(func() { <-start; results <- n.Sweep(t.Context(), j, 1, 1, store.AccountDeletionOptions{}) })
+	close(start)
+	wg.Wait()
+	close(results)
+	for err := range results {
+		if err != nil && !errors.Is(err, ErrSignUpProof) {
+			t.Fatal(err)
+		}
+	}
+	var remaining []store.User
+	if err := signup.Store.DB.Find(&remaining).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(remaining) > 1 || len(remaining) == 1 && (remaining[0].ID != user.ID || remaining[0].IsNewsletterOnly) {
+		t.Fatal("expiry and promotion left an invalid identity")
+	}
+}
+
+func TestNewsletterTransferFailedIntentCancellationBlocksReadiness(t *testing.T) {
+	change, _, j, account, _, proof := destinationFixture(t)
+	var renamed bool
+	change.retirementFault = func(stage string) error {
+		if stage == "prepared" {
+			if err := os.Rename(j.Path, j.Path+".held"); err != nil {
+				t.Fatal(err)
+			}
+			renamed = true
+			return errors.New("injected rollback with unavailable journal")
+		}
+		return nil
+	}
+	_, err := change.Decide(t.Context(), proof)
+	if renamed {
+		if moveErr := os.Rename(j.Path+".held", j.Path); moveErr != nil {
+			t.Fatal(moveErr)
+		}
+	}
+	if !errors.Is(err, ErrEmailChangeUnavailable) {
+		t.Fatal("failed cancellation reported success", err)
+	}
+	if !errors.Is(j.CheckReady(t.Context()), store.ErrLifecycleUncertain) {
+		t.Fatal("unreconciled cancellation reported ready")
+	}
+	var kept store.User
+	if err := change.Store.DB.First(&kept, account.ID).Error; err != nil || kept.EmailKey != account.EmailKey {
+		t.Fatal("rollback changed surviving account", err)
+	}
+}

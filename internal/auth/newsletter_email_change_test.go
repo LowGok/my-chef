@@ -21,6 +21,7 @@ func TestNewsletterDestinationEmailChangePreservesAccountAndConsent(t *testing.T
 				change, now, account, cookie := changeFixture(t, true)
 				n, contact, oldConfirmation, oldWithdrawal := contactFixture(t, change.SignUp, "destination@example.test", state)
 				before := readContactConsent(t, change.Store, contact.ID)
+				_, _, oldAccountConfirmation, oldAccountWithdrawal := contactFixture(t, change.SignUp, account.Email, "confirmed")
 				journal, err := change.Store.InitializeLifecycleJournal(t.Context(), change.Store.Path+".lifecycle")
 				if err != nil {
 					t.Fatal(err)
@@ -59,6 +60,12 @@ func TestNewsletterDestinationEmailChangePreservesAccountAndConsent(t *testing.T
 				if err := n.Unsubscribe(t.Context(), oldWithdrawal); !errors.Is(err, newsletter.ErrProof) {
 					t.Fatalf("obsolete contact withdrawal: %v", err)
 				}
+				if err := n.Confirm(t.Context(), oldAccountConfirmation); !errors.Is(err, newsletter.ErrProof) {
+					t.Fatal("old-address confirmation carried to destination", err)
+				}
+				if err := n.Unsubscribe(t.Context(), oldAccountWithdrawal); !errors.Is(err, newsletter.ErrProof) {
+					t.Fatal("old-address consent carried to destination", err)
+				}
 				if _, err := New(change.Store).Load(t.Context(), cookie); !errors.Is(err, ErrSession) {
 					t.Fatal("email change retained session")
 				}
@@ -81,5 +88,35 @@ func TestNewsletterDestinationEmailChangePreservesAccountAndConsent(t *testing.T
 				}
 			})
 		}
+	}
+}
+
+func TestNewsletterDestinationWithoutSubscriptionDoesNotCreateConsent(t *testing.T) {
+	change, now, account, cookie := changeFixture(t, true)
+	contact := store.User{Email: "empty-contact@example.test", Username: "newsletter-empty-contact", IsNewsletterOnly: true}
+	if err := change.Store.DB.Create(&contact).Error; err != nil {
+		t.Fatal(err)
+	}
+	j, err := change.Store.InitializeLifecycleJournal(t.Context(), change.Store.Path+".lifecycle")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = j.Close() }()
+	change.Lifecycle = j
+	change.Newsletter = &newsletter.Service{Store: change.Store, Keys: change.Keys, RateKey: change.RateKey, Origin: "https://mychef.dev", ConsentVersion: "newsletter-v1", Now: change.Now, Lifecycle: j}
+	if _, err := change.Start(t.Context(), account.ID, cookie, "192.0.2.61", contact.Email, changeFixturePassword); err != nil {
+		t.Fatal(err)
+	}
+	first := deliveredChangeProof(t, change, *now, mailqueue.EmailChangeCurrentTemplate, "approve")
+	second := deliveredChangeProof(t, change, *now, mailqueue.EmailChangeProposedTemplate, "link")
+	if _, err := change.Decide(t.Context(), first); err != nil {
+		t.Fatal(err)
+	}
+	if result, err := change.Decide(t.Context(), second); err != nil || result.UserID != account.ID {
+		t.Fatal("empty-contact transition", err)
+	}
+	var subscriptions int
+	if err := change.Store.SQL.QueryRow("SELECT count(*) FROM newsletter_subscriptions").Scan(&subscriptions); err != nil || subscriptions != 0 {
+		t.Fatal("email change created newsletter consent", err)
 	}
 }

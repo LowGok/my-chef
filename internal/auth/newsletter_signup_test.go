@@ -171,3 +171,39 @@ func TestNewsletterSignupCaptureAfterProofUsesOneIdentity(t *testing.T) {
 		t.Fatal("late capture lost identity", err)
 	}
 }
+
+func TestNewsletterSignupFailureLeavesContactAndConsentIntact(t *testing.T) {
+	for _, scenario := range []string{"expired", "revoked-session", "username-conflict"} {
+		t.Run(scenario, func(t *testing.T) {
+			signup, now := signUpFixture(t)
+			_, user, _, _ := contactFixture(t, signup, "reader@example.test", "confirmed")
+			before := readContactConsent(t, signup.Store, user.ID)
+			anonymous, proof := requestContactSignup(t, signup, user.Email)
+			want := ErrSignUpProof
+			switch scenario {
+			case "expired":
+				*now = now.Add(25 * time.Hour)
+			case "revoked-session":
+				if err := New(signup.Store).Revoke(t.Context(), anonymous); err != nil {
+					t.Fatal(err)
+				}
+				want = ErrSession
+			case "username-conflict":
+				if _, err := New(signup.Store).Register(t.Context(), Registration{Email: "other@example.test", Username: "chosen-reader", FirstName: "Existing", LastName: "Account", Password: "other fixture account password"}); err != nil {
+					t.Fatal(err)
+				}
+				want = ErrConflict
+			}
+			if err := signup.Complete(t.Context(), anonymous, contactCompletion(proof)); !errors.Is(err, want) {
+				t.Fatalf("failure contract: %v", err)
+			}
+			var kept store.User
+			if err := signup.Store.DB.First(&kept, user.ID).Error; err != nil || !kept.IsNewsletterOnly || kept.Password != "" {
+				t.Fatal("failed signup changed contact", err)
+			}
+			if after := readContactConsent(t, signup.Store, user.ID); !reflect.DeepEqual(before, after) {
+				t.Fatal("failed signup changed consent")
+			}
+		})
+	}
+}
