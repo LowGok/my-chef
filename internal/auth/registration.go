@@ -51,7 +51,11 @@ type SignUpCompletion struct {
 
 type signUpDraft struct {
 	SignUpRequest
-	EmailKey string
+	EmailKey           string
+	ContactID          int64
+	ContactIncarnation string
+	NewsletterOrder    int64
+	NewsletterBound    bool
 }
 
 func (s *SignUp) now() time.Time {
@@ -211,11 +215,22 @@ func (s *SignUp) Step(ctx context.Context) (bool, error) {
 		if err != nil {
 			return tx.Delete(&job).Error
 		}
-		claimed, err := addressClaimed(tx, draft.EmailKey)
-		if err != nil {
+		var owner store.User
+		err = tx.Where("email_key=?", draft.EmailKey).Take(&owner).Error
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
 		}
-		if !claimed {
+		if errors.Is(err, gorm.ErrRecordNotFound) || owner.IsNewsletterOnly {
+			draft.NewsletterBound = true
+			if err := tx.Raw("SELECT value FROM newsletter_sequence WHERE singleton=1").Scan(&draft.NewsletterOrder).Error; err != nil {
+				return err
+			}
+			if owner.ID != 0 {
+				draft.ContactID = owner.ID
+				if err := tx.Raw("SELECT incarnation FROM account_incarnations WHERE user_id=?", owner.ID).Row().Scan(&draft.ContactIncarnation); err != nil {
+					return err
+				}
+			}
 			if err := s.issue(ctx, tx, now, job.ID, draft); err != nil {
 				return err
 			}
@@ -330,6 +345,8 @@ func (s *SignUp) Complete(ctx context.Context, anonymousToken string, input Sign
 	if err != nil {
 		return ErrSignUpUnavailable
 	}
+	s.Store.AccountWork.RLock()
+	defer s.Store.AccountWork.RUnlock()
 	err = s.Store.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		now := s.now()
 		var session store.Session
@@ -344,17 +361,47 @@ func (s *SignUp) Complete(ctx context.Context, anonymousToken string, input Sign
 		if err != nil {
 			return err
 		}
-		claimed, err := addressClaimed(tx, draft.EmailKey)
+		tag, err := store.EmailRateBucket(s.RateKey, "newsletter/erasure", draft.EmailKey)
 		if err != nil {
 			return err
 		}
-		if claimed {
+		var erased int64
+		if err := tx.Raw("SELECT count(*) FROM newsletter_erasures WHERE address_tag=? AND through_order>?", tag, draft.NewsletterOrder).Scan(&erased).Error; err != nil {
+			return err
+		}
+		if erased != 0 {
 			return ErrSignUpProof
 		}
 		prefs, _ := json.Marshal(domain.EmptyPreferences())
 		user := store.User{Email: draft.Email, EmailVerifiedAt: store.Ptr(now.Unix()), Password: credential,
 			Username: input.Username, FirstName: input.FirstName, LastName: input.LastName, PreferencesJSON: store.Ptr(string(prefs))}
-		if err = tx.Create(&user).Error; errors.Is(err, sqlite3.CONSTRAINT_UNIQUE) {
+		var owner store.User
+		lookup := tx.Where("email_key=?", draft.EmailKey).Take(&owner).Error
+		switch {
+		case lookup == nil:
+			if !owner.IsNewsletterOnly || !draft.NewsletterBound || draft.ContactID != 0 && draft.ContactID != owner.ID {
+				return ErrSignUpProof
+			}
+			if draft.ContactID != 0 {
+				var incarnation string
+				if err := tx.Raw("SELECT incarnation FROM account_incarnations WHERE user_id=?", owner.ID).Row().Scan(&incarnation); err != nil || incarnation != draft.ContactIncarnation {
+					return ErrSignUpProof
+				}
+			}
+			user.ID = owner.ID
+			err = tx.Model(&owner).Where("isNewsletterOnly=1 AND email_key=?", draft.EmailKey).Updates(map[string]any{
+				"isNewsletterOnly": false, "email": draft.Email, "email_verified_at": now.Unix(), "password": credential,
+				"username": input.Username, "firstname": input.FirstName, "lastname": input.LastName, "preferences_json": string(prefs),
+			}).Error
+		case errors.Is(lookup, gorm.ErrRecordNotFound):
+			if draft.ContactID != 0 {
+				return ErrSignUpProof
+			}
+			err = tx.Create(&user).Error
+		default:
+			return lookup
+		}
+		if errors.Is(err, sqlite3.CONSTRAINT_UNIQUE) {
 			return ErrConflict
 		}
 		if err != nil {
