@@ -101,6 +101,35 @@ func (s *Store) migrateWeeklyReminders(ctx context.Context) error {
 	return tx.Commit()
 }
 
+func reminderDispatchExpirySchemaChecksum() string {
+	sum := sha256.Sum256([]byte(nativeSchemaSQL() + migrations.EntitlementGrants + migrations.WeeklyReminders + migrations.ReminderDispatchExpiry))
+	return hex.EncodeToString(sum[:])
+}
+
+func (s *Store) migrateReminderDispatchExpiry(ctx context.Context) error {
+	tx, err := s.SQL.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	var version int
+	var checksum string
+	var dirty bool
+	if err := tx.QueryRowContext(ctx, "SELECT version,checksum,dirty FROM schema_migrations").Scan(&version, &checksum, &dirty); err != nil {
+		return err
+	}
+	if version != 19 || checksum != reminderSchemaChecksum() || dirty {
+		return errors.New("unexpected schema before reminder dispatch expiry migration")
+	}
+	if _, err := tx.ExecContext(ctx, migrations.ReminderDispatchExpiry); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, "UPDATE schema_migrations SET version=20,checksum=?,dirty=0 WHERE version=19", reminderDispatchExpirySchemaChecksum()); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 var zoneShape = regexp.MustCompile(`^(?:UTC|[A-Za-z0-9_+-]+(?:/[A-Za-z0-9_+-]+)+)$`)
 var tokenShape = regexp.MustCompile(`^[A-Za-z0-9_:-]{32,512}$`)
 var apnsTokenShape = regexp.MustCompile(`^(?:[0-9a-f]{2}){16,256}$`)

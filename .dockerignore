@@ -251,6 +251,7 @@ internal/notifications/**
 !internal/notifications/schedule.go
 !internal/store/notification_settings.go
 !migrations/019_weekly_reminders.sql
+!migrations/020_reminder_dispatch_expiry.sql
 !internal/http/notifications.go
 !internal/store/notification_dispatch.go
 !internal/notifications/dispatch.go

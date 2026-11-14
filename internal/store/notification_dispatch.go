@@ -147,7 +147,7 @@ SELECT id FROM reminder_occurrences WHERE deadline<? LIMIT 256)`, at.Add(-14*24*
 		}
 		mark := func(o reminderOccurrence, candidate reminderDispatch, registration reminderRegistration, token []byte) error {
 			defer clear(token)
-			if err := tx.Exec("UPDATE reminder_dispatches SET state='sending',attempts=attempts+1 WHERE reference=? AND state='pending'", candidate.Reference).Error; err != nil {
+			if err := tx.Exec("UPDATE reminder_dispatches SET state='sending',attempts=attempts+1,submission_deadline=? WHERE reference=? AND state='pending'", o.Deadline, candidate.Reference).Error; err != nil {
 				return err
 			}
 			candidate.Attempts++
@@ -158,7 +158,7 @@ SELECT id FROM reminder_occurrences WHERE deadline<? LIMIT 256)`, at.Add(-14*24*
 		}
 		var due []reminderDispatch
 		if err := tx.Raw(`SELECT d.reference,d.occurrence,d.family_id,d.attempts FROM reminder_dispatches d JOIN reminder_occurrences o ON o.id=d.occurrence
-WHERE d.state='pending' AND d.next_attempt<=? AND o.deadline>? ORDER BY d.next_attempt,d.family_id,d.reference LIMIT 64`,
+WHERE d.state='pending' AND d.next_attempt<=? AND o.deadline>? ORDER BY d.schedule_checked,d.next_attempt,d.family_id,d.reference LIMIT 64`,
 			at.Unix(), at.Unix()).Scan(&due).Error; err != nil {
 			return err
 		}
@@ -172,7 +172,9 @@ WHERE d.state='pending' AND d.next_attempt<=? AND o.deadline>? ORDER BY d.next_a
 				return err
 			}
 			if active && at.Before(window.Scheduled) {
-				if err := tx.Exec("UPDATE reminder_dispatches SET next_attempt=? WHERE reference=?", window.Scheduled.Unix(), candidate.Reference).Error; err != nil {
+				// Do not replace the provider retry floor with a civil time.
+				// Another zone-rules update may move this window earlier again.
+				if err := tx.Exec("UPDATE reminder_dispatches SET schedule_checked=? WHERE reference=?", at.UnixNano(), candidate.Reference).Error; err != nil {
 					return err
 				}
 				continue
@@ -394,7 +396,7 @@ func (s *ReminderSettings) OpenReminder(ctx context.Context, actor PersonalActor
 			return err
 		}
 		var o reminderOccurrence
-		err = tx.Raw(`SELECT o.id,o.incarnation,o.purpose,o.target_week,o.scheduled,o.deadline,o.revision
+		err = tx.Raw(`SELECT o.id,o.incarnation,o.purpose,o.target_week,o.scheduled,coalesce(d.submission_deadline,o.deadline),o.revision
 FROM reminder_occurrences o JOIN reminder_dispatches d ON d.occurrence=o.id
 WHERE o.incarnation=? AND d.reference=? AND d.state IN ('sending','accepted','uncertain')`, owner, reference).Row().
 			Scan(&o.ID, &o.Incarnation, &o.Purpose, &o.TargetWeek, &o.Scheduled, &o.Deadline, &o.Revision)

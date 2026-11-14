@@ -502,7 +502,7 @@ def ios_reminder_inputs(state):
         db.execute("INSERT INTO reminder_occurrences(id,incarnation,purpose,target_week,scheduled,deadline,revision,frozen) "
                    "VALUES(?, ?, 'current', ?, ?, ?, 1, 1)",
                    (occurrence, owner, target, int(now.timestamp()) - 1, int(now.timestamp()) + 1200))
-        db.execute("INSERT INTO reminder_dispatches VALUES(?, ?, ?, 'accepted', ?, 1)",
+        db.execute("INSERT INTO reminder_dispatches(reference,occurrence,family_id,state,next_attempt,attempts) VALUES(?, ?, ?, 'accepted', ?, 1)",
                    (reference, occurrence, family, int(now.timestamp())))
         db.execute("INSERT INTO meals(creator_id,creationdate,recipetitle) "
                    "SELECT user_id,?,? FROM account_incarnations WHERE incarnation=?",

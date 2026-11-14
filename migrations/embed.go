@@ -58,3 +58,6 @@ var EntitlementGrants string
 
 //go:embed 019_weekly_reminders.sql
 var WeeklyReminders string
+
+//go:embed 020_reminder_dispatch_expiry.sql
+var ReminderDispatchExpiry string
