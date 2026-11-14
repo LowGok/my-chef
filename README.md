@@ -41,7 +41,11 @@ The [analytics command and data dictionary](docs/reference/analytics-dataset.md)
 describe a separate SQLite extract with 1,000 synthetic participants, aggregate
 reports, retention and subject deletion. Build it with
 `go build -o .test-artifacts/mychef-analytics ./cmd/mychef-analytics`.
-Real event collection and provider ingestion require a later integration.
+The core app-event integration uses a first-party SQLite journal and curated
+extracts. Live collection stays disabled pending the recorded lawful-basis
+assessment and separate activation approval. The guide records the remaining
+iOS simulator and Android emulator verification. Provider ingestion remains
+outside this integration.
 The [catalogue ERD reconciliation](docs/reference/implemented-catalogue-erd.md)
 documents the separately maintained recipe pipeline and its application links.
 
@@ -83,7 +87,12 @@ Third-party CI services and native signing inputs are outside this source editio
 
 ## Journal newsletter capture
 
-Schema 19 adds the constrained SQL boolean `users.isNewsletterOnly`, durable
+The published analytics migrations retain versions 19 through 23 and their
+checksums. Newsletter schema 24 follows them. Disposable databases from the
+unreleased newsletter schema 19 are incompatible and are refused by migration;
+recreate those fixtures. Do not renumber or modify published migrations.
+
+Schema 24 adds the constrained SQL boolean `users.isNewsletterOnly`, durable
 newsletter requests, subscriptions and protected action proofs. Existing app
 users keep their IDs and default to false. New email-only contacts receive an
 allocated ID and true. Their password is empty and a random internal username

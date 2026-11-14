@@ -75,6 +75,7 @@ test("native bootstrap uses only the protected bridge and marshals API bodies wi
       Cookie: "private",
       Origin: "foreign",
       "Idempotency-Key": "same-operation",
+      "X-MyChef-Analytics-Revision": "7",
     },
   });
   expect(stored()).toBe("b".repeat(64));
@@ -84,6 +85,7 @@ test("native bootstrap uses only the protected bridge and marshals API bodies wi
   expect(last.headers.cookie).toBeUndefined();
   expect(last.headers.origin).toBeUndefined();
   expect(last.headers["idempotency-key"]).toBe("same-operation");
+  expect(last.headers["x-mychef-analytics-revision"]).toBe("7");
   expect(last.headers["content-type"]).toContain(
     "multipart/form-data; boundary=",
   );

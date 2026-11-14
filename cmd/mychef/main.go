@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/LowGok/my-chef/internal/analytics"
 	"github.com/LowGok/my-chef/internal/auth"
 	"github.com/LowGok/my-chef/internal/config"
 	"github.com/LowGok/my-chef/internal/email"
@@ -169,6 +170,11 @@ func main() {
 		logger.Error("account notice cleanup unavailable")
 		os.Exit(1)
 	}
+	closeAnalytics, analyticsErr := openAnalytics(ctx, s, os.Getenv("MYCHEF_ANALYTICS_CONFIG"))
+	if analyticsErr != nil {
+		logger.Error("analytics privacy unavailable; collection and reporting disabled", "code", "analytics_unavailable")
+	}
+	defer closeAnalytics()
 	var cleaner store.AccountAssetCleaner
 	var personalPhotos interface {
 		menus.PersonalPhotoUploader
@@ -324,6 +330,15 @@ func main() {
 		startRecovery("password recovery worker stopped", recovery.Run)
 	}
 	startRecovery("password recovery cleanup stopped", recovery.RunSweep)
+	if s.Analytics != nil {
+		recoveryWorkers.Go(func() {
+			_ = s.Analytics.Run(emailCtx, func(h analytics.Health) {
+				if h.Code != "healthy" {
+					logger.Error("analytics worker unavailable", "code", h.Code, "queued", h.Queued, "oldestSeconds", h.OldestSeconds)
+				}
+			})
+		})
+	}
 	var lifecycleFailed atomic.Bool
 	startLifecycle := func(name string, run func(context.Context) error) {
 		recoveryWorkers.Go(func() {

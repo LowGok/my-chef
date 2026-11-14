@@ -13,7 +13,7 @@ import (
 )
 
 func newsletterSchemaChecksum() string {
-	sum := sha256.Sum256([]byte(entitlementSchemaChecksum() + migrations.Newsletter))
+	sum := sha256.Sum256([]byte(analyticsGapsChecksum() + migrations.Newsletter))
 	return hex.EncodeToString(sum[:])
 }
 
@@ -81,13 +81,13 @@ func (s *Store) migrateNewsletter(ctx context.Context) error {
 	if err := tx.QueryRowContext(ctx, "SELECT version,checksum,dirty FROM schema_migrations").Scan(&version, &checksum, &dirty); err != nil {
 		return err
 	}
-	if version != 18 || checksum != entitlementSchemaChecksum() || dirty {
+	if version != 23 || checksum != analyticsGapsChecksum() || dirty {
 		return errors.New("unexpected schema before newsletter migration")
 	}
 	if _, err := tx.ExecContext(ctx, migrations.Newsletter); err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, "UPDATE schema_migrations SET version=19,checksum=?,dirty=0 WHERE version=18", newsletterSchemaChecksum()); err != nil {
+	if _, err := tx.ExecContext(ctx, "UPDATE schema_migrations SET version=24,checksum=?,dirty=0 WHERE version=23", newsletterSchemaChecksum()); err != nil {
 		return err
 	}
 	return tx.Commit()

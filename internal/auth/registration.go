@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/LowGok/my-chef/internal/analytics"
 	"github.com/LowGok/my-chef/internal/domain"
 	"github.com/LowGok/my-chef/internal/email/mailqueue"
 	"github.com/LowGok/my-chef/internal/newsletter"
@@ -36,9 +37,11 @@ type SignUp struct {
 }
 
 type SignUpDetails struct {
-	FirstName string `json:"firstName"`
-	LastName  string `json:"lastName"`
-	Username  string `json:"username"`
+	AnalyticsEnabled       *bool  `json:"analyticsEnabled,omitempty"`
+	AnalyticsNoticeVersion string `json:"analyticsNoticeVersion,omitempty"`
+	FirstName              string `json:"firstName"`
+	LastName               string `json:"lastName"`
+	Username               string `json:"username"`
 }
 
 type SignUpRequest struct {
@@ -192,6 +195,9 @@ func (s *SignUp) Request(ctx context.Context, source string, request SignUpReque
 		if err != nil {
 			return err
 		}
+		if err := analytics.RecordSignupChoice(ctx, tx, key, analytics.SignupChoice{Enabled: request.AnalyticsEnabled, NoticeVersion: request.AnalyticsNoticeVersion}, s.Store.Analytics, now); err != nil {
+			return err
+		}
 		return tx.Create(&job).Error
 	})
 	if err != nil {
@@ -265,6 +271,9 @@ func (s *SignUp) Step(ctx context.Context) (bool, error) {
 }
 
 func (s *SignUp) clearExpired(ctx context.Context, tx *gorm.DB, now time.Time) error {
+	if err := tx.Exec("DELETE FROM analytics_signup WHERE expires_unix<=?", now.Unix()).Error; err != nil {
+		return err
+	}
 	if err := pruneEmailChanges(ctx, tx, now); err != nil {
 		return err
 	}
@@ -344,6 +353,11 @@ func (s *SignUp) Inspect(ctx context.Context, token string) (SignUpDetails, erro
 		return SignUpDetails{}, err
 	}
 	_, draft, err := s.readProof(s.Store.DB.WithContext(ctx), hash, s.now())
+	if err == nil {
+		enabled, notice := analytics.InspectSignupChoice(ctx, s.Store.DB, draft.EmailKey, s.Store.Analytics, s.now())
+		draft.AnalyticsEnabled = &enabled
+		draft.AnalyticsNoticeVersion = notice
+	}
 	return draft.SignUpDetails, err
 }
 
@@ -371,87 +385,93 @@ func (s *SignUp) Complete(ctx context.Context, anonymousToken string, input Sign
 	if s.Lifecycle != nil && s.Lifecycle.CheckReady(ctx) != nil {
 		return ErrSignUpUnavailable
 	}
-	err = s.Store.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		now := s.now()
-		var session store.Session
-		err := tx.Where("hash = ? AND user_id IS NULL AND expires_unix > ?", Hash(anonymousToken), now.Unix()).Take(&session).Error
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return ErrSession
-		}
-		if err != nil {
-			return err
-		}
-		proof, draft, err := s.readProof(tx, hash, now)
-		if err != nil {
-			return err
-		}
-		erased, err := s.signupAddressErased(tx, draft)
-		if err != nil {
-			return err
-		}
-		if erased {
-			return ErrSignUpProof
-		}
-		prefs, _ := json.Marshal(domain.EmptyPreferences())
-		user := store.User{Email: draft.Email, EmailVerifiedAt: store.Ptr(now.Unix()), Password: credential,
-			Username: input.Username, FirstName: input.FirstName, LastName: input.LastName, PreferencesJSON: store.Ptr(string(prefs))}
-		var owner store.User
-		lookup := tx.Where("email_key=?", draft.EmailKey).Take(&owner).Error
-		switch {
-		case lookup == nil:
-			if !owner.IsNewsletterOnly || !draft.NewsletterBound || draft.ContactID != 0 && draft.ContactID != owner.ID {
+	run := func() error {
+		return s.Store.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			now := s.now()
+			var session store.Session
+			err := tx.Where("hash = ? AND user_id IS NULL AND expires_unix > ?", Hash(anonymousToken), now.Unix()).Take(&session).Error
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrSession
+			}
+			if err != nil {
+				return err
+			}
+			proof, draft, err := s.readProof(tx, hash, now)
+			if err != nil {
+				return err
+			}
+			erased, err := s.signupAddressErased(tx, draft)
+			if err != nil {
+				return err
+			}
+			if erased {
 				return ErrSignUpProof
 			}
-			if draft.ContactID != 0 {
-				var incarnation string
-				if err := tx.Raw("SELECT incarnation FROM account_incarnations WHERE user_id=?", owner.ID).Row().Scan(&incarnation); err != nil || incarnation != draft.ContactIncarnation {
+			prefs, _ := json.Marshal(domain.EmptyPreferences())
+			user := store.User{Email: draft.Email, EmailVerifiedAt: store.Ptr(now.Unix()), Password: credential,
+				Username: input.Username, FirstName: input.FirstName, LastName: input.LastName, PreferencesJSON: store.Ptr(string(prefs))}
+			var owner store.User
+			lookup := tx.Where("email_key=?", draft.EmailKey).Take(&owner).Error
+			switch {
+			case lookup == nil:
+				if !owner.IsNewsletterOnly || !draft.NewsletterBound || draft.ContactID != 0 && draft.ContactID != owner.ID {
 					return ErrSignUpProof
 				}
+				if draft.ContactID != 0 {
+					var incarnation string
+					if err := tx.Raw("SELECT incarnation FROM account_incarnations WHERE user_id=?", owner.ID).Row().Scan(&incarnation); err != nil || incarnation != draft.ContactIncarnation {
+						return ErrSignUpProof
+					}
+				}
+				user.ID = owner.ID
+				err = tx.Model(&owner).Where("isNewsletterOnly=1 AND email_key=?", draft.EmailKey).Updates(map[string]any{
+					"isNewsletterOnly": false, "email": draft.Email, "email_verified_at": now.Unix(), "password": credential,
+					"username": input.Username, "firstname": input.FirstName, "lastname": input.LastName, "preferences_json": string(prefs),
+				}).Error
+			case errors.Is(lookup, gorm.ErrRecordNotFound):
+				if draft.ContactID != 0 {
+					return ErrSignUpProof
+				}
+				err = tx.Create(&user).Error
+			default:
+				return lookup
 			}
-			user.ID = owner.ID
-			err = tx.Model(&owner).Where("isNewsletterOnly=1 AND email_key=?", draft.EmailKey).Updates(map[string]any{
-				"isNewsletterOnly": false, "email": draft.Email, "email_verified_at": now.Unix(), "password": credential,
-				"username": input.Username, "firstname": input.FirstName, "lastname": input.LastName, "preferences_json": string(prefs),
-			}).Error
-		case errors.Is(lookup, gorm.ErrRecordNotFound):
-			if draft.ContactID != 0 {
-				return ErrSignUpProof
+			if errors.Is(err, sqlite3.CONSTRAINT_UNIQUE) {
+				return ErrConflict
 			}
-			err = tx.Create(&user).Error
-		default:
-			return lookup
-		}
-		if errors.Is(err, sqlite3.CONSTRAINT_UNIQUE) {
-			return ErrConflict
-		}
-		if err != nil {
-			return err
-		}
-		if err := invalidateRecovery(ctx, tx, now, user.ID, s.RateKey, draft.EmailKey); err != nil {
-			return err
-		}
-		var accountIncarnation string
-		if err := tx.Raw("SELECT incarnation FROM account_incarnations WHERE user_id=?", user.ID).Row().Scan(&accountIncarnation); err != nil {
-			return err
-		}
-		var claimedProofs []store.SignUpProof
-		if err := tx.Where("address_tag = ? AND consumed IS NULL", proof.AddressTag).Find(&claimedProofs).Error; err != nil {
-			return err
-		}
-		for _, claimedProof := range claimedProofs {
-			if err := tx.Exec("INSERT INTO account_signup_owners(proof_id,incarnation) VALUES(?,?) ON CONFLICT(proof_id) DO NOTHING", claimedProof.ID, accountIncarnation).Error; err != nil {
+			if err != nil {
 				return err
 			}
-			var outboxID int64
-			if err := tx.Raw("SELECT id FROM email_outbox WHERE key=?", "signup/"+claimedProof.ID).Row().Scan(&outboxID); err != nil {
+			if err := invalidateRecovery(ctx, tx, now, user.ID, s.RateKey, draft.EmailKey); err != nil {
 				return err
 			}
-			if err := store.LinkAccountMail(tx, user.ID, outboxID); err != nil {
+			var accountIncarnation string
+			if err := tx.Raw("SELECT incarnation FROM account_incarnations WHERE user_id=?", user.ID).Row().Scan(&accountIncarnation); err != nil {
 				return err
 			}
-		}
-		return consumeSignUpAddress(ctx, tx, now, proof.AddressTag)
-	})
+			var claimedProofs []store.SignUpProof
+			if err := tx.Where("address_tag = ? AND consumed IS NULL", proof.AddressTag).Find(&claimedProofs).Error; err != nil {
+				return err
+			}
+			for _, claimedProof := range claimedProofs {
+				if err := tx.Exec("INSERT INTO account_signup_owners(proof_id,incarnation) VALUES(?,?) ON CONFLICT(proof_id) DO NOTHING", claimedProof.ID, accountIncarnation).Error; err != nil {
+					return err
+				}
+				var outboxID int64
+				if err := tx.Raw("SELECT id FROM email_outbox WHERE key=?", "signup/"+claimedProof.ID).Row().Scan(&outboxID); err != nil {
+					return err
+				}
+				if err := store.LinkAccountMail(tx, user.ID, outboxID); err != nil {
+					return err
+				}
+			}
+			if err := analytics.EnrollSignup(ctx, tx, user.ID, draft.EmailKey, analytics.SignupChoice{Enabled: input.AnalyticsEnabled, NoticeVersion: input.AnalyticsNoticeVersion}, s.Store.Analytics, now); err != nil {
+				return err
+			}
+			return consumeSignUpAddress(ctx, tx, now, proof.AddressTag)
+		})
+	}
+	err = analytics.SignupTransaction(ctx, s.Store.Analytics, run)
 	if err == nil || errors.Is(err, ErrSignUpProof) || errors.Is(err, ErrConflict) || errors.Is(err, ErrSession) {
 		return err
 	}

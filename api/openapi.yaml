@@ -684,6 +684,16 @@
               "type": "string",
               "maxLength": 64
             }
+          },
+          {
+            "name": "X-MyChef-Analytics-Revision",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds."
           }
         ]
       }
@@ -903,6 +913,16 @@
               "type": "string",
               "maxLength": 64
             }
+          },
+          {
+            "name": "X-MyChef-Analytics-Revision",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds."
           }
         ]
       }
@@ -1023,24 +1043,6 @@
       "post": {
         "operationId": "createGeneration",
         "responses": {
-          "200": {
-            "description": "Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Generation"
-                }
-              }
-            },
-            "headers": {
-              "X-MyChef-User": {
-                "description": "Acting user ID as a decimal string.",
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          },
           "202": {
             "description": "Response",
             "content": {
@@ -1128,6 +1130,24 @@
                 }
               }
             }
+          },
+          "200": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Generation"
+                }
+              }
+            },
+            "headers": {
+              "X-MyChef-User": {
+                "description": "Acting user ID as a decimal string.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -1165,6 +1185,16 @@
               "maxLength": 100,
               "pattern": "^[a-zA-Z0-9_-]+$"
             }
+          },
+          {
+            "name": "X-MyChef-Analytics-Revision",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds."
           }
         ]
       }
@@ -2076,6 +2106,16 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "X-MyChef-Analytics-Revision",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds."
           }
         ]
       },
@@ -2193,6 +2233,16 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "X-MyChef-Analytics-Revision",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds."
           }
         ]
       }
@@ -2423,6 +2473,16 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "X-MyChef-Analytics-Revision",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds."
           }
         ],
         "requestBody": {
@@ -2552,6 +2612,16 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "X-MyChef-Analytics-Revision",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds."
           }
         ],
         "requestBody": {
@@ -3123,6 +3193,16 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/EmailFlowCSRF"
+          },
+          {
+            "name": "X-MyChef-Analytics-Revision",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds."
           }
         ],
         "requestBody": {
@@ -3190,6 +3270,16 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/EmailFlowCSRF"
+          },
+          {
+            "name": "X-MyChef-Analytics-Revision",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds."
           }
         ],
         "requestBody": {
@@ -3324,6 +3414,16 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/EmailFlowCSRF"
+          },
+          {
+            "name": "X-MyChef-Analytics-Revision",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds."
           }
         ],
         "requestBody": {
@@ -3551,7 +3651,19 @@
               }
             }
           }
-        }
+        },
+        "parameters": [
+          {
+            "name": "X-MyChef-Analytics-Revision",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds."
+          }
+        ]
       }
     },
     "/api/v1/personal-recipes/copy": {
@@ -3664,7 +3776,19 @@
               }
             }
           }
-        }
+        },
+        "parameters": [
+          {
+            "name": "X-MyChef-Analytics-Revision",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds."
+          }
+        ]
       }
     },
     "/api/v1/personal-recipes": {
@@ -3798,7 +3922,19 @@
               }
             }
           }
-        }
+        },
+        "parameters": [
+          {
+            "name": "X-MyChef-Analytics-Revision",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds."
+          }
+        ]
       }
     },
     "/api/v1/personal-recipes/{id}": {
@@ -4031,6 +4167,16 @@
               "type": "string",
               "pattern": "^[0-9a-f]{32}$"
             }
+          },
+          {
+            "name": "X-MyChef-Analytics-Revision",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds."
           }
         ],
         "requestBody": {
@@ -4174,6 +4320,16 @@
               "type": "string",
               "pattern": "^[0-9a-f]{32}$"
             }
+          },
+          {
+            "name": "X-MyChef-Analytics-Revision",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds."
           }
         ],
         "requestBody": {
@@ -4298,6 +4454,16 @@
               "type": "string",
               "pattern": "^[0-9a-f]{32}$"
             }
+          },
+          {
+            "name": "X-MyChef-Analytics-Revision",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds."
           }
         ],
         "requestBody": {
@@ -4422,6 +4588,16 @@
               "type": "string",
               "pattern": "^[0-9a-f]{32}$"
             }
+          },
+          {
+            "name": "X-MyChef-Analytics-Revision",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds."
           }
         ],
         "requestBody": {
@@ -4546,6 +4722,16 @@
               "type": "string",
               "pattern": "^[0-9a-f]{32}$"
             }
+          },
+          {
+            "name": "X-MyChef-Analytics-Revision",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds."
           }
         ],
         "requestBody": {
@@ -4848,7 +5034,19 @@
               }
             }
           }
-        }
+        },
+        "parameters": [
+          {
+            "name": "X-MyChef-Analytics-Revision",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds."
+          }
+        ]
       }
     },
     "/api/v1/recipe-imports/photos": {
@@ -4961,7 +5159,19 @@
               }
             }
           }
-        }
+        },
+        "parameters": [
+          {
+            "name": "X-MyChef-Analytics-Revision",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds."
+          }
+        ]
       }
     },
     "/api/v1/recipe-imports/{id}": {
@@ -5148,6 +5358,16 @@
               "type": "string",
               "pattern": "^[0-9a-f]{32}$"
             }
+          },
+          {
+            "name": "X-MyChef-Analytics-Revision",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds."
           }
         ],
         "requestBody": {
@@ -5252,6 +5472,16 @@
               "type": "string",
               "pattern": "^[0-9a-f]{32}$"
             }
+          },
+          {
+            "name": "X-MyChef-Analytics-Revision",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds."
           }
         ],
         "requestBody": {
@@ -5356,6 +5586,16 @@
               "type": "string",
               "pattern": "^[0-9a-f]{32}$"
             }
+          },
+          {
+            "name": "X-MyChef-Analytics-Revision",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds."
           }
         ],
         "requestBody": {
@@ -5453,6 +5693,16 @@
               "type": "string",
               "pattern": "^[0-9a-f]{32}$"
             }
+          },
+          {
+            "name": "X-MyChef-Analytics-Revision",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds."
           }
         ],
         "requestBody": {
@@ -5580,6 +5830,18 @@
           {
             "nativeBearer": []
           }
+        ],
+        "parameters": [
+          {
+            "name": "X-MyChef-Analytics-Revision",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds."
+          }
         ]
       }
     },
@@ -5596,6 +5858,16 @@
               "type": "string",
               "pattern": "^[0-9a-f]{32}$"
             }
+          },
+          {
+            "name": "X-MyChef-Analytics-Revision",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds."
           }
         ],
         "requestBody": {
@@ -5626,6 +5898,16 @@
               }
             }
           },
+          "409": {
+            "description": "Conflicting operation key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
           "400": {
             "description": "Incorrect current password, malformed input or confirmation.",
             "content": {
@@ -5648,16 +5930,6 @@
           },
           "403": {
             "description": "Account verification or permissions required.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "Conflicting operation key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -5966,6 +6238,16 @@
               "type": "string",
               "maxLength": 64
             }
+          },
+          {
+            "name": "X-MyChef-Analytics-Revision",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds."
           }
         ],
         "description": "Native bearer transport; cookies are rejected and browser Origin/CSRF fields are not used. Request a sign-up link. The acknowledgement does not disclose whether the address exists.",
@@ -6080,6 +6362,16 @@
               "type": "string",
               "maxLength": 64
             }
+          },
+          {
+            "name": "X-MyChef-Analytics-Revision",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds."
           }
         ],
         "security": [
@@ -6190,6 +6482,16 @@
               "type": "string",
               "maxLength": 64
             }
+          },
+          {
+            "name": "X-MyChef-Analytics-Revision",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds."
           }
         ],
         "description": "Native bearer transport; cookies are rejected and browser Origin/CSRF fields are not used. "
@@ -6411,6 +6713,16 @@
               "type": "string",
               "maxLength": 64
             }
+          },
+          {
+            "name": "X-MyChef-Analytics-Revision",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds."
           }
         ],
         "description": "Native bearer transport; cookies are rejected and browser Origin/CSRF fields are not used. "
@@ -6518,6 +6830,16 @@
               "type": "string",
               "maxLength": 64
             }
+          },
+          {
+            "name": "X-MyChef-Analytics-Revision",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds."
           }
         ],
         "security": [
@@ -6531,24 +6853,6 @@
       "post": {
         "operationId": "nativeCreateGeneration",
         "responses": {
-          "200": {
-            "description": "Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Generation"
-                }
-              }
-            },
-            "headers": {
-              "X-MyChef-User": {
-                "description": "Acting user ID as a decimal string.",
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          },
           "202": {
             "description": "Response",
             "content": {
@@ -6636,6 +6940,24 @@
                 }
               }
             }
+          },
+          "200": {
+            "description": "Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Generation"
+                }
+              }
+            },
+            "headers": {
+              "X-MyChef-User": {
+                "description": "Acting user ID as a decimal string.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -6673,6 +6995,16 @@
               "maxLength": 100,
               "pattern": "^[a-zA-Z0-9_-]+$"
             }
+          },
+          {
+            "name": "X-MyChef-Analytics-Revision",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds."
           }
         ],
         "description": "Native bearer transport; cookies are rejected and browser Origin/CSRF fields are not used. "
@@ -7288,6 +7620,16 @@
               "format": "date"
             },
             "description": "Monday of the shopping week"
+          },
+          {
+            "name": "X-MyChef-Analytics-Revision",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds."
           }
         ],
         "responses": {
@@ -7608,6 +7950,16 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "X-MyChef-Analytics-Revision",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds."
           }
         ],
         "description": "Native bearer transport; cookies are rejected and browser Origin/CSRF fields are not used. "
@@ -7726,6 +8078,16 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "X-MyChef-Analytics-Revision",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds."
           }
         ],
         "description": "Native bearer transport; cookies are rejected and browser Origin/CSRF fields are not used. "
@@ -7958,6 +8320,16 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "X-MyChef-Analytics-Revision",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds."
           }
         ],
         "requestBody": {
@@ -8088,6 +8460,16 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "X-MyChef-Analytics-Revision",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds."
           }
         ],
         "requestBody": {
@@ -8151,6 +8533,16 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/EmailFlowCSRF"
+          },
+          {
+            "name": "X-MyChef-Analytics-Revision",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds."
           }
         ],
         "security": [
@@ -8208,6 +8600,16 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/EmailFlowCSRF"
+          },
+          {
+            "name": "X-MyChef-Analytics-Revision",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds."
           }
         ],
         "security": [
@@ -8265,6 +8667,16 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/EmailFlowCSRF"
+          },
+          {
+            "name": "X-MyChef-Analytics-Revision",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds."
           }
         ],
         "security": [
@@ -8322,6 +8734,16 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/EmailFlowCSRF"
+          },
+          {
+            "name": "X-MyChef-Analytics-Revision",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds."
           }
         ],
         "security": [
@@ -8379,6 +8801,16 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/EmailFlowCSRF"
+          },
+          {
+            "name": "X-MyChef-Analytics-Revision",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds."
           }
         ],
         "security": [
@@ -8436,6 +8868,16 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/EmailFlowCSRF"
+          },
+          {
+            "name": "X-MyChef-Analytics-Revision",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds."
           }
         ],
         "security": [
@@ -8493,6 +8935,16 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/EmailFlowCSRF"
+          },
+          {
+            "name": "X-MyChef-Analytics-Revision",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds."
           }
         ],
         "security": [
@@ -8550,6 +9002,16 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/EmailFlowCSRF"
+          },
+          {
+            "name": "X-MyChef-Analytics-Revision",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds."
           }
         ],
         "security": [
@@ -8608,6 +9070,16 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/EmailFlowCSRF"
+          },
+          {
+            "name": "X-MyChef-Analytics-Revision",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds."
           }
         ],
         "security": [
@@ -8719,6 +9191,16 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/EmailFlowCSRF"
+          },
+          {
+            "name": "X-MyChef-Analytics-Revision",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds."
           }
         ],
         "requestBody": {
@@ -8788,6 +9270,16 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/EmailFlowCSRF"
+          },
+          {
+            "name": "X-MyChef-Analytics-Revision",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds."
           }
         ],
         "requestBody": {
@@ -8926,6 +9418,16 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/EmailFlowCSRF"
+          },
+          {
+            "name": "X-MyChef-Analytics-Revision",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds."
           }
         ],
         "requestBody": {
@@ -9154,7 +9656,19 @@
               }
             }
           }
-        }
+        },
+        "parameters": [
+          {
+            "name": "X-MyChef-Analytics-Revision",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds."
+          }
+        ]
       }
     },
     "/api/native/v1/personal-recipes/copy": {
@@ -9267,7 +9781,19 @@
               }
             }
           }
-        }
+        },
+        "parameters": [
+          {
+            "name": "X-MyChef-Analytics-Revision",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds."
+          }
+        ]
       }
     },
     "/api/native/v1/personal-recipes": {
@@ -9401,7 +9927,19 @@
               }
             }
           }
-        }
+        },
+        "parameters": [
+          {
+            "name": "X-MyChef-Analytics-Revision",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds."
+          }
+        ]
       }
     },
     "/api/native/v1/personal-recipes/{id}": {
@@ -9634,6 +10172,16 @@
               "type": "string",
               "pattern": "^[0-9a-f]{32}$"
             }
+          },
+          {
+            "name": "X-MyChef-Analytics-Revision",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds."
           }
         ],
         "requestBody": {
@@ -9777,6 +10325,16 @@
               "type": "string",
               "pattern": "^[0-9a-f]{32}$"
             }
+          },
+          {
+            "name": "X-MyChef-Analytics-Revision",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds."
           }
         ],
         "requestBody": {
@@ -9901,6 +10459,16 @@
               "type": "string",
               "pattern": "^[0-9a-f]{32}$"
             }
+          },
+          {
+            "name": "X-MyChef-Analytics-Revision",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds."
           }
         ],
         "requestBody": {
@@ -10025,6 +10593,16 @@
               "type": "string",
               "pattern": "^[0-9a-f]{32}$"
             }
+          },
+          {
+            "name": "X-MyChef-Analytics-Revision",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds."
           }
         ],
         "requestBody": {
@@ -10149,6 +10727,16 @@
               "type": "string",
               "pattern": "^[0-9a-f]{32}$"
             }
+          },
+          {
+            "name": "X-MyChef-Analytics-Revision",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds."
           }
         ],
         "requestBody": {
@@ -10451,7 +11039,19 @@
               }
             }
           }
-        }
+        },
+        "parameters": [
+          {
+            "name": "X-MyChef-Analytics-Revision",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds."
+          }
+        ]
       }
     },
     "/api/native/v1/recipe-imports/photos": {
@@ -10564,7 +11164,19 @@
               }
             }
           }
-        }
+        },
+        "parameters": [
+          {
+            "name": "X-MyChef-Analytics-Revision",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds."
+          }
+        ]
       }
     },
     "/api/native/v1/recipe-imports/{id}": {
@@ -10751,6 +11363,16 @@
               "type": "string",
               "pattern": "^[0-9a-f]{32}$"
             }
+          },
+          {
+            "name": "X-MyChef-Analytics-Revision",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds."
           }
         ],
         "requestBody": {
@@ -10855,6 +11477,16 @@
               "type": "string",
               "pattern": "^[0-9a-f]{32}$"
             }
+          },
+          {
+            "name": "X-MyChef-Analytics-Revision",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds."
           }
         ],
         "requestBody": {
@@ -10959,6 +11591,16 @@
               "type": "string",
               "pattern": "^[0-9a-f]{32}$"
             }
+          },
+          {
+            "name": "X-MyChef-Analytics-Revision",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds."
           }
         ],
         "requestBody": {
@@ -11056,6 +11698,16 @@
               "type": "string",
               "pattern": "^[0-9a-f]{32}$"
             }
+          },
+          {
+            "name": "X-MyChef-Analytics-Revision",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds."
           }
         ],
         "requestBody": {
@@ -11470,6 +12122,308 @@
           },
           "503": {
             "description": "Newsletter service temporarily unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/analytics/notice": {
+      "get": {
+        "operationId": "AnalyticsNotice",
+        "description": "Current signup notice and availability. Default enrollment remains unavailable without the exact approved assessment.",
+        "responses": {
+          "200": {
+            "description": "Private, no-store response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalyticsNotice"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/analytics/preferences": {
+      "get": {
+        "operationId": "GetAnalyticsPreference",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Private, no-store response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalyticsPreference"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Private, no-store response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Private, no-store response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Private, no-store response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "UpdateAnalyticsPreference",
+        "description": "Verified live account only. Unknown fields and absent/null required values are refused. Off establishes a durable collection/report fence; cleanup may be pending. A stale revision returns current settings.",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnalyticsPreferenceUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Private, no-store response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalyticsPreference"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Private, no-store response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Private, no-store response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Private, no-store response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Private, no-store response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalyticsPreferenceConflict"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Private, no-store response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/native/v1/analytics/notice": {
+      "get": {
+        "operationId": "nativeAnalyticsNotice",
+        "description": "Current signup notice and availability. Default enrollment remains unavailable without the exact approved assessment.",
+        "responses": {
+          "200": {
+            "description": "Private, no-store response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalyticsNotice"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/native/v1/analytics/preferences": {
+      "get": {
+        "operationId": "nativeGetAnalyticsPreference",
+        "security": [
+          {
+            "nativeBearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Private, no-store response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalyticsPreference"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Private, no-store response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Private, no-store response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Private, no-store response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "nativeUpdateAnalyticsPreference",
+        "description": "Verified live account only. Unknown fields and absent/null required values are refused. Off establishes a durable collection/report fence; cleanup may be pending. A stale revision returns current settings.",
+        "security": [
+          {
+            "nativeBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnalyticsPreferenceUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Private, no-store response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalyticsPreference"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Private, no-store response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Private, no-store response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Private, no-store response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Private, no-store response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalyticsPreferenceConflict"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Private, no-store response.",
             "content": {
               "application/json": {
                 "schema": {
@@ -12270,6 +13224,14 @@
           "lastName": {
             "type": "string",
             "maxLength": 100
+          },
+          "analyticsEnabled": {
+            "type": "boolean",
+            "description": "Visible signup preference. Missing metadata creates an account with analytics Off; a pending Off choice wins."
+          },
+          "analyticsNoticeVersion": {
+            "type": "string",
+            "maxLength": 120
           }
         },
         "required": [
@@ -13256,6 +14218,14 @@
           "username": {
             "type": "string",
             "maxLength": 80
+          },
+          "analyticsEnabled": {
+            "type": "boolean",
+            "description": "Visible signup preference. Missing metadata creates an account with analytics Off; a pending Off choice wins."
+          },
+          "analyticsNoticeVersion": {
+            "type": "string",
+            "maxLength": 120
           }
         },
         "required": [
@@ -13289,6 +14259,14 @@
           "password": {
             "type": "string",
             "description": "Use 10 to 128 Unicode code points after NFC normalization and no more than 512 UTF-8 bytes before and after normalization."
+          },
+          "analyticsEnabled": {
+            "type": "boolean",
+            "description": "Visible signup preference. Missing metadata creates an account with analytics Off; a pending Off choice wins."
+          },
+          "analyticsNoticeVersion": {
+            "type": "string",
+            "maxLength": 120
           }
         },
         "required": [
@@ -14178,6 +15156,130 @@
             ]
           }
         }
+      },
+      "AnalyticsPreference": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "noticeVersion": {
+            "type": "string"
+          },
+          "noticeHash": {
+            "type": "string"
+          },
+          "basis": {
+            "type": "string"
+          },
+          "basisVersion": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "on",
+              "off",
+              "review_required",
+              "deletion_in_progress"
+            ]
+          },
+          "deletionStatus": {
+            "type": "string"
+          },
+          "available": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled",
+          "revision",
+          "noticeVersion",
+          "noticeHash",
+          "basis",
+          "basisVersion",
+          "source",
+          "state",
+          "deletionStatus",
+          "available"
+        ]
+      },
+      "AnalyticsPreferenceUpdate": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "noticeVersion": {
+            "type": "string"
+          },
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "enabled",
+          "noticeVersion",
+          "expectedRevision"
+        ]
+      },
+      "AnalyticsNotice": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "available": {
+            "type": "boolean"
+          },
+          "defaultEnabled": {
+            "type": "boolean"
+          },
+          "version": {
+            "type": "string"
+          },
+          "hash": {
+            "type": "string"
+          },
+          "basis": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "available",
+          "defaultEnabled",
+          "version",
+          "hash",
+          "basis",
+          "text"
+        ]
+      },
+      "AnalyticsPreferenceConflict": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/Error/properties/error"
+          },
+          "current": {
+            "$ref": "#/components/schemas/AnalyticsPreference"
+          }
+        },
+        "required": [
+          "error",
+          "current"
+        ]
       }
     },
     "responses": {

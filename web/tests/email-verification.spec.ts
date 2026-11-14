@@ -20,18 +20,28 @@ test("sign-up collects profile fields before any password", async ({
       lastName: "Cook",
       username: "fixture-cook",
       email: "cook@example.test",
+      analyticsEnabled: false,
+      analyticsNoticeVersion: "",
     });
     await route.fulfill({ status: 202, json: { status: "accepted" } });
   });
   await page.goto("/app/");
   await page.getByRole("button", { name: "Create an account" }).click();
   await expect(page.getByLabel("Password")).toHaveCount(0);
+  await expect(
+    page.getByRole("checkbox", { name: "Help improve MyChef" }),
+  ).not.toBeChecked();
+  await expect(
+    page.getByRole("checkbox", { name: "Help improve MyChef" }),
+  ).toBeDisabled();
   await page.getByLabel("First name").fill("Test");
   await page.getByLabel("Last name").fill("Cook");
   await page.getByLabel("Username", { exact: true }).fill("fixture-cook");
   await page.getByLabel("Email").fill("cook@example.test");
   await page.getByRole("button", { name: "Create my account" }).click();
-  await expect(page.getByRole("status")).toContainText("Check your inbox");
+  await expect(
+    page.getByRole("status").filter({ hasText: "Check your inbox" }),
+  ).toBeVisible();
 });
 
 test("proof view clears the fragment and waits for a decision", async ({

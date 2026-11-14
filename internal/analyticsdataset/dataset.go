@@ -24,11 +24,15 @@ var ErrInput = errors.New("invalid synthetic analytics input")
 var ErrConflict = errors.New("analytics input conflicts with retained data")
 
 type Dataset struct {
-	db            *sql.DB
-	path          string
-	extractID     string
-	reportingUnix int64
-	readOnly      bool
+	production                   bool
+	binding                      string
+	maintenance, privacyRevision int64
+	contentRevision              int64
+	db                           *sql.DB
+	path                         string
+	extractID                    string
+	reportingUnix                int64
+	readOnly                     bool
 }
 
 func schemaDigest() string { return fmt.Sprintf("%x", sha256.Sum256([]byte(SchemaSQL))) }
@@ -155,6 +159,9 @@ func Open(ctx context.Context, path string, readOnly bool) (*Dataset, error) {
 func (d *Dataset) Close() error { return d.db.Close() }
 
 func (d *Dataset) Validate(ctx context.Context) error {
+	if d.production {
+		return d.validateProduction(ctx)
+	}
 	var app, version, rows int
 	var environment, digest, integrity string
 	var extractID string
@@ -199,9 +206,9 @@ func (d *Dataset) Validate(ctx context.Context) error {
 	return nil
 }
 
-func (d *Dataset) cutoff() int64 { return d.reportingUnix - 90*86400 }
+func (d *Dataset) cutoff() int64 { return max(d.reportingUnix, d.maintenance) - 90*86400 }
 func (d *Dataset) firstMonth() string {
-	return monthStart(d.reportingUnix).AddDate(0, -12, 0).Format("2006-01")
+	return monthStart(max(d.reportingUnix, d.maintenance)).AddDate(0, -12, 0).Format("2006-01")
 }
 func monthStart(r int64) time.Time {
 	t := time.Unix(r, 0).UTC()

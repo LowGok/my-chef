@@ -120,6 +120,31 @@ func (j *LifecycleJournal) deleteAccount(ctx context.Context, userID int64, oper
 	if err := j.CheckReady(ctx); err != nil {
 		return AccountDeletion{}, err
 	}
+	if j.app.Analytics != nil {
+		var result AccountDeletion
+		err := j.app.Analytics.WithDeletionFence(ctx, func(revoke func(string) error) error {
+			old := opts.Capture
+			opts.Capture = func(tx *gorm.DB, u User, inc string) error {
+				if err := revoke(inc); err != nil {
+					return err
+				}
+				if old != nil {
+					return old(tx, u, inc)
+				}
+				return nil
+			}
+			var err error
+			result, err = j.deleteAccountLocked(ctx, userID, operation, now, opts, authorize)
+			return err
+		})
+		return result, err
+	}
+	if j.app.analyticsRequired(ctx) {
+		return AccountDeletion{}, ErrAccountDeletion
+	}
+	return j.deleteAccountLocked(ctx, userID, operation, now, opts, authorize)
+}
+func (j *LifecycleJournal) deleteAccountLocked(ctx context.Context, userID int64, operation string, now time.Time, opts AccountDeletionOptions, authorize func(*gorm.DB) error) (AccountDeletion, error) {
 	tx := j.app.DB.WithContext(ctx).Begin()
 	if tx.Error != nil {
 		return AccountDeletion{}, ErrAccountDeletion

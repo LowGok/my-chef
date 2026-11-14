@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/LowGok/my-chef/internal/analytics"
 	"github.com/LowGok/my-chef/internal/domain"
 	"github.com/LowGok/my-chef/internal/store"
 	"github.com/ncruces/go-sqlite3"
@@ -263,25 +264,40 @@ func (m *Manager) Update(ctx context.Context, id int64, p ProfileUpdate, tokens 
 		}
 	}
 	prefs, _ := json.Marshal(p.Preferences)
-	query := m.Store.DB.WithContext(ctx).Model(&store.User{}).Where("user_id = ?", id)
-	if len(tokens) == 1 {
-		query = query.Where("EXISTS (SELECT 1 FROM sessions s WHERE s.user_id=users.user_id AND s.hash=? AND s.expires_unix>unixepoch())", Hash(tokens[0]))
-	}
-	result := query.Updates(map[string]any{"firstname": p.FirstName, "lastname": p.LastName, "username": p.Username, "birthdate": p.Birthdate, "sex": p.Sex, "preferences_json": string(prefs), "haspref": true})
-	if errors.Is(result.Error, sqlite3.CONSTRAINT_UNIQUE) {
-		return store.Profile{}, ErrConflict
-	}
-	if result.Error != nil {
-		return store.Profile{}, result.Error
-	}
-	if result.RowsAffected != 1 {
-		if len(tokens) == 1 {
-			return store.Profile{}, ErrSession
+	err := m.Store.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var before store.User
+		if err := tx.First(&before, id).Error; err != nil {
+			return err
 		}
-		return store.Profile{}, gorm.ErrRecordNotFound
+		query := tx.Model(&store.User{}).Where("user_id = ?", id)
+		if len(tokens) == 1 {
+			query = query.Where("EXISTS (SELECT 1 FROM sessions s WHERE s.user_id=users.user_id AND s.hash=? AND s.expires_unix>unixepoch())", Hash(tokens[0]))
+		}
+		result := query.Updates(map[string]any{"firstname": p.FirstName, "lastname": p.LastName, "username": p.Username, "birthdate": p.Birthdate, "sex": p.Sex, "preferences_json": string(prefs), "haspref": true})
+		if errors.Is(result.Error, sqlite3.CONSTRAINT_UNIQUE) {
+			return ErrConflict
+		}
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			if len(tokens) == 1 {
+				return ErrSession
+			}
+			return gorm.ErrRecordNotFound
+		}
+		changed := before.HasPref == nil || !*before.HasPref || before.PreferencesJSON == nil || *before.PreferencesJSON != string(prefs)
+		if changed {
+			return analytics.CaptureEvent(ctx, tx, id, "preferences_saved", "")
+		}
+		return nil
+	})
+	if err != nil {
+		return store.Profile{}, err
 	}
+
 	var user store.User
-	err := m.Store.DB.WithContext(ctx).First(&user, id).Error
+	err = m.Store.DB.WithContext(ctx).First(&user, id).Error
 	if err != nil {
 		return store.Profile{}, err
 	}

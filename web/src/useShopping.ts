@@ -1,3 +1,4 @@
+import { analyticsRevision, queuedAnalyticsRevision } from "./analytics-state";
 import { nativeAppActive, nativeResumeEvent } from "./native-runtime";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -82,7 +83,8 @@ export function useShopping(
     if (
       !nativeAppActive() ||
       syncing.current ||
-      (reviewWeek.current !== null && (!force || reviewWeek.current !== week)) ||
+      (reviewWeek.current !== null &&
+        (!force || reviewWeek.current !== week)) ||
       !active.current ||
       signedOut() ||
       shoppingCacheEpoch() !== cacheEpoch
@@ -150,6 +152,11 @@ export function useShopping(
             result = await api<ShoppingList>(`/shopping/${targetWeek}`, {
               method: "PUT",
               body: JSON.stringify(desired),
+              headers: {
+                "X-MyChef-Analytics-Revision": String(
+                  queuedAnalyticsRevision(queue),
+                ),
+              },
             });
           } catch (err) {
             if (needsReview(err)) {
@@ -257,7 +264,10 @@ export function useShopping(
     if (!saved) return;
     let visible = saved.base;
     for (const op of saved.queue) visible = editShopping(visible, op.edit);
-    const op = queueShoppingEdit(visible, edit);
+    const op = {
+      ...queueShoppingEdit(visible, edit),
+      analyticsRevision: analyticsRevision(),
+    };
     localWrites.current++;
     setSavingOnDevice(true);
     try {
