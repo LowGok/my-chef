@@ -609,6 +609,11 @@ and live collection remain later owner decisions.
 
 ### Lawful-basis assessment before real collection
 
+[Issue 24](https://github.com/LowGok/my-chef/issues/24) tracks the remaining
+assessment, deployment, provider and simulator/emulator evidence, followed by
+separate approval and verification of live activation. Merging the disabled
+integration does not close that issue or enable collection.
+
 Live collection remains disabled. The controller must record a decision for the
 actual deployment before enabling the proposed default-On signup preference.
 The decision is pending; the fictional approved configurations in tests provide
