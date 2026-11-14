@@ -23,7 +23,7 @@ func destinationFixture(t *testing.T) (*EmailChange, *newsletter.Service, *store
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { j.Close() })
+	t.Cleanup(func() { _ = j.Close() })
 	change.Lifecycle, change.Newsletter, n.Lifecycle = j, n, j
 	if _, err := change.Start(t.Context(), account.ID, cookie, "192.0.2.55", contact.Email, changeFixturePassword); err != nil {
 		t.Fatal(err)
@@ -155,7 +155,7 @@ func TestNewsletterTransferProcessCrashBoundaries(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer restored.Close()
+			defer func() { _ = restored.Close() }()
 			var count int
 			if err := restored.SQL.QueryRow("SELECT count(*) FROM users WHERE user_id=?", contact.ID).Scan(&count); err != nil || count != 0 {
 				t.Fatal("retired placeholder revived", err)
@@ -208,7 +208,7 @@ func TestNewsletterPromotionInvalidatesContactAuthorityAndExpiry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer j.Close()
+	defer func() { _ = j.Close() }()
 	var incarnation string
 	if err := signup.Store.SQL.QueryRow("SELECT incarnation FROM account_incarnations WHERE user_id=?", user.ID).Scan(&incarnation); err != nil {
 		t.Fatal(err)

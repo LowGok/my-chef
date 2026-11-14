@@ -218,7 +218,9 @@ func (a *API) Handler(frontend http.Handler) http.Handler {
 			return
 		}
 
-		if a.Config.Lifecycle != nil && len(r.URL.Path) >= 5 && r.URL.Path[:5] == "/api/" && r.URL.Path != "/api/v1/account/deletion" && !strings.HasPrefix(r.URL.Path, "/api/v1/personal-") && !strings.HasPrefix(r.URL.Path, "/api/v1/recipe-imports") {
+		// These services own their fence, including exclusive contact retirement.
+		selfFenced := r.URL.Path == "/api/v1/account/deletion" || r.URL.Path == "/api/v1/signup/complete" || r.URL.Path == "/api/v1/email/change/decision" || r.URL.Path == "/api/v1/newsletter/confirm" || r.URL.Path == "/api/v1/newsletter/unsubscribe"
+		if a.Config.Lifecycle != nil && len(r.URL.Path) >= 5 && r.URL.Path[:5] == "/api/" && !selfFenced && !strings.HasPrefix(r.URL.Path, "/api/v1/personal-") && !strings.HasPrefix(r.URL.Path, "/api/v1/recipe-imports") {
 			a.Store.AccountWork.RLock()
 			defer a.Store.AccountWork.RUnlock()
 		}

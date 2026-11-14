@@ -47,7 +47,7 @@ func TestRestoreNewsletterResetFailureDoesNotPublish(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 	if err := s.Migrate(t.Context()); err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +55,7 @@ func TestRestoreNewsletterResetFailureDoesNotPublish(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer j.Close()
+	defer func() { _ = j.Close() }()
 	keys, err := mailqueue.NewProofKeys("test", map[string][]byte{"test": bytes.Repeat([]byte{9}, 32)})
 	if err != nil {
 		t.Fatal(err)
@@ -95,7 +95,7 @@ func TestRestoreNewsletterRequiresFreshConfirmationAndKeepsAppAccount(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 	if err := s.Migrate(t.Context()); err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +103,7 @@ func TestRestoreNewsletterRequiresFreshConfirmationAndKeepsAppAccount(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer j.Close()
+	defer func() { _ = j.Close() }()
 	keys, err := mailqueue.NewProofKeys("test", map[string][]byte{"test": bytes.Repeat([]byte{9}, 32)})
 	if err != nil {
 		t.Fatal(err)
@@ -184,7 +184,7 @@ func TestRestoreNewsletterRequiresFreshConfirmationAndKeepsAppAccount(t *testing
 		if err := restored.SQL.QueryRow("SELECT count(*) FROM newsletter_subscriptions WHERE status='confirmed'").Scan(&active); err != nil || active != 1 {
 			t.Fatal("fresh consent not established", err)
 		}
-		paired.Close()
-		restored.Close()
+		_ = paired.Close()
+		_ = restored.Close()
 	}
 }

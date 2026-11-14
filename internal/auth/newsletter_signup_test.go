@@ -135,7 +135,7 @@ func TestNewsletterSignupDeletedContactCannotBeReplacedThroughOldProof(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer j.Close()
+	defer func() { _ = j.Close() }()
 	var incarnation string
 	if err := signup.Store.SQL.QueryRow("SELECT incarnation FROM account_incarnations WHERE user_id=?", user.ID).Scan(&incarnation); err != nil {
 		t.Fatal(err)

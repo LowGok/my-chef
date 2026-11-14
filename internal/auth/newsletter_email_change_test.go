@@ -25,7 +25,7 @@ func TestNewsletterDestinationEmailChangePreservesAccountAndConsent(t *testing.T
 				if err != nil {
 					t.Fatal(err)
 				}
-				defer journal.Close()
+				defer func() { _ = journal.Close() }()
 				change.Lifecycle, change.Newsletter = journal, n
 				if wait, err := change.Start(t.Context(), account.ID, cookie, "192.0.2.43", contact.Email, changeFixturePassword); err != nil || wait != 0 {
 					t.Fatalf("start: %d %v", wait, err)

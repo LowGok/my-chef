@@ -31,7 +31,7 @@ func TestNewsletterIdentityHTTPWebAndNative(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer j.Close()
+			defer func() { _ = j.Close() }()
 			a.Config.EmailRateKey = bytes.Repeat([]byte{4}, 32)
 			n := &newsletter.Service{Store: a.Store, Keys: keys, RateKey: a.Config.EmailRateKey, Origin: "https://mychef.dev", ConsentVersion: "newsletter-v1", Lifecycle: j}
 			signup := &auth.SignUp{Store: a.Store, Keys: keys, RateKey: n.RateKey, Origin: a.Config.Origin, Lifecycle: j, Newsletter: n}

@@ -38,11 +38,12 @@ func (c *EmailChange) finishNewsletterDestination(ctx context.Context, hash stri
 			if err != nil {
 				return err
 			}
-			if proof.Purpose == "approve" {
+			switch proof.Purpose {
+			case "approve":
 				change.CurrentApproved = true
-			} else if proof.Purpose == "confirm" {
+			case "confirm":
 				change.ProposedApproved = true
-			} else {
+			default:
 				return ErrEmailProof
 			}
 			if change.ProposedKey != destination.EmailKey || !change.ProposedApproved || change.OriginalVerifiedAt != nil && !change.CurrentApproved || cooldownSeconds(now, user.EmailChangedAt) != 0 {
