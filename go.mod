@@ -3,7 +3,7 @@ module github.com/LowGok/my-chef
 go 1.27.4
 
 require (
-	github.com/gen2brain/h265 v0.2.4
+	github.com/gen2brain/h265 v0.2.5
 	github.com/jackc/pgx/v5 v5.12.0
 	github.com/jinzhu/inflection v1.0.0
 	github.com/ncruces/go-sqlite3 v0.37.0
