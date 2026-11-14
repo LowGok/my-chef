@@ -207,3 +207,36 @@ func TestNewsletterSignupFailureLeavesContactAndConsentIntact(t *testing.T) {
 		})
 	}
 }
+
+func TestNewsletterSignupQueuedBeforeErasureRequiresFreshRequest(t *testing.T) {
+	signup, now := signUpFixture(t)
+	_, user, _, _ := contactFixture(t, signup, "reader@example.test", "pending")
+	details := SignUpDetails{FirstName: "Queued", LastName: "Reader", Username: "queued-reader"}
+	if _, err := signup.Request(t.Context(), "192.0.2.62", SignUpRequest{Email: user.Email, SignUpDetails: details}); err != nil {
+		t.Fatal(err)
+	}
+	j, err := signup.Store.InitializeLifecycleJournal(t.Context(), signup.Store.Path+".lifecycle")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = j.Close() }()
+	var incarnation string
+	if err := signup.Store.SQL.QueryRow("SELECT incarnation FROM account_incarnations WHERE user_id=?", user.ID).Scan(&incarnation); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := j.EraseNewsletterContact(t.Context(), store.NewsletterContactAuthority{UserID: user.ID, EmailKey: user.EmailKey, Incarnation: incarnation, RequestReference: "before-queued-signup"}, signup.RateKey, *now, store.AccountDeletionOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if worked, err := signup.Step(t.Context()); !worked || err != nil {
+		t.Fatal(err)
+	}
+	var messages int
+	if err := signup.Store.SQL.QueryRow("SELECT count(*) FROM email_outbox WHERE template=?", mailqueue.SignUpProofTemplate).Scan(&messages); err != nil || messages != 0 {
+		t.Fatalf("pre-erasure signup issued a fresh proof: %d %v", messages, err)
+	}
+	*now = now.Add(61 * time.Second)
+	anonymous, proof := requestContactSignup(t, signup, user.Email)
+	if err := signup.Complete(t.Context(), anonymous, contactCompletion(proof)); err != nil {
+		t.Fatal("fresh request did not recover", err)
+	}
+}
