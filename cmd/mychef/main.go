@@ -376,9 +376,9 @@ func main() {
 		},
 		Origin: cfg.Origin, Secure: cfg.Secure, Version: version,
 		Lifecycle: journal, TraceDir: os.Getenv("MYCHEF_TRACE_DIR"), AccountMail: !emailCfg.Disabled,
-		AccountReady: func(ctx context.Context) bool { return !lifecycleFailed.Load() && journal.CheckAvailable(ctx) == nil },
+		AccountReady: func(ctx context.Context) bool { return !lifecycleFailed.Load() && journal.CheckReady(ctx) == nil },
 		EmailWebhook: mailService.Webhook(), EmailReady: func(ctx context.Context) bool {
-			return !lifecycleFailed.Load() && journal.CheckAvailable(ctx) == nil && !signUpFailed.Load() && !recoveryFailed.Load() && mailService.Ready(ctx)
+			return !lifecycleFailed.Load() && journal.CheckReady(ctx) == nil && !signUpFailed.Load() && !recoveryFailed.Load() && mailService.Ready(ctx)
 		},
 		FixtureInbox: mailService.FixtureInbox(), TrustedProxies: cfg.TrustedProxies, EmailRateKey: proofSettings.RateKey, SignUp: signUp,
 		Verification:    &auth.EmailVerification{SignUp: signUp},
