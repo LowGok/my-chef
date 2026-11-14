@@ -173,10 +173,6 @@ func (s *SignUp) Request(ctx context.Context, source string, request SignUpReque
 	now := s.now()
 	job := store.SignUpJob{ID: id, Requested: now.Unix(), Expires: now.Add(30 * time.Minute).Unix()}
 	request.Email = display
-	job.Draft, err = s.sealDraft("signup-job", signUpJobBinding(job), signUpDraft{SignUpRequest: request, EmailKey: key})
-	if err != nil {
-		return 0, err
-	}
 	var wait int
 	err = s.Store.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		rate, err := s.Store.ReserveEmailLimits(ctx, tx, now,
@@ -187,6 +183,14 @@ func (s *SignUp) Request(ctx context.Context, source string, request SignUpReque
 		}
 		if wait = rate.RetryAfter; wait != 0 {
 			return nil
+		}
+		draft := signUpDraft{SignUpRequest: request, EmailKey: key, NewsletterBound: true}
+		if err := tx.Raw("SELECT value FROM newsletter_sequence WHERE singleton=1").Scan(&draft.NewsletterOrder).Error; err != nil {
+			return err
+		}
+		job.Draft, err = s.sealDraft("signup-job", signUpJobBinding(job), draft)
+		if err != nil {
+			return err
 		}
 		return tx.Create(&job).Error
 	})
@@ -223,15 +227,24 @@ func (s *SignUp) Step(ctx context.Context) (bool, error) {
 		if err != nil {
 			return tx.Delete(&job).Error
 		}
+		erased, err := s.signupAddressErased(tx, draft)
+		if err != nil {
+			return err
+		}
+		if erased {
+			return tx.Delete(&job).Error
+		}
 		var owner store.User
 		err = tx.Where("email_key=?", draft.EmailKey).Take(&owner).Error
 		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
 		}
 		if errors.Is(err, gorm.ErrRecordNotFound) || owner.IsNewsletterOnly {
-			draft.NewsletterBound = true
-			if err := tx.Raw("SELECT value FROM newsletter_sequence WHERE singleton=1").Scan(&draft.NewsletterOrder).Error; err != nil {
-				return err
+			if !draft.NewsletterBound {
+				draft.NewsletterBound = true
+				if err := tx.Raw("SELECT value FROM newsletter_sequence WHERE singleton=1").Scan(&draft.NewsletterOrder).Error; err != nil {
+					return err
+				}
 			}
 			if owner.ID != 0 {
 				draft.ContactID = owner.ID
@@ -372,15 +385,11 @@ func (s *SignUp) Complete(ctx context.Context, anonymousToken string, input Sign
 		if err != nil {
 			return err
 		}
-		tag, err := store.EmailRateBucket(s.RateKey, "newsletter/erasure", draft.EmailKey)
+		erased, err := s.signupAddressErased(tx, draft)
 		if err != nil {
 			return err
 		}
-		var erased int64
-		if err := tx.Raw("SELECT count(*) FROM newsletter_erasures WHERE address_tag=? AND through_order>?", tag, draft.NewsletterOrder).Scan(&erased).Error; err != nil {
-			return err
-		}
-		if erased != 0 {
+		if erased {
 			return ErrSignUpProof
 		}
 		prefs, _ := json.Marshal(domain.EmptyPreferences())
@@ -447,6 +456,16 @@ func (s *SignUp) Complete(ctx context.Context, anonymousToken string, input Sign
 		return err
 	}
 	return ErrSignUpUnavailable
+}
+
+func (s *SignUp) signupAddressErased(tx *gorm.DB, draft signUpDraft) (bool, error) {
+	tag, err := store.EmailRateBucket(s.RateKey, "newsletter/erasure", draft.EmailKey)
+	if err != nil {
+		return false, err
+	}
+	var erased int64
+	err = tx.Raw("SELECT count(*) FROM newsletter_erasures WHERE address_tag=? AND through_order>?", tag, draft.NewsletterOrder).Scan(&erased).Error
+	return erased != 0, err
 }
 
 func (s *SignUp) Run(ctx context.Context) error {
