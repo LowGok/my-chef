@@ -1,0 +1,13 @@
+{
+  "population": 1000,
+  "reporting_date": "2026-11-13T00:00:00Z",
+  "cohort_start": "2026-10-26",
+  "cohort_end": "2026-11-02",
+  "metrics": {
+    "activity": [750, 750],
+    "activation": [500, 500],
+    "retention": [250, 500],
+    "satisfaction_app_response_rate": [800, 1000]
+  },
+  "withdraw_subject": "s_0000000000000001"
+}
