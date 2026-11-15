@@ -181,13 +181,22 @@ returns `ready` and boolean `checks` for each prerequisite, including storage,
 email, proof keys and worker health. The public Sites gateway excludes this
 route. Keep the credential in the protected client's header configuration.
 
-Public capture currently reports `identityCompatibility: false`. The local
-implementation of [the signup and email-change dependency](https://github.com/LowGok/my-chef/issues/14)
-must be independently reviewed, released and verified against the deployed
-backend before that capability changes. Launch also needs
-the approved controller/privacy and retention information, durable hosted
-backend and backup, verified sender/reply route, service connection and release
-approval. A fixture's synthetic compatibility result supports local testing.
+The full-app runtime keeps its production `identityCompatibility: false` guard.
+The dedicated `mychef newsletter serve` role uses the reviewed signup/email-change
+compatibility foundation and exposes only newsletter actions plus local health
+and protected readiness. It requires its sending-only credential profile, proof
+keys, explicit loopback address, dedicated SQL/journal and every operational
+prerequisite even when capture is paused. It constructs no remote recipe/image
+provider or app, recovery, reminder or analytics worker. Its queue dispatches
+only the six newsletter templates; unrelated app/security mail stops dispatch
+and fails readiness. The normal full-app worker and sender rules are unchanged.
+
+See [the newsletter role runbook](deploy/newsletter/README.md) for restricted
+service/ingress templates, initialization, protected credentials, backup/restore,
+exact source/image/site receipts and paused/backend-only/site-last activation.
+Public launch still requires approved notices, controller/retention assessment,
+actual hosted readiness and authorized real-mail verification. Local tests and
+configuration flags do not establish those operational facts.
 
 Both policies must be specified; unset values keep readiness false and zero is
 invalid. MyChef's selected policy is `none` for both statuses, subject to the

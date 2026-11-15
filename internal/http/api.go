@@ -186,6 +186,11 @@ func (a *API) Handler(frontend http.Handler) http.Handler {
 		}
 		mux.Handle("/", frontend)
 	}
+	return a.wrap(mux)
+}
+
+// wrap applies the common request and lifecycle boundary to an explicit mux.
+func (a *API) wrap(mux http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		idBytes := make([]byte, 16)
 		if _, err := rand.Read(idBytes); err != nil {

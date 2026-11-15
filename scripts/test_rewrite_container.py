@@ -10,6 +10,7 @@ import os
 import re
 from pathlib import Path
 import secrets
+import socket
 import sqlite3
 import subprocess
 import tarfile
@@ -95,7 +96,8 @@ def main() -> None:
                     "internal/newsletter/proofs.go", "internal/newsletter/expiry.go",
                     "internal/auth/newsletter.go", "internal/config/newsletter.go", "internal/email/mailqueue/newsletter.go",
                     "internal/http/newsletter.go", "internal/store/newsletter.go", "internal/store/newsletter_lifecycle.go",
-                    "cmd/mychef/newsletter.go", "cmd/mychef/newsletter_runtime.go"}.issubset(paths), "newsletter runtime inputs were excluded"
+                    "cmd/mychef/newsletter.go", "cmd/mychef/newsletter_runtime.go",
+                    "cmd/mychef/newsletter_serve.go", "internal/config/newsletter_email.go"}.issubset(paths), "newsletter runtime inputs were excluded"
             required_analytics_inputs = {
                 "cmd/mychef/analytics.go", "internal/analytics/contract.go",
                 "internal/analytics/delivery.go", "internal/analytics/worker.go",
@@ -189,6 +191,76 @@ def main() -> None:
                 for name in files:
                     entry = archive.getmember(target.strip("/") + "/" + name)
                     assert entry.uid == uid and entry.gid == 65532 and entry.mode & 0o777 == 0o400, "private fixture file ownership changed during Docker copy"
+        # Exercise the actual dedicated role in the same final nonroot image.
+        role_sql = output("volume", "create", f"mychef-newsletter-sql-{suffix}")
+        role_journal = output("volume", "create", f"mychef-newsletter-journal-{suffix}")
+        volumes.extend([role_sql, role_journal])
+        # Populate each fresh volume from the image's UID-65532 /data directory.
+        for role_volume in (role_sql, role_journal):
+            holder = output("create", "--mount", f"type=volume,src={role_volume},dst=/data", image, "--version")
+            containers.append(holder)
+        role_mounts = ["--mount", f"type=volume,src={role_sql},dst=/data",
+                       "--mount", f"type=volume,src={role_journal},dst=/journal",
+                       "--mount", f"type=bind,src={newsletter_credentials},dst=/run/secrets/newsletter.json,readonly",
+                       "--mount", f"type=bind,src={email['MYCHEF_EMAIL_PROOF_KEYS_FILE']},dst=/run/secrets/proofs.json,readonly"]
+        run("run", "--rm", *options, "--network=none", *role_mounts, "--entrypoint", "/app/mychef-migrate",
+            image, "up", "--db", "/data/mychef.db", "--lifecycle-db", "/journal/mychef.lifecycle")
+        with socket.socket() as role_socket:
+            role_socket.bind(("127.0.0.1", 0))
+            role_port = role_socket.getsockname()[1]
+        role_settings = {"MYCHEF_ADDR": f"127.0.0.1:{role_port}", "MYCHEF_DB": "/data/mychef.db",
+            "MYCHEF_LIFECYCLE_DB": "/journal/mychef.lifecycle", "MYCHEF_ORIGIN": "https://mychef.dev",
+            "MYCHEF_DEV": "1", "MYCHEF_E2E": "1", "MYCHEF_PROVIDER": "fixture", "MYCHEF_EMAIL_MODE": "fake",
+            "MYCHEF_CREDENTIALS": "/run/secrets/newsletter.json", "MYCHEF_EMAIL_PROOF_KEYS_FILE": "/run/secrets/proofs.json",
+            "MYCHEF_NEWSLETTER_MODE": "fixture", "MYCHEF_NEWSLETTER_CONSENT_VERSION": "newsletter-v1",
+            "MYCHEF_NEWSLETTER_ORIGIN": "https://mychef.dev", "MYCHEF_NEWSLETTER_CONTACT": "preview@example.test",
+            "MYCHEF_NEWSLETTER_PENDING_DAYS": "none", "MYCHEF_NEWSLETTER_WITHDRAWN_DAYS": "none",
+            "MYCHEF_NEWSLETTER_OPERATIONS_READY": "1", "MYCHEF_NEWSLETTER_COLLECT": "0"}
+        role_flags = [part for name, value in role_settings.items() for part in ("--env", f"{name}={value}")]
+        role_container = output("run", "--detach", *options, "--network=host", *role_mounts, *role_flags,
+                                image, "newsletter", "serve")
+        containers.append(role_container)
+        role_http = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        for _ in range(150):
+            try:
+                with role_http.open(f"http://127.0.0.1:{role_port}/readyz", timeout=1) as response:
+                    if response.status == 200:
+                        break
+            except OSError:
+                time.sleep(.1)
+        else:
+            raise AssertionError("final-image newsletter role never became operational")
+        role_request = urllib.request.Request(f"http://127.0.0.1:{role_port}/internal/newsletter/readiness",
+            headers={"Authorization": "Bearer " + newsletter_token})
+        with role_http.open(role_request, timeout=2) as response:
+            role_ready = json.load(response)
+        assert role_ready["role"] == "newsletter" and role_ready["mode"] == "fixture"
+        assert role_ready["version"] == expected_version and not role_ready["ready"]
+        assert all(value == (key != "collectionEnabled") for key, value in role_ready["checks"].items())
+        for forbidden in ("/app/", "/api/v1/login", "/api/native/v1/login", "/fixture/inbox", "/api/v1/webhooks/email"):
+            try:
+                role_http.open(f"http://127.0.0.1:{role_port}" + forbidden, timeout=2)
+            except urllib.error.HTTPError as error:
+                assert error.code == 404
+                error.close()
+            else:
+                raise AssertionError("final-image newsletter role exposed an app route")
+        run("stop", "--time=20", role_container)
+        assert output("inspect", "--format={{.State.ExitCode}}", role_container) == "0"
+        role_repeat = output("run", "--detach", *options, "--network=host", *role_mounts, *role_flags,
+                             image, "newsletter", "serve")
+        containers.append(role_repeat)
+        for _ in range(150):
+            try:
+                with role_http.open(f"http://127.0.0.1:{role_port}/readyz", timeout=1) as response:
+                    if response.status == 200:
+                        break
+            except OSError:
+                time.sleep(.1)
+        else:
+            raise AssertionError("newsletter final-image restart did not recover")
+        run("stop", "--time=20", role_repeat)
+        assert output("inspect", "--format={{.State.ExitCode}}", role_repeat) == "0"
         import_worker = "/app/mychef-import-worker"
         worker_options = ["--read-only", "--user", "65531:65532", "--cap-drop=ALL",
                           "--security-opt=no-new-privileges:true", "--network=none", "--no-healthcheck",
@@ -412,7 +484,7 @@ def main() -> None:
                 "aquasec/trivy:0.76.1@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c",
                 "image", "--exit-code", "1", "--severity", "HIGH,CRITICAL", "--scanners", "vuln", image)
         result = {"outcome":"passed", "image":image, "imageId":metadata["Id"], "version":expected_version,
-                  "checks":["newsletter SQL capture/fake delivery/confirm/restart/withdrawal", "context canaries", "release image rejects simulated billing and exposes no checkout by default", "offline worker served", "nonroot shell-free runtime", "read-only root", "writable tmpfs", "health", "browser menu", "personal versions/photos/export", "volume restart", "online backup/fresh-volume restore", "personal deletion replay", "active grant persists on restart", "restored grant is cleared", "normal runtime ignores stored grants", "separate worker UID", "protected ledger/policy", "ephemeral import sources", "import save/restart/restore/deletion", "independent admission replay", "SIGTERM"], "scan":args.scan}
+                  "checks":["dedicated newsletter role, paused vector, forbidden routes and restart", "newsletter SQL capture/fake delivery/confirm/restart/withdrawal", "context canaries", "release image rejects simulated billing and exposes no checkout by default", "offline worker served", "nonroot shell-free runtime", "read-only root", "writable tmpfs", "health", "browser menu", "personal versions/photos/export", "volume restart", "online backup/fresh-volume restore", "personal deletion replay", "active grant persists on restart", "restored grant is cleared", "normal runtime ignores stored grants", "separate worker UID", "protected ledger/policy", "ephemeral import sources", "import save/restart/restore/deletion", "independent admission replay", "SIGTERM"], "scan":args.scan}
         (artifacts / "result.json").write_text(json.dumps(result, indent=2))
         print(json.dumps(result))
     finally:

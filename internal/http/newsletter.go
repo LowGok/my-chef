@@ -146,6 +146,10 @@ func (a *API) newsletterError(w http.ResponseWriter, r *http.Request, err error)
 // newsletterReadiness is a direct operator endpoint. The public Sites gateway
 // has no route to it and no browser session can authorize it.
 func (a *API) newsletterReadiness(w http.ResponseWriter, r *http.Request) {
+	a.newsletterReadinessResponse(w, r, false)
+}
+
+func (a *API) newsletterReadinessResponse(w http.ResponseWriter, r *http.Request, role bool) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Robots-Tag", "noindex")
 	token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
@@ -163,5 +167,40 @@ func (a *API) newsletterReadiness(w http.ResponseWriter, r *http.Request) {
 	for _, value := range checks {
 		ready = ready && value
 	}
-	a.write(w, 200, map[string]any{"ready": ready, "checks": checks})
+	result := map[string]any{"ready": ready, "checks": checks}
+	if role {
+		result["role"], result["mode"], result["version"] = "newsletter", a.Config.NewsletterSettings.Mode, a.Config.Version
+	}
+	a.write(w, 200, result)
+}
+
+// NewsletterHandler exposes only the dedicated newsletter role's surface.
+// Ingress must further exclude health and the protected operator endpoint.
+func (a *API) NewsletterHandler() http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /healthz", Health)
+	mux.HandleFunc("GET /readyz", a.ready)
+	mux.HandleFunc("GET /internal/newsletter/readiness", func(w http.ResponseWriter, r *http.Request) {
+		a.newsletterReadinessResponse(w, r, true)
+	})
+	for _, action := range []string{"subscribe", "confirm", "unsubscribe"} {
+		mux.HandleFunc("POST /api/v1/newsletter/"+action, a.newsletterRoute(action))
+	}
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		a.fail(w, r, http.StatusNotFound, "not_found", "That resource was not found.")
+	})
+	handler := a.wrap(mux)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("X-Robots-Tag", "noindex")
+		// A fallback route must not turn a wrong action method into a 404.
+		for _, action := range []string{"subscribe", "confirm", "unsubscribe"} {
+			if r.URL.Path == "/api/v1/newsletter/"+action && r.Method != http.MethodPost {
+				w.Header().Set("Allow", http.MethodPost)
+				a.fail(w, r, http.StatusMethodNotAllowed, "method_not_allowed", "Use POST for this action.")
+				return
+			}
+		}
+		handler.ServeHTTP(w, r)
+	})
 }

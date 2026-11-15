@@ -63,7 +63,7 @@ func LoadEmail() (Email, error) {
 	webhookKey, webhookErr := base64.StdEncoding.DecodeString(webhook)
 	fp, fpErr := base64.StdEncoding.DecodeString(secrets.Fingerprint)
 	from, fromErr := mail.ParseAddress(secrets.From)
-	if !strings.HasPrefix(secrets.APIKey, "re_") || len(secrets.APIKey) < 12 || strings.ContainsAny(secrets.APIKey, " \t\r\n") ||
+	if !validResendAPIKey(secrets.APIKey) ||
 		!hasPrefix || webhookErr != nil || len(webhookKey) < 16 || fpErr != nil || len(fp) != 32 || fromErr != nil {
 		return Email{}, errors.New("invalid Resend email settings")
 	}
@@ -112,4 +112,8 @@ func noReplyAddress(address *mail.Address) bool {
 	local, _, _ = strings.Cut(local, "+")
 	normalized := strings.NewReplacer("-", "", "_", "", ".", "").Replace(strings.ToLower(local))
 	return normalized == "noreply" || normalized == "donotreply"
+}
+
+func validResendAPIKey(key string) bool {
+	return strings.HasPrefix(key, "re_") && len(key) >= 12 && !strings.ContainsAny(key, " \t\r\n")
 }

@@ -69,6 +69,8 @@ jobs:
           python3 scripts/test_rewrite_menu.py
       - name: Preserve existing SQLite data through upgrade and restore
         run: python3 scripts/test_sqlite_upgrade.py
+      - name: Rehearse the isolated newsletter executable and recovery
+        run: python3 scripts/test_newsletter_runtime.py
 
   tooling-checks:
     runs-on: ubuntu-24.04
