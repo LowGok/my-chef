@@ -41,6 +41,8 @@ function fixture() {
   let owned = true;
   let allowFinish: () => Promise<boolean> = async () => true;
   let nativeQuotes = [quote, quote];
+  let quoteCalls = 0;
+  let checkQuote: (attempt: number) => Promise<void> = async () => {};
   let purchase: "pending" | "cancelled" | BillingReceipt = proof;
   let unfinished = [proof];
   let finish: (id: string) => Promise<void> = async () => {};
@@ -80,6 +82,7 @@ function fixture() {
       store: "apple",
       async quotes() {
         events.push("quote");
+        await checkQuote(++quoteCalls);
         return [nativeQuotes.shift() ?? quote];
       },
       async purchase(value, accountBinding) {
@@ -114,6 +117,9 @@ function fixture() {
     },
     setQuotes: (...v: BillingQuote[]) => {
       nativeQuotes = v;
+    },
+    onQuote: (callback: typeof checkQuote) => {
+      checkQuote = callback;
     },
     setFinish: (v: boolean) => {
       allowFinish = async () => v;
@@ -396,4 +402,32 @@ test("checking a launched attempt recovers later matching proof without opening 
   expect(checks).toBe(2);
   expect(finished).toEqual([recovered.id]);
   expect(f.events).toEqual(["unfinished", "verify", "verify", "finish"]);
+});
+
+test("a price request error before launch releases only the unused reservation", async () => {
+  const f = fixture();
+  f.setUnfinished();
+  f.onQuote(async (attempt) => {
+    if (attempt === 2) throw new Error("Store price could not be read.");
+  });
+  await expect(f.flow.purchase("monthly")).rejects.toThrow(
+    "Store price could not be read.",
+  );
+  expect(f.events).toEqual([
+    "unfinished",
+    "quote",
+    "reserve",
+    "quote",
+    "release unused",
+  ]);
+});
+
+test("a stale session cannot release a checkout on behalf of another account", async () => {
+  const f = fixture();
+  f.setUnfinished();
+  f.onQuote(async (attempt) => {
+    if (attempt === 2) f.endSession();
+  });
+  await expect(f.flow.purchase("monthly")).rejects.toThrow("session changed");
+  expect(f.events).toEqual(["unfinished", "quote", "reserve", "quote"]);
 });

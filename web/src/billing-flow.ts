@@ -210,16 +210,20 @@ export function createBillingFlow(
         (current.resume && current.resume.id !== attempt.id)
       )
         return "unavailable";
-      const [fresh] = await quotePlans(current, plans);
-      if (!fresh) {
-        try {
-          await server.releaseUnused(attempt.id);
-        } catch {
-          // If the release is lost, an unused reservation still expires.
+      let fresh: BillingQuote | undefined;
+      try {
+        [fresh] = await quotePlans(current, plans);
+      } finally {
+        if (!fresh && ownsSession()) {
+          try {
+            await server.releaseUnused(attempt.id);
+          } catch {
+            // If the release is lost, an unused reservation still expires.
+          }
         }
-        requireSession();
-        return "unavailable";
       }
+      requireSession();
+      if (!fresh) return "unavailable";
       await server.launch(attempt.id);
       requireSession();
       const evidence = await device.purchase(fresh, attempt.binding);
