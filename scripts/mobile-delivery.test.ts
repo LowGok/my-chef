@@ -171,14 +171,18 @@ test("candidate recording checks the actual clean checkout and prepared bundle i
   ).rejects.toThrow();
 });
 
-test("public native jobs run on owner labels with read-only access and receipt-only artifacts", async () => {
+test("native delivery keeps its owner-label guard beside the isolated analytics push lane", async () => {
   const { readFile } = await import("node:fs/promises");
   const source = await readFile(
     join(import.meta.dir, "../.github/workflows/native-compile.yml"),
     "utf8",
   );
   const workflow = Bun.YAML.parse(source) as any;
-  expect(Object.keys(workflow.on)).toEqual(["pull_request"]);
+  expect(Object.keys(workflow.on)).toEqual(["push", "pull_request"]);
+  expect(workflow.on.push.branches).toEqual(["ci/analytics-installed-b9e9699"]);
+  expect(workflow.jobs["analytics-journeys"].if).toContain("github.event_name == 'push'");
+  expect(workflow.jobs["analytics-journeys"].if).toContain("github.repository_id == '1454481532'");
+  expect(workflow.jobs["analytics-journeys"].if).toContain("github.event.after == github.sha");
   expect(workflow.permissions).toEqual({ contents: "read" });
   expect(workflow.jobs.compile.if).toContain("NATIVE_VERIFICATION_PR");
   expect(workflow.jobs.compile["timeout-minutes"]).toBe(25);

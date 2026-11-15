@@ -123,6 +123,18 @@ final class AnalyticsProbe: XCTestCase {
             let done = app.buttons.matching(NSPredicate(format: "label == %@", "Done")).firstMatch
             if done.exists && done.isHittable { done.tap() }
         }
+        if label == "Shopping list" {
+            // The OS exposes this wrapped navigation name differently from
+            // WebKit's normalized role name. Restrict the prefix to one native
+            // button, then verify the destination after the actual OS tap.
+            let matches = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Shopping"))
+            let element = matches.firstMatch
+            reveal(element)
+            XCTAssertEqual(matches.count, 1, "Shopping navigation must be unambiguous")
+            element.tap()
+            waitFor({ self.text("Shopping list.") }, "Shopping navigation opens the actual page")
+            return
+        }
         let labelPattern = label.split(whereSeparator: { $0.isWhitespace })
             .map { NSRegularExpression.escapedPattern(for: String($0)) }.joined(separator: "\\s+")
         let element = app.descendants(matching: .any).matching(NSPredicate(format:
