@@ -320,6 +320,17 @@ public final class NativeJourneyProbe extends Instrumentation {
         return null;
     }
 
+    private AccessibilityNodeInfo speechWindow(UiAutomation automation) {
+        String owner = getTargetContext().getPackageName();
+        for (AccessibilityWindowInfo window : automation.getWindows()) {
+            if (window.getType() != AccessibilityWindowInfo.TYPE_APPLICATION) continue;
+            AccessibilityNodeInfo root = window.getRoot();
+            if (root != null && owner.equals(String.valueOf(root.getPackageName()))) return root;
+        }
+        AccessibilityNodeInfo root = automation.getRootInActiveWindow();
+        return root != null && owner.equals(String.valueOf(root.getPackageName())) ? root : null;
+    }
+
     private void speechFocus(String target) throws Exception {
         String label = switch (target) {
             case "on", "off" -> "Help improve MyChef";
@@ -329,12 +340,15 @@ public final class NativeJourneyProbe extends Instrumentation {
         };
         UiAutomation automation = interactiveWindows();
         long end = SystemClock.uptimeMillis() + 18_000;
+        boolean hadWindow = false, hadNode = false, hadState = false;
         while (SystemClock.uptimeMillis() < end) {
-            AccessibilityNodeInfo root = automation.getRootInActiveWindow();
-            AccessibilityNodeInfo node = root != null && getTargetContext().getPackageName().equals(String.valueOf(root.getPackageName()))
-                ? speechNode(root, label, 0) : null;
+            AccessibilityNodeInfo root = speechWindow(automation);
+            hadWindow |= root != null;
+            AccessibilityNodeInfo node = speechNode(root, label, 0);
+            hadNode |= node != null;
             if (node != null && (!target.equals("on") && !target.equals("off")
                     || node.isCheckable() && node.isChecked() == target.equals("on"))) {
+                hadState = true;
                 node.performAction(AccessibilityNodeInfo.ACTION_CLEAR_ACCESSIBILITY_FOCUS);
                 SystemClock.sleep(150);
                 if (!node.refresh()) continue;
@@ -350,7 +364,7 @@ public final class NativeJourneyProbe extends Instrumentation {
             }
             SystemClock.sleep(200);
         }
-        throw new IllegalStateException("accessibility-controls");
+        throw new IllegalStateException(!hadWindow ? "speech-window" : !hadNode ? "speech-node" : !hadState ? "speech-state" : "speech-event");
     }
 
     private void speechOrder() throws Exception {
@@ -373,7 +387,7 @@ public final class NativeJourneyProbe extends Instrumentation {
                 SystemClock.sleep(25);
             }
             SystemClock.sleep(500);
-            AccessibilityNodeInfo root = automation.getRootInActiveWindow();
+            AccessibilityNodeInfo root = speechWindow(automation);
             AccessibilityNodeInfo focused = root == null ? null : root.findFocus(AccessibilityNodeInfo.FOCUS_ACCESSIBILITY);
             if (focused == null) continue;
             String text = String.valueOf(focused.getText()).strip();
@@ -467,7 +481,7 @@ public final class NativeJourneyProbe extends Instrumentation {
         } catch (Exception error) {
             Bundle failure = new Bundle(); failure.putString("probe", "failed");
             String reason = error.getMessage();
-            failure.putString("probeReason", reason != null && reason.matches("launch|webview|pinch-disabled|probe-timeout|native-control|native-window-(?:unfocused|bounds)|control-(?:timeout|target|geometry|viewport|outside-viewport|outside-webview|screen-bounds)|input-denied|picker-(?:window|target|activation|confirmation|return)|accessibility-controls") ? reason : "instrumentation");
+            failure.putString("probeReason", reason != null && reason.matches("launch|webview|pinch-disabled|probe-timeout|native-control|native-window-(?:unfocused|bounds)|control-(?:timeout|target|geometry|viewport|outside-viewport|outside-webview|screen-bounds)|input-denied|picker-(?:window|target|activation|confirmation|return)|accessibility-controls|speech-(window|node|state|event)") ? reason : "instrumentation");
             finish(Activity.RESULT_CANCELED, failure);
         } finally {
             runOnMainSync(() -> WebView.setWebContentsDebuggingEnabled(false));

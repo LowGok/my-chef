@@ -56,6 +56,10 @@ final class AnalyticsProbe: XCTestCase {
             if condition() { return }
             RunLoop.current.run(until: Date().addingTimeInterval(0.2))
         }
+        for (name, label) in [("Shopping destination", "Shopping list."), ("Profile destination", "Your profile."), ("Shopping saved", "Saved")] {
+            let matches = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", label)).allElementsBoundByIndex
+            print("Analytics iOS known control: " + name + " types: " + matches.prefix(6).map { String($0.elementType.rawValue) }.joined(separator: ","))
+        }
         XCTFail(message)
     }
     func scrollContent(up: Bool) {
@@ -132,6 +136,11 @@ final class AnalyticsProbe: XCTestCase {
             reveal(element)
             XCTAssertEqual(matches.count, 1, "Shopping navigation must be unambiguous")
             element.tap()
+            // Navigation preserves scroll position. WebKit can omit an
+            // offscreen heading from its accessibility tree; reach it using
+            // the same real content gestures as other controls.
+            let heading = app.staticTexts.matching(NSPredicate(format: "label == %@", "Shopping list.")).firstMatch
+            reveal(heading)
             waitFor({ self.text("Shopping list.") }, "Shopping navigation opens the actual page")
             return
         }

@@ -1213,6 +1213,7 @@ async function analyticsJourneys() {
     page.getByRole("checkbox", { name: "Help improve MyChef", exact: true });
   async function hear(target: "on" | "off" | "stale" | "offline" | "order") {
     if (process.env.NATIVE_ANALYTICS_SPEECH !== "1") return;
+    console.log("Installed Android speech target: " + target);
     const service = "com.google.android.marvin.talkback/.TalkBackService";
     const control = target === "stale" || target === "offline"
       ? page.getByRole("alert") : toggle();
