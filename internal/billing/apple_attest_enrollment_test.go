@@ -79,14 +79,16 @@ func TestAppleAttestationEnrollmentAuthenticatesAppAndBuild(t *testing.T) {
 		var auth [87]byte
 		appHash := sha256.Sum256([]byte(app))
 		copy(auth[:32], appHash[:])
-		auth[32] = 0xc0 // attested credential plus signed extension data
+		auth[32] = 0x40 // Apple guide sample: extensions follow the key even with only AT set.
 		binary.BigEndian.PutUint32(auth[33:37], count)
 		copy(auth[37:53], environment)
 		binary.BigEndian.PutUint16(auth[53:55], 32)
 		copy(auth[55:], keyID[:])
 		x, y := point.Bytes()[1:33], point.Bytes()[33:]
 		payload := append(auth[:], encode(map[int]any{1: 2, 3: -7, -1: 1, -2: x, -3: y})...)
-		payload = append(payload, encode(map[string]any{"apple_validation_category_01": category, "apple_bundle_version_01": build})...)
+		appleCategory := make([]byte, 4)
+		binary.LittleEndian.PutUint32(appleCategory, category)
+		payload = append(payload, encode(map[string]any{"apple_validation_category_01": appleCategory, "apple_bundle_version_01": build})...)
 		client := sha256.Sum256(challenge[:])
 		digest := sha256.Sum256(append(append([]byte(nil), payload...), client[:]...))
 		extension, err := asn1.Marshal(struct {
@@ -236,4 +238,42 @@ func TestAppleAttestationEnrollmentAuthenticatesAppAndBuild(t *testing.T) {
 		t.Fatal("a restarted runtime reused an old Apple signature counter", err)
 	}
 
+}
+
+func TestAppleAttestBuildMetadataRequiresExactSignedValues(t *testing.T) {
+	policy := AppleAttestBuildPolicy{Category: 2, Version: "8"}
+	for _, tc := range []struct {
+		name     string
+		flags    byte
+		category any
+		version  any
+		want     bool
+	}{
+		{"published Apple wire layout", 0x40, []byte{2, 0, 0, 0}, "8", true},
+		{"integer with extension flag", 0xc0, uint32(2), "8", true},
+		{"another category", 0x40, []byte{4, 0, 0, 0}, "8", false},
+		{"another build", 0x40, []byte{2, 0, 0, 0}, "7", false},
+		{"short category bytes", 0x40, []byte{2}, "8", false},
+		{"big endian bytes", 0x40, []byte{0, 0, 0, 2}, "8", false},
+		{"numeric text", 0x40, "2", "8", false},
+		{"numeric version", 0x40, []byte{2, 0, 0, 0}, uint32(8), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			metadata, err := cbor.Marshal(map[string]any{
+				"apple_validation_category_01": tc.category, "apple_bundle_version_01": tc.version,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if accepted := policy.accepts(tc.flags, metadata); accepted != tc.want {
+				t.Fatalf("signed metadata accepted=%v, want %v", accepted, tc.want)
+			}
+			if policy.accepts(tc.flags, append(metadata, 0)) {
+				t.Fatal("trailing bytes were accepted")
+			}
+		})
+	}
+	if policy.accepts(0x40, nil) || policy.accepts(0xc0, nil) {
+		t.Fatal("an exact-build policy accepted absent signed metadata")
+	}
 }

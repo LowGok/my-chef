@@ -165,6 +165,12 @@ enum NativeSubscriptions {
         return install.bundleID == previewBundle && install.environment == .sandbox
     }
 
+    @MainActor private static func supportsExactAttestedCheckout() -> Bool {
+        // Only iOS 27 and later include signed build and launch-category fields.
+        guard #available(iOS 27.0, *) else { return false }
+        return DCAppAttestService.shared.isSupported
+    }
+
     private static func interval(_ product: Product) -> String? {
         guard let period = product.subscription?.subscriptionPeriod, period.value == 1 else { return nil }
         if period.unit == .month { return "monthly" }
@@ -190,20 +196,19 @@ enum NativeSubscriptions {
     @MainActor static func quotes(_ call: CAPPluginCall) async throws -> [[String: Any]] {
         guard let values = call.getArray("products", String.self), values.count <= 2,
               values.allSatisfy(validProductID) else { throw SubscriptionFailure.unavailable }
-        guard await isVerifiedSandboxInstall() else { return [] }
+        guard supportsExactAttestedCheckout(), await isVerifiedSandboxInstall() else { return [] }
         let products = try await Product.products(for: values)
         guard let storefront = await Storefront.current else { return [] }
         return products.compactMap { quote($0, storefront) }
     }
 
     @MainActor static func prepare(_ call: CAPPluginCall, origin: String?) async throws -> Bool {
-        guard !checkoutInProgress, await isVerifiedSandboxInstall() else { return false }
+        guard !checkoutInProgress, supportsExactAttestedCheckout(), await isVerifiedSandboxInstall() else { return false }
         // Both entry points share the same native lock, including their awaits.
         guard !checkoutInProgress else { return false }
         checkoutInProgress = true
         defer { checkoutInProgress = false }
         let attest = DCAppAttestService.shared
-        guard attest.isSupported else { return false }
         let backend = try AppleCheckoutConnection(origin: origin, call: call)
         let key: String
         if let enrolled = try await backend.enrolledKey() {
@@ -229,7 +234,7 @@ enum NativeSubscriptions {
         let wantedInterval: String
         let key: String
         do {
-            guard attest.isSupported, await isVerifiedSandboxInstall(),
+            guard supportsExactAttestedCheckout(), await isVerifiedSandboxInstall(),
                   let requestedProduct = call.getString("product"), validProductID(requestedProduct),
                   let binding = call.getString("binding").flatMap(UUID.init(uuidString:)),
                   let interval = call.getString("interval"),

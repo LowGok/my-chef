@@ -40,18 +40,33 @@ func (p AppleAttestBuildPolicy) accepts(flags byte, extension []byte) bool {
 	if p.Category < 2 || p.Category > 5 || p.Version == "" || len(p.Version) > 64 {
 		return false
 	}
-	if flags&0x80 == 0 {
-		return p.AllowLegacy && len(extension) == 0
+	if len(extension) == 0 {
+		return p.AllowLegacy && flags&0x80 == 0
 	}
-	if len(extension) == 0 || len(extension) > 512 {
+	if len(extension) > 512 {
 		return false
 	}
+	// Apple's validation guide appends this dictionary after the COSE key
+	// even though its authenticator flags do not set ED. The complete
+	// authenticator data is covered by the nonce or assertion signature.
 	var build struct {
-		Category uint32 `cbor:"apple_validation_category_01"`
-		Version  string `cbor:"apple_bundle_version_01"`
+		Category cbor.RawMessage `cbor:"apple_validation_category_01"`
+		Version  string          `cbor:"apple_bundle_version_01"`
 	}
-	return appleAttestCBOR.Unmarshal(extension, &build) == nil &&
-		build.Category == p.Category && build.Version == p.Version
+	if appleAttestCBOR.Unmarshal(extension, &build) != nil || build.Version != p.Version || len(build.Category) == 0 {
+		return false
+	}
+	switch build.Category[0] >> 5 {
+	case 0: // Apple's logical UInt32 value.
+		var value uint32
+		return appleAttestCBOR.Unmarshal(build.Category, &value) == nil && value == p.Category
+	case 2: // The guide's wire representation: four little-endian bytes.
+		var value []byte
+		return appleAttestCBOR.Unmarshal(build.Category, &value) == nil && len(value) == 4 &&
+			binary.LittleEndian.Uint32(value) == p.Category
+	default:
+		return false
+	}
 }
 
 type AppleEnrollmentVerifier struct {

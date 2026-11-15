@@ -52,9 +52,12 @@ func fixtureAppleAssertion(t *testing.T, key *ecdsa.PrivateKey, app string, c Na
 	binary.BigEndian.PutUint32(auth[33:], counter)
 	authData := auth[:]
 	if len(build) != 0 {
-		auth[32] |= 0x80
+		// Run the full signed cancellation fixture with the extension layout
+		// from Apple's published attestation guide.
+		category := make([]byte, 4)
+		binary.LittleEndian.PutUint32(category, build[0].Category)
 		extensions, err := cbor.Marshal(map[string]any{
-			"apple_validation_category_01": build[0].Category,
+			"apple_validation_category_01": category,
 			"apple_bundle_version_01":      build[0].Version,
 		})
 		if err != nil {
