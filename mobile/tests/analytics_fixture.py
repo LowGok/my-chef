@@ -203,6 +203,7 @@ class Fixture:
                         or not 0 < size <= 2048):
                     self.send_error(403)
                     return
+                request = None
                 try:
                     request = json.loads(self.rfile.read(size))
                     result = owner.operate(request)
@@ -210,7 +211,15 @@ class Fixture:
                         result = {'enabled': result['enabled']}
                     body = json.dumps(result).encode()
                     status = 200
-                except (ValueError, RuntimeError, OSError):
+                except (ValueError, RuntimeError, OSError) as error:
+                    operation = request.get('operation') if type(request) is dict else None
+                    closed = {'proof', 'approved', 'speech-start', 'speech-stop', 'preference', 'counts',
+                              'tick', 'backup', 'maintenance', 'other-session-choice', 'offline', 'online',
+                              'foreign-export', 'verify-native-export'}
+                    operation = operation if operation in closed else 'unknown'
+                    reason = {'Timed out waiting for disposable signup message': 'proof-timeout',
+                              'Fixture signup inbox refused': 'proof-inbox'}.get(str(error), 'refused')
+                    print('Analytics fixture refusal: operation=' + operation + ' reason=' + reason, flush=True)
                     status, body = 409, b'{"error":"fixture_operation_refused"}'
                 self.send_response(status)
                 self.send_header('Content-Type', 'application/json')

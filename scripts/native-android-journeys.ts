@@ -249,6 +249,9 @@ async function activateControl(control: Locator, name: string) {
       { message: name + " must own its center point in the native WebView" },
     )
     .toBe(true);
+  // Trial performs Playwright's layout-stability/actionability checks without
+  // clicking. The following input still comes from the actual OS probe.
+  await control.click({ trial: true });
   await probeAction("activate", name);
 }
 
@@ -1272,6 +1275,7 @@ async function analyticsJourneys() {
       .fill(recipient.split("@")[0]!);
     await page.getByLabel("Email", { exact: true }).fill(recipient);
     await activate("Create my account");
+    await expect(page.getByRole("heading", { name: "Check your inbox", exact: true })).toBeVisible();
     const proof = await fixture("proof", { recipient });
     if (
       !/^https:\/\/localhost:8977\/app\/signup#[A-Za-z0-9_-]{43}$/.test(
