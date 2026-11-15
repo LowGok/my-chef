@@ -216,7 +216,7 @@ class Fixture:
                     closed = {'proof', 'approved', 'speech-start', 'speech-stop', 'preference', 'counts',
                               'tick', 'backup', 'maintenance', 'other-session-choice', 'offline', 'online',
                               'foreign-export', 'verify-native-export'}
-                    operation = operation if operation in closed else 'unknown'
+                    operation = operation if isinstance(operation, str) and operation in closed else 'unknown'
                     reason = {'Timed out waiting for disposable signup message': 'proof-timeout',
                               'Fixture signup inbox refused': 'proof-inbox'}.get(str(error), 'refused')
                     print('Analytics fixture refusal: operation=' + operation + ' reason=' + reason, flush=True)

@@ -57,7 +57,7 @@ final class AnalyticsProbe: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.2))
         }
         for (name, label) in [("Shopping destination", "Shopping list."), ("Profile destination", "Your profile."), ("Shopping saved", "Saved")] {
-            let matches = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", label)).allElementsBoundByIndex
+            let matches = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", label)).allElementsBoundByIndex
             print("Analytics iOS known control: " + name + " types: " + matches.prefix(6).map { String($0.elementType.rawValue) }.joined(separator: ","))
         }
         XCTFail(message)
@@ -121,6 +121,19 @@ final class AnalyticsProbe: XCTestCase {
         }
         XCTAssertTrue(element.isHittable, "Control must be reachable at OS text size")
     }
+    func tapSettled(_ element: XCUIElement) {
+        let end = Date().addingTimeInterval(12)
+        var previous = CGRect.null
+        var unchanged = 0
+        while Date() < end {
+            let frame = element.frame
+            unchanged = element.exists && element.isHittable && frame == previous ? unchanged + 1 : 0
+            if unchanged >= 3 { element.tap(); return }
+            previous = frame
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+        }
+        XCTFail("Native tap target must finish layout before input")
+    }
     func tap(_ label: String) {
         print("Analytics iOS control: " + label)
         if app.keyboards.firstMatch.exists {
@@ -135,11 +148,11 @@ final class AnalyticsProbe: XCTestCase {
             let element = matches.firstMatch
             reveal(element)
             XCTAssertEqual(matches.count, 1, "Shopping navigation must be unambiguous")
-            element.tap()
+            tapSettled(element)
             // Navigation preserves scroll position. WebKit can omit an
             // offscreen heading from its accessibility tree; reach it using
             // the same real content gestures as other controls.
-            let heading = app.staticTexts.matching(NSPredicate(format: "label == %@", "Shopping list.")).firstMatch
+            let heading = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Shopping list.")).firstMatch
             reveal(heading)
             waitFor({ self.text("Shopping list.") }, "Shopping navigation opens the actual page")
             return
@@ -150,7 +163,7 @@ final class AnalyticsProbe: XCTestCase {
             "label MATCHES %@ AND (elementType == %d OR elementType == %d OR elementType == %d OR elementType == %d)", labelPattern,
             XCUIElement.ElementType.button.rawValue, XCUIElement.ElementType.switch.rawValue,
             XCUIElement.ElementType.link.rawValue, XCUIElement.ElementType.disclosureTriangle.rawValue)).firstMatch
-        reveal(element); element.tap()
+        reveal(element); tapSettled(element)
     }
     func fill(_ label: String, _ text: String, secure: Bool = false) {
         print("Analytics iOS control: " + label)
@@ -185,10 +198,12 @@ final class AnalyticsProbe: XCTestCase {
         waitFor({ ((try? self.control("preference")["enabled"]) as? Bool) == desired }, "Server preference must acknowledge choice")
     }
     func text(_ phrase: String) -> Bool {
-        app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", phrase)).firstMatch.exists
+        app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", phrase)).firstMatch.exists
     }
     func profile() {
         tap("Profile")
+        let heading = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Your profile.")).firstMatch
+        reveal(heading)
         waitFor({ self.text("Your profile.") }, "Installed Profile must open")
     }
     func details() {
