@@ -13,8 +13,8 @@ import test_native_installed as native
 
 
 def safe_diagnostic(text, secrets):
-    selected = [line for line in text.splitlines() if 'error:' in line or 'Reason:' in line]
-    value = '\n'.join(selected[-5:])
+    selected = [line for line in text.splitlines() if re.search(r'\berror:\s|\breason:\s|Assertion|Exception', line, re.I)]
+    value = '\n'.join(selected[:8])
     for secret in secrets:
         if secret:
             value = value.replace(secret, '[private]')
@@ -65,8 +65,16 @@ def project(state):
         mainGroup=ref('group'), productRefGroup=ref('products'), projectDirPath='', projectRoot='', targets=[ref('target')])
     path = root / 'AnalyticsProbe.xcodeproj'
     path.mkdir()
-    (path / 'project.pbxproj').write_bytes(plistlib.dumps(dict(archiveVersion=1, classes={}, objectVersion=60,
-                                                            objects=objects, rootObject=ref('project'))))
+    # Xcode's project reader expects scalar strings as in an OpenStep plist.
+    # XML NSNumber values can crash IDEContainer before compilation starts.
+    def scalars(value):
+        if isinstance(value, dict):
+            return {key: scalars(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [scalars(item) for item in value]
+        return str(value) if isinstance(value, int) else value
+    (path / 'project.pbxproj').write_bytes(plistlib.dumps(scalars(dict(archiveVersion=1, classes={}, objectVersion=60,
+                                                                   objects=objects, rootObject=ref('project')))))
     schemes = path / 'xcshareddata/xcschemes'
     schemes.mkdir(parents=True)
     buildable = (f'<BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="{ref("target")}" '

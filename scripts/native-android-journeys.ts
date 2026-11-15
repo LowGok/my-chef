@@ -172,7 +172,10 @@ async function probeAction(
   probeCommand(kind + ":" + sequence + ":" + name);
   await expect
     .poll(
-      () => {
+      async () => {
+        const log = await readFile(join(state, "probe-private.log"), "utf8").catch(() => "");
+        const reason = log.match(/INSTRUMENTATION_RESULT: probeReason=([a-z-]{1,50})\b/)?.[1];
+        if (reason) throw Error("Disposable OS probe refused: " + reason);
         try {
           return adb("shell", "run-as", app, "cat", "cache/native-check-done");
         } catch {
