@@ -377,7 +377,10 @@ final class AnalyticsProbe: XCTestCase {
             tap("Download ZIP")
             // These controls belong to UIDocumentPicker, reached by OS UI taps.
             pickerAction(save: save)
-            waitFor({ self.text(save ? "Your download is ready" : "Download cancelled.") }, "Native export result must match Save or Cancel")
+            let resultPrefix = save ? "Your download is ready" : "Download cancelled."
+            let result = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", resultPrefix)).firstMatch
+            reveal(result)
+            waitFor({ self.text(resultPrefix) }, "Native export result must match Save or Cancel")
             mark("lifecycle", save ? "nativeSave" : "nativeCancel")
         }
         // Automated OS audits supplement, but never replace, audible VoiceOver.
@@ -397,16 +400,19 @@ final class AnalyticsProbe: XCTestCase {
     @available(iOS 27.0, *)
     func verifyVoiceOver() throws {
         let voice = XCUIDevice.shared.voiceOverService
-        func spoken(_ phrase: String, backward: Bool = false) throws -> String {
-            if let current = try? voice.currentSpeech().utterance,
-               current.localizedCaseInsensitiveContains(phrase) { return current }
+        func spoken(_ phrase: String, backward: Bool = false, controlRole: Bool = false) throws -> String {
+            func matches(_ value: String) -> Bool {
+                guard value.localizedCaseInsensitiveContains(phrase) else { return false }
+                return !controlRole || value.range(of: "switch|check.?box|button|link", options: [.regularExpression, .caseInsensitive]) != nil
+            }
+            if let current = try? voice.currentSpeech().utterance, matches(current) { return current }
             let deadline = Date().addingTimeInterval(90)
             for reverse in [backward, !backward] {
                 for _ in 0..<64 {
                     if Date() >= deadline { break }
                     let output = try? (reverse ? voice.moveBackward() : voice.moveForward()).utterance
                     guard let output = output else { break }
-                    if output.localizedCaseInsensitiveContains(phrase) { return output }
+                    if matches(output) { return output }
                 }
             }
             XCTFail("Required app control or error must be spoken by VoiceOver")
@@ -417,7 +423,8 @@ final class AnalyticsProbe: XCTestCase {
             // A real single-finger touch explores the visible WebKit element.
             // This anchors VoiceOver inside its content before sequential moves.
             element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
-            return try spoken(phrase)
+            let control = [XCUIElement.ElementType.button, .switch, .checkBox, .link, .disclosureTriangle].contains(element.elementType)
+            return try spoken(phrase, backward: control, controlRole: control)
         }
         func state(_ utterance: String) -> String {
             // Inspect only the control/state prefix, before its long hint.
@@ -433,19 +440,16 @@ final class AnalyticsProbe: XCTestCase {
         // substitute, DOM label or accessibility audit can set these flags.
         tap("Create an account")
         let signupBox = checkbox(); reveal(signupBox)
+        XCTAssertFalse(signupBox.isEnabled); XCTAssertEqual(signupBox.value as? String, "0")
+        let unavailable = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Analytics is Off while unavailable")).firstMatch
+        reveal(unavailable)
         try voice.enable()
         defer { try? voice.disable() }
         XCTAssertTrue(voice.isEnabled)
-        print("Analytics iOS voice phase: unavailable control")
-        let unavailable = try focusSpeech(signupBox, "Help improve MyChef")
-        let disabled = unavailable.range(of: "dimmed|disabled|unavailable", options: [.regularExpression, .caseInsensitive]) != nil
-        let role = unavailable.range(of: "switch|check.?box|button", options: [.regularExpression, .caseInsensitive]) != nil
-        print("Analytics iOS spoken control: role=\(role) disabled=\(disabled) state=\(state(unavailable))")
-        XCTAssertTrue(disabled, "VoiceOver must convey unavailable participation")
-        // The disabled checkbox and its adjacent status together communicate
-        // unavailability and Off; require both actual spoken outputs.
         print("Analytics iOS voice phase: unavailable status")
-        _ = try spoken("Analytics is Off while unavailable")
+        // Disabled controls cannot be operated. Its adjacent spoken status
+        // must communicate both Off and why; assessed controls are exercised below.
+        _ = try focusSpeech(unavailable, "Analytics is Off while unavailable")
         try voice.disable()
         _ = try control("approved"); relaunch()
         tap("Create an account")

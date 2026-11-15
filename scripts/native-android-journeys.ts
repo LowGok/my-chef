@@ -1227,6 +1227,13 @@ async function analyticsJourneys() {
         .split("\n").some(line => /ServiceRecord/.test(line) && line.includes("TalkBackService"))).toBe(true);
       adb("shell", "am", "start", "-W", "-n", app + "/.MainActivity");
       await Bun.sleep(2000);
+      // The first TalkBack/TTS tutorial can take the foreground after startup.
+      // Require the actual app window before native focus or input.
+      await expect.poll(() => {
+        const focused = adb("shell", "dumpsys", "window", "displays").split("\n").some(line => line.includes("mCurrentFocus") && line.includes(app));
+        if (!focused) adb("shell", "am", "start", "-W", "-n", app + "/.MainActivity");
+        return focused;
+      }).toBe(true);
       await control.evaluate((node) => node.scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" }));
       await expect(control).toBeVisible();
       await Bun.sleep(350);
