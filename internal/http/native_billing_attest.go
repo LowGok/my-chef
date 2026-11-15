@@ -2,7 +2,11 @@ package httpapi
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/binary"
 	"errors"
 	"net/http"
 	"time"
@@ -21,12 +25,17 @@ type appleBillingRegistry interface {
 // The client never selects its verifier, environment, or enrolled instance.
 type AppleBillingAttestation struct {
 	Registry appleBillingRegistry
-	Verifier billing.NativeCancellationVerifier
+	Verifier interface {
+		billing.NativeCancellationVerifier
+		VerifyLaunch(context.Context, billing.NativeCancellation, []byte) error
+	}
+	// Process-local authority. Restart discards unused launch authorizations.
+	LaunchKey [32]byte
 }
 
 func (b *NativeBilling) appleAttestationEnabled() bool {
 	return b.Environment == billing.Sandbox && b.SyntheticAccountsOnly && b.AppleAttestation != nil &&
-		b.AppleAttestation.Registry != nil && b.AppleAttestation.Verifier != nil
+		b.AppleAttestation.Registry != nil && b.AppleAttestation.Verifier != nil && b.AppleAttestation.LaunchKey != ([32]byte{})
 }
 
 func appleChallengeResponse(challenge [32]byte) map[string]string {
@@ -224,4 +233,129 @@ func (a *API) billingAppleCancel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+const appleLaunchAuthorizationTTL = 2 * time.Minute
+const appleLaunchAuthorizationBytes = 72
+
+func appleLaunchAuthorizationMAC(key [32]byte, c billing.NativeCancellation, prefix []byte) []byte {
+	a := c.Attempt
+	mac := hmac.New(sha256.New, key[:])
+	mac.Write([]byte("mychef.storekit.launch-authorization.v1\x00" + string(a.Environment) + "\x00" +
+		a.ID + "\x00" + a.Binding + "\x00" + string(a.Interval) + "\x00" + c.Owner + "\x00" + c.Family + "\x00"))
+	mac.Write(c.AppInstance[:])
+	mac.Write(prefix)
+	return mac.Sum(nil)
+}
+
+func validAppleLaunchAuthorization(key [32]byte, c billing.NativeCancellation, wire []byte, now time.Time) bool {
+	if len(wire) != appleLaunchAuthorizationBytes || key == ([32]byte{}) ||
+		!hmac.Equal(wire[40:], appleLaunchAuthorizationMAC(key, c, wire[:40])) {
+		return false
+	}
+	issued := time.Unix(int64(binary.BigEndian.Uint64(wire[32:40])), 0)
+	return !issued.After(now) && now.Before(issued.Add(appleLaunchAuthorizationTTL))
+}
+
+func (a *API) appleLaunchClaim(r *http.Request) (billing.NativeCancellation, error) {
+	b := a.Config.NativeBilling
+	owner, attempt, err := a.billingAttempt(r)
+	if err != nil {
+		return billing.NativeCancellation{}, err
+	}
+	if attempt.Store != billing.Apple || !b.appleAttestationEnabled() || !b.checkoutAllowed(attempt.Store) {
+		return billing.NativeCancellation{}, billing.ErrPurchaseBinding
+	}
+	family := info(r).Family
+	key, err := b.AppleAttestation.Registry.EnrolledInstance(r.Context(), owner, family)
+	if err != nil {
+		return billing.NativeCancellation{}, err
+	}
+	return billing.NativeCancellation{Attempt: attempt, Owner: owner, Family: family, AppInstance: key}, nil
+}
+
+func (a *API) billingAppleLaunchChallenge(w http.ResponseWriter, r *http.Request) {
+	if !a.personalNoQuery(w, r) {
+		return
+	}
+	if r.ContentLength != 0 {
+		a.personalError(w, r, store.ErrPersonalInput)
+		return
+	}
+	claim, err := a.appleLaunchClaim(r)
+	if err != nil {
+		a.billingError(w, r, err)
+		return
+	}
+	if !a.throttle(w, r, "billing-apple-launch-challenge:"+claim.Owner, 8) {
+		return
+	}
+	var wire [appleLaunchAuthorizationBytes]byte
+	if _, err := rand.Read(wire[:32]); err != nil {
+		a.billingError(w, r, err)
+		return
+	}
+	binary.BigEndian.PutUint64(wire[32:40], uint64(time.Now().Unix()))
+	copy(wire[40:], appleLaunchAuthorizationMAC(a.Config.NativeBilling.AppleAttestation.LaunchKey, claim, wire[:40]))
+	a.write(w, http.StatusOK, map[string]string{"authorization": base64.RawURLEncoding.EncodeToString(wire[:])})
+}
+
+func (a *API) billingAppleAuthorizedLaunch(w http.ResponseWriter, r *http.Request) {
+	claim, err := a.appleLaunchClaim(r)
+	if err != nil {
+		a.billingError(w, r, err)
+		return
+	}
+	var body struct {
+		Authorization string `json:"authorization"`
+		Assertion     string `json:"assertion"`
+	}
+	if !a.decodePersonal(w, r, &body, 2<<10) {
+		return
+	}
+	wire, wellFormed := parseAppleBillingProof(body.Authorization, appleLaunchAuthorizationBytes)
+	proof, proofWellFormed := parseAppleBillingProof(body.Assertion, 1024)
+	if !wellFormed || len(wire) != appleLaunchAuthorizationBytes || !proofWellFormed {
+		a.personalError(w, r, store.ErrPersonalInput)
+		return
+	}
+	b := a.Config.NativeBilling
+	attestation := b.AppleAttestation
+	if !validAppleLaunchAuthorization(attestation.LaunchKey, claim, wire, time.Now()) {
+		a.billingError(w, r, billing.ErrPurchaseBinding)
+		return
+	}
+	offer, _, ok := b.offer(billing.Apple, claim.Attempt.Interval)
+	if !ok {
+		a.billingError(w, r, billing.ErrPurchaseBinding)
+		return
+	}
+	if !a.throttle(w, r, "billing-apple-launch:"+claim.Owner, 12) {
+		return
+	}
+	copy(claim.Challenge[:], wire[:32])
+	if err := attestation.Verifier.VerifyLaunch(r.Context(), claim, proof); err != nil {
+		a.billingError(w, r, billing.ErrPurchaseBinding)
+		return
+	}
+	var cancellation billing.NativeCancellation
+	err = a.appleBillingFence(r, claim.Owner, claim.Family)(func() error {
+		now := time.Now()
+		if !b.checkoutAllowed(billing.Apple) || !validAppleLaunchAuthorization(attestation.LaunchKey, claim, wire, now) {
+			return billing.ErrPurchaseBinding
+		}
+		var err error
+		cancellation, err = b.Journal.LaunchForNativeCancellation(r.Context(), claim.Attempt, claim.Owner, claim.Family, claim.AppInstance, now)
+		return err
+	})
+	if err != nil {
+		a.billingError(w, r, err)
+		return
+	}
+	// The journal consumes the reservation atomically. No second proof can
+	// launch that checkout and neither proof can recreate a cancelled one.
+	out := appleChallengeResponse(cancellation.Challenge)
+	out["checkout"], out["binding"], out["product"], out["interval"] =
+		claim.Attempt.ID, claim.Attempt.Binding, offer.Product, string(claim.Attempt.Interval)
+	a.write(w, http.StatusOK, out)
 }

@@ -13417,10 +13417,104 @@
         }
       }
     },
+    "/api/native/v1/billing/checkouts/{checkout}/launch-challenge": {
+      "post": {
+        "operationId": "challengeNativeAppleCheckoutLaunch",
+        "description": "Issue a short-lived authorization bound to this reserved Apple checkout and enrolled installation.",
+        "security": [
+          {
+            "nativeBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "checkout",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authorization to sign with the enrolled Apple App Attest key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeAppleBillingLaunchAuthorization"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Native sign-in required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Verified email required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unavailable checkout or offer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Verification or storage is temporarily unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many attempts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/native/v1/billing/checkouts/{checkout}/launch": {
       "post": {
         "operationId": "launchNativeCheckout",
-        "description": "Durably mark a reservation before any native purchase sheet may open. A different installation cannot use the reservation.",
+        "description": "Durably mark a reservation before any native purchase sheet may open. Private Apple checkout requires a fresh assertion from the exact approved build and enrolled installation.",
         "security": [
           {
             "nativeBearer": []
@@ -13508,6 +13602,26 @@
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many attempts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NativeAppleBillingLaunchProof"
               }
             }
           }
@@ -17318,6 +17432,43 @@
         },
         "required": [
           "keyID"
+        ],
+        "additionalProperties": false
+      },
+      "NativeAppleBillingLaunchAuthorization": {
+        "type": "object",
+        "properties": {
+          "authorization": {
+            "type": "string",
+            "minLength": 96,
+            "maxLength": 96,
+            "pattern": "^[A-Za-z0-9_-]{96}$"
+          }
+        },
+        "required": [
+          "authorization"
+        ],
+        "additionalProperties": false
+      },
+      "NativeAppleBillingLaunchProof": {
+        "type": "object",
+        "properties": {
+          "authorization": {
+            "type": "string",
+            "minLength": 96,
+            "maxLength": 96,
+            "pattern": "^[A-Za-z0-9_-]{96}$"
+          },
+          "assertion": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 1366,
+            "pattern": "^[A-Za-z0-9_-]+$"
+          }
+        },
+        "required": [
+          "authorization",
+          "assertion"
         ],
         "additionalProperties": false
       },

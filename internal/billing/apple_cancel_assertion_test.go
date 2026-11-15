@@ -46,6 +46,11 @@ func (s *fixtureAppleKeys) AdvanceCancellationCounter(_ context.Context, c Nativ
 
 func fixtureAppleAssertion(t *testing.T, key *ecdsa.PrivateKey, app string, c NativeCancellation, counter uint32, build ...AppleAttestBuildPolicy) []byte {
 	t.Helper()
+	return fixtureAppleAssertionFor(t, key, app, c, counter, "mychef.storekit.cancel.v1", build...)
+}
+
+func fixtureAppleAssertionFor(t *testing.T, key *ecdsa.PrivateKey, app string, c NativeCancellation, counter uint32, purpose string, build ...AppleAttestBuildPolicy) []byte {
+	t.Helper()
 	var auth [37]byte
 	appHash := sha256.Sum256([]byte(app))
 	copy(auth[:32], appHash[:])
@@ -68,7 +73,7 @@ func fixtureAppleAssertion(t *testing.T, key *ecdsa.PrivateKey, app string, c Na
 
 	// This is the byte transcript the native side must build, independent
 	// of the server implementation of the verifier.
-	msg := []byte("mychef.storekit.cancel.v1\x00" + string(c.Attempt.Environment) + "\x00" +
+	msg := []byte(purpose + "\x00" + string(c.Attempt.Environment) + "\x00" +
 		c.Attempt.ID + "\x00" + c.Attempt.Binding + "\x00" + string(c.Attempt.Interval) + "\x00")
 	msg = append(msg, c.Challenge[:]...)
 	client := sha256.Sum256(msg)
@@ -159,7 +164,26 @@ func TestAppleCancellationAssertionRejectsUntrustedOrReplayedProof(t *testing.T)
 	if err := v.VerifyCancellation(ctx, c, wrongBuild); !errors.Is(err, ErrPurchaseBinding) {
 		t.Fatal("an assertion from another build was accepted", err)
 	}
-	valid = fixtureAppleAssertion(t, key, fixtureAppleApp, c, 6, v.Build)
+	const launchPurpose = "mychef.storekit.launch.v1"
+	launchProof := fixtureAppleAssertionFor(t, key, fixtureAppleApp, c, 6, launchPurpose, v.Build)
+	oldBuildLaunch := fixtureAppleAssertionFor(t, key, fixtureAppleApp, c, 6, launchPurpose, AppleAttestBuildPolicy{Category: 2, Version: "7"})
+	cancelProof := fixtureAppleAssertion(t, key, fixtureAppleApp, c, 6, v.Build)
+	if err := v.VerifyLaunch(ctx, c, oldBuildLaunch); !errors.Is(err, ErrPurchaseBinding) {
+		t.Fatal("launch accepted an assertion from another build", err)
+	}
+	if err := v.VerifyLaunch(ctx, c, cancelProof); !errors.Is(err, ErrPurchaseBinding) {
+		t.Fatal("cancellation assertion authorized a launch", err)
+	}
+	if err := v.VerifyCancellation(ctx, c, launchProof); !errors.Is(err, ErrPurchaseBinding) {
+		t.Fatal("launch assertion authorized a cancellation", err)
+	}
+	if err := v.VerifyLaunch(ctx, c, launchProof); err != nil {
+		t.Fatal("launch rejected the exact build and purpose", err)
+	}
+	if err := v.VerifyLaunch(ctx, c, launchProof); !errors.Is(err, ErrPurchaseBinding) {
+		t.Fatal("launch accepted the same assertion twice", err)
+	}
+	valid = fixtureAppleAssertion(t, key, fixtureAppleApp, c, 7, v.Build)
 	clock := func() time.Time { return now.Add(time.Minute) }
 	if err := j.CompleteNativeCancellation(ctx, c, valid, v, liveNativeTestSession, clock); err != nil {
 		t.Fatal("valid Apple assertion did not release the matching launch", err)

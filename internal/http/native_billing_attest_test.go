@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -16,6 +17,45 @@ type appleAttestationFixture struct {
 	owner, family  string
 	challenge, key [32]byte
 	beforeCancel   func()
+}
+
+func TestAppleLaunchAuthorizationExpiryAndBinding(t *testing.T) {
+	issued := time.Unix(2_000_000_000, 0)
+	key := [32]byte{1}
+	claim := billing.NativeCancellation{
+		Attempt: billing.Attempt{ID: "checkout", Binding: "binding", Interval: billing.Monthly, Environment: billing.Sandbox},
+		Owner:   "owner", Family: "family", AppInstance: [32]byte{4},
+	}
+	var wire [appleLaunchAuthorizationBytes]byte
+	wire[0] = 7
+	binary.BigEndian.PutUint64(wire[32:40], uint64(issued.Unix()))
+	copy(wire[40:], appleLaunchAuthorizationMAC(key, claim, wire[:40]))
+	if !validAppleLaunchAuthorization(key, claim, wire[:], issued.Add(appleLaunchAuthorizationTTL-time.Nanosecond)) {
+		t.Fatal("authorization rejected before expiry")
+	}
+	sibling, replacement, next := claim, claim, claim
+	sibling.Family = "sibling"
+	replacement.AppInstance[0]++
+	next.Attempt.ID = "new checkout"
+	for _, tc := range []struct {
+		name  string
+		key   [32]byte
+		claim billing.NativeCancellation
+		now   time.Time
+	}{
+		{"expired", key, claim, issued.Add(appleLaunchAuthorizationTTL)},
+		{"future issue time", key, claim, issued.Add(-time.Second)},
+		{"another session", key, sibling, issued},
+		{"replaced installation", key, replacement, issued},
+		{"another checkout", key, next, issued},
+		{"server restart", [32]byte{2}, claim, issued},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if validAppleLaunchAuthorization(tc.key, tc.claim, wire[:], tc.now) {
+				t.Fatal("invalid authorization accepted")
+			}
+		})
+	}
 }
 
 func (f *appleAttestationFixture) BeginEnrollment(_ context.Context, owner, family string, _ time.Time) ([32]byte, error) {
@@ -40,6 +80,14 @@ func (f *appleAttestationFixture) EnrolledInstance(_ context.Context, owner, fam
 		return [32]byte{}, billing.ErrPurchaseBinding
 	}
 	return f.key, nil
+}
+
+func (f *appleAttestationFixture) VerifyLaunch(_ context.Context, c billing.NativeCancellation, proof []byte) error {
+	if c.Owner != f.owner || c.Family != f.family || c.AppInstance != f.key || c.Challenge == ([32]byte{}) ||
+		string(proof) != "verified exact launch" {
+		return billing.ErrPurchaseBinding
+	}
+	return nil
 }
 
 func (f *appleAttestationFixture) VerifyCancellation(_ context.Context, c billing.NativeCancellation, proof []byte) error {
@@ -109,7 +157,7 @@ func TestNativeAppleCheckoutRequiresEnrollmentAndOriginalCancellationProof(t *te
 		t.Fatal("real checkout enabled without attestation")
 	}
 	f := &appleAttestationFixture{}
-	b.AppleAttestation = &AppleBillingAttestation{Registry: f, Verifier: f}
+	b.AppleAttestation = &AppleBillingAttestation{Registry: f, Verifier: f, LaunchKey: [32]byte{71}}
 	b.SyntheticAccountsOnly = false
 	h = a.Handler(nil)
 	assert(404, "POST", begin, "", token)
@@ -145,7 +193,26 @@ func TestNativeAppleCheckoutRequiresEnrollmentAndOriginalCancellationProof(t *te
 	path := start + "/" + id
 	pathCancel := path + "/cancel"
 	assert(404, "POST", path+"/launch", "", sibling)
-	issued := assert(200, "POST", path+"/launch", "", token)
+	assert(404, "POST", path+"/launch-challenge", "", sibling)
+	assert(404, "POST", path+"/launch-challenge", "", android)
+	assert(400, "POST", path+"/launch", "", token)
+	requestLaunch := func(path string) string {
+		return reply(assert(200, "POST", path+"/launch-challenge", "", token), "authorization")
+	}
+	launchBody := func(authorization, proof string) string {
+		return payload(map[string]string{"authorization": authorization, "assertion": enc([]byte(proof))})
+	}
+	authorization := requestLaunch(path)
+	assert(404, "POST", path+"/launch", launchBody(authorization, "wrong build"), token)
+	mutated, err := base64.RawURLEncoding.DecodeString(authorization)
+	if err != nil || len(mutated) != 72 {
+		t.Fatal("launch authorization format is invalid", err)
+	}
+	mutated[len(mutated)-1] ^= 1
+	assert(404, "POST", path+"/launch", launchBody(enc(mutated), "verified exact launch"), token)
+	body := launchBody(authorization, "verified exact launch")
+	issued := assert(200, "POST", path+"/launch", body, token)
+	assert(409, "POST", path+"/launch", body, token)
 	launch := reply(issued, "challenge")
 	if reply(issued, "interval") != "monthly" || reply(issued, "product") != "monthly" || reply(issued, "checkout") != id {
 		t.Fatal("the native app did not receive the original purchase parameters")
@@ -164,7 +231,9 @@ func TestNativeAppleCheckoutRequiresEnrollmentAndOriginalCancellationProof(t *te
 		t.Fatal("accepted cancellation did not release the original checkout")
 	}
 	nextPath := start + "/" + next
-	newChallenge := reply(assert(200, "POST", nextPath+"/launch", "", token), "challenge")
+	assert(404, "POST", nextPath+"/launch", body, token)
+	newAuthorization := requestLaunch(nextPath)
+	newChallenge := reply(assert(200, "POST", nextPath+"/launch", launchBody(newAuthorization, "verified exact launch"), token), "challenge")
 	f.beforeCancel = func() {
 		assert(204, "POST", "/logout", "{}", token)
 	}

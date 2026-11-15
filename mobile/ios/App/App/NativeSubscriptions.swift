@@ -18,12 +18,13 @@ private final class BillingNoRedirects: NSObject, URLSessionTaskDelegate, @unche
 // select a path, get an assertion, or supply bytes to the App Attest signer.
 private struct AppleCheckoutConnection {
     private enum Endpoint {
-        case enrollmentState, enrollmentChallenge, enroll, launch(UUID), cancel(UUID), releaseUnused(UUID)
+        case enrollmentState, enrollmentChallenge, enroll, launchChallenge(UUID), launch(UUID), cancel(UUID), releaseUnused(UUID)
 
         var path: String {
             switch self {
             case .enrollmentState, .enroll: return "/apple/enrollment"
             case .enrollmentChallenge: return "/apple/enrollment/challenge"
+            case .launchChallenge(let id): return "/checkouts/" + id.uuidString.lowercased() + "/launch-challenge"
             case .launch(let id): return "/checkouts/" + id.uuidString.lowercased() + "/launch"
             case .cancel(let id): return "/checkouts/" + id.uuidString.lowercased() + "/cancel"
             case .releaseUnused(let id): return "/checkouts/" + id.uuidString.lowercased()
@@ -41,6 +42,7 @@ private struct AppleCheckoutConnection {
 
     private struct KeyReply: Decodable { let keyID: String }
     private struct ChallengeReply: Decodable { let challenge: String }
+    private struct LaunchAuthorizationReply: Decodable { let authorization: String }
     struct LaunchReply: Decodable {
         let checkout: String
         let binding: String
@@ -138,8 +140,21 @@ private struct AppleCheckoutConnection {
         guard code == 204 else { throw SubscriptionFailure.unavailable }
     }
 
-    func authorize(_ checkout: UUID) async throws -> LaunchReply {
-        let (code, data) = try await request(.launch(checkout))
+    func launchAuthorization(_ checkout: UUID) async throws -> (value: String, nonce: Data) {
+        let (code, data) = try await request(.launchChallenge(checkout))
+        guard code == 200 else { throw SubscriptionFailure.unavailable }
+        let value = try JSONDecoder().decode(LaunchAuthorizationReply.self, from: data).authorization
+        guard value.utf8.count == 96,
+              let wire = Data(base64Encoded: value.replacingOccurrences(of: "-", with: "+")
+                                 .replacingOccurrences(of: "_", with: "/")),
+              wire.count == 72, Self.base64URL(wire) == value else { throw SubscriptionFailure.unavailable }
+        return (value, Data(wire.prefix(32)))
+    }
+
+    func authorize(_ checkout: UUID, authorization: String, assertion: Data) async throws -> LaunchReply {
+        guard !assertion.isEmpty, assertion.count <= 1024 else { throw SubscriptionFailure.unavailable }
+        let (code, data) = try await request(.launch(checkout), body: ["authorization": authorization,
+                                                                      "assertion": Self.base64URL(assertion)])
         guard code == 200 else { throw SubscriptionFailure.unavailable }
         return try JSONDecoder().decode(LaunchReply.self, from: data)
     }
@@ -233,6 +248,8 @@ enum NativeSubscriptions {
         let token: UUID
         let wantedInterval: String
         let key: String
+        let authorization: String
+        let launchAssertion: Data
         do {
             guard supportsExactAttestedCheckout(), await isVerifiedSandboxInstall(),
                   let requestedProduct = call.getString("product"), validProductID(requestedProduct),
@@ -244,8 +261,14 @@ enum NativeSubscriptions {
                   current["displayPrice"] as? String == call.getString("displayPrice"),
                   AppStore.canMakePayments, let enrolled = try await backend.enrolledKey()
             else { throw SubscriptionFailure.unavailable }
-            // Check that the installation still holds the key before authorizing its sheet.
-            try await checkKey(attest, key: enrolled)
+            let challenge = try await backend.launchAuthorization(checkout)
+            let fields = ["mychef.storekit.launch.v1", "sandbox", checkout.uuidString.lowercased(),
+                          binding.uuidString.lowercased(), interval, ""]
+            var message = Data(fields.joined(separator: "\u{0}").utf8)
+            message.append(challenge.nonce)
+            launchAssertion = try await attest.generateAssertion(enrolled, clientDataHash: Data(SHA256.hash(data: message)))
+            guard !launchAssertion.isEmpty, launchAssertion.count <= 1024 else { throw SubscriptionFailure.unavailable }
+            authorization = challenge.value
             id = requestedProduct
             token = binding
             wantedInterval = interval
@@ -257,7 +280,7 @@ enum NativeSubscriptions {
         }
 
         // Once launch is requested, never use the unused-release endpoint.
-        let launch = try await backend.authorize(checkout)
+        let launch = try await backend.authorize(checkout, authorization: authorization, assertion: launchAssertion)
         guard launch.checkout == checkout.uuidString.lowercased(),
               launch.binding == token.uuidString.lowercased(),
               launch.product == id, launch.interval == wantedInterval,

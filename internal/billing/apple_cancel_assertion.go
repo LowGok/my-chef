@@ -31,6 +31,16 @@ type AppleCancellationVerifier struct {
 }
 
 func (v AppleCancellationVerifier) VerifyCancellation(ctx context.Context, c NativeCancellation, proof []byte) error {
+	return v.verifyAssertion(ctx, c, proof, "mychef.storekit.cancel.v1")
+}
+
+// VerifyLaunch proves the current approved binary at the moment it opens the
+// sheet. An assertion made for cancellation cannot authorize this transition.
+func (v AppleCancellationVerifier) VerifyLaunch(ctx context.Context, c NativeCancellation, proof []byte) error {
+	return v.verifyAssertion(ctx, c, proof, "mychef.storekit.launch.v1")
+}
+
+func (v AppleCancellationVerifier) verifyAssertion(ctx context.Context, c NativeCancellation, proof []byte, purpose string) error {
 	a := c.Attempt
 	if v.AppID == "" || v.Keys == nil || a.Store != Apple || !validOffer(a.Store, a.Environment, a.Interval) ||
 		!accountUUID.MatchString(a.ID) || !accountUUID.MatchString(a.Binding) || c.Challenge == [32]byte{} || c.AppInstance == [32]byte{} ||
@@ -59,7 +69,7 @@ func (v AppleCancellationVerifier) VerifyCancellation(ctx context.Context, c Nat
 	if err != nil || sha256.Sum256(point.Bytes()) != c.AppInstance {
 		return ErrPurchaseBinding
 	}
-	client := appleCancellationClientHash(c)
+	client := appleCheckoutClientHash(c, purpose)
 	nonce := appleAttestNonce(auth, client)
 	if !ecdsa.VerifyASN1(key, nonce[:], signature) {
 		return ErrPurchaseBinding
@@ -76,9 +86,9 @@ func (v AppleCancellationVerifier) VerifyCancellation(ctx context.Context, c Nat
 	return nil
 }
 
-func appleCancellationClientHash(c NativeCancellation) [sha256.Size]byte {
+func appleCheckoutClientHash(c NativeCancellation, purpose string) [sha256.Size]byte {
 	a := c.Attempt
-	msg := []byte("mychef.storekit.cancel.v1\x00" + string(a.Environment) + "\x00" +
+	msg := []byte(purpose + "\x00" + string(a.Environment) + "\x00" +
 		a.ID + "\x00" + a.Binding + "\x00" + string(a.Interval) + "\x00")
 	return sha256.Sum256(append(msg, c.Challenge[:]...))
 }

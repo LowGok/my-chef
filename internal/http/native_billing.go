@@ -106,6 +106,7 @@ func (a *API) billingRoutes(mux *http.ServeMux) {
 		routes["POST /api/v1/billing/apple/enrollment"] = a.billingAppleEnroll
 		routes["GET /api/v1/billing/apple/enrollment"] = a.billingAppleEnrollmentState
 		routes["POST /api/v1/billing/checkouts/{checkout}/cancel"] = a.billingAppleCancel
+		routes["POST /api/v1/billing/checkouts/{checkout}/launch-challenge"] = a.billingAppleLaunchChallenge
 	}
 	for path, handler := range routes {
 		mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
@@ -309,36 +310,20 @@ func (a *API) billingLaunch(w http.ResponseWriter, r *http.Request) {
 	if !a.personalNoQuery(w, r) {
 		return
 	}
+	if b.appleAttestationEnabled() && info(r).Platform == "ios" {
+		a.billingAppleAuthorizedLaunch(w, r)
+		return
+	}
 	if r.ContentLength != 0 {
 		a.fail(w, r, 400, "invalid_input", "This request does not accept a body.")
 		return
 	}
 	a.Store.AccountWork.RLock()
 	defer a.Store.AccountWork.RUnlock()
-	id, attempt, err := a.billingAttempt(r)
+	_, attempt, err := a.billingAttempt(r)
 	if err == nil {
 		if !b.checkoutAllowed(attempt.Store) {
 			err = billing.ErrPurchaseBinding
-		} else if attempt.Store == billing.Apple && b.appleAttestationEnabled() {
-			family := info(r).Family
-			instance, lookupErr := b.AppleAttestation.Registry.EnrolledInstance(r.Context(), id, family)
-			if lookupErr != nil {
-				a.billingError(w, r, lookupErr)
-				return
-			}
-			offer, _, ok := b.offer(attempt.Store, attempt.Interval)
-			if !ok {
-				a.billingError(w, r, billing.ErrPurchaseBinding)
-				return
-			}
-			var claim billing.NativeCancellation
-			claim, err = b.Journal.LaunchForNativeCancellation(r.Context(), attempt, id, family, instance, time.Now())
-			if err == nil {
-				body := appleChallengeResponse(claim.Challenge)
-				body["checkout"], body["binding"], body["product"], body["interval"] = attempt.ID, attempt.Binding, offer.Product, string(attempt.Interval)
-				a.write(w, http.StatusOK, body)
-				return
-			}
 		} else {
 			err = b.Journal.Launch(r.Context(), attempt, time.Now())
 		}

@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
@@ -170,8 +171,12 @@ func (mode *appleBillingSandbox) start(ctx context.Context, journal *store.Lifec
 		keys := billing.AppleCancellationRegistry{
 			Journal: protected, Environment: billing.Sandbox, Verifier: *mode.attestation,
 		}
+		var launchKey [32]byte
+		if _, err := rand.Read(launchKey[:]); err != nil {
+			return nil, nil, errAppleSandbox
+		}
 		attestation = &httpapi.AppleBillingAttestation{
-			Registry: keys,
+			Registry: keys, LaunchKey: launchKey,
 			Verifier: billing.AppleCancellationVerifier{
 				AppID: mode.attestation.AppID, Keys: keys, Build: mode.attestation.Build,
 			},

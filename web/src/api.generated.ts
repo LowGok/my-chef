@@ -691,6 +691,15 @@ export type NativeAppleBillingKey = {
     keyID: string;
 };
 
+export type NativeAppleBillingLaunchAuthorization = {
+    authorization: string;
+};
+
+export type NativeAppleBillingLaunchProof = {
+    authorization: string;
+    assertion: string;
+};
+
 export type NativeAppleBillingLaunch = {
     checkout: string;
     binding: string;
@@ -7625,8 +7634,55 @@ export type CancelAttestedAppleCheckoutResponses = {
 
 export type CancelAttestedAppleCheckoutResponse = CancelAttestedAppleCheckoutResponses[keyof CancelAttestedAppleCheckoutResponses];
 
-export type LaunchNativeCheckoutData = {
+export type ChallengeNativeAppleCheckoutLaunchData = {
     body?: never;
+    path: {
+        checkout: string;
+    };
+    query?: never;
+    url: '/api/native/v1/billing/checkouts/{checkout}/launch-challenge';
+};
+
+export type ChallengeNativeAppleCheckoutLaunchErrors = {
+    /**
+     * Malformed input
+     */
+    400: Error;
+    /**
+     * Native sign-in required
+     */
+    401: Error;
+    /**
+     * Verified email required
+     */
+    403: Error;
+    /**
+     * Unavailable checkout or offer
+     */
+    404: Error;
+    /**
+     * Too many attempts
+     */
+    429: Error;
+    /**
+     * Verification or storage is temporarily unavailable
+     */
+    503: Error;
+};
+
+export type ChallengeNativeAppleCheckoutLaunchError = ChallengeNativeAppleCheckoutLaunchErrors[keyof ChallengeNativeAppleCheckoutLaunchErrors];
+
+export type ChallengeNativeAppleCheckoutLaunchResponses = {
+    /**
+     * Authorization to sign with the enrolled Apple App Attest key
+     */
+    200: NativeAppleBillingLaunchAuthorization;
+};
+
+export type ChallengeNativeAppleCheckoutLaunchResponse = ChallengeNativeAppleCheckoutLaunchResponses[keyof ChallengeNativeAppleCheckoutLaunchResponses];
+
+export type LaunchNativeCheckoutData = {
+    body?: NativeAppleBillingLaunchProof;
     path: {
         checkout: string;
     };
@@ -7655,6 +7711,10 @@ export type LaunchNativeCheckoutErrors = {
      * Existing purchase or unresolved checkout
      */
     409: Error;
+    /**
+     * Too many attempts
+     */
+    429: Error;
     /**
      * Verification or storage is temporarily unavailable
      */
@@ -8205,6 +8265,8 @@ export interface components {
     "AnalyticsNotice": AnalyticsNotice;
     "AnalyticsPreferenceConflict": AnalyticsPreferenceConflict;
     "NativeAppleBillingKey": NativeAppleBillingKey;
+    "NativeAppleBillingLaunchAuthorization": NativeAppleBillingLaunchAuthorization;
+    "NativeAppleBillingLaunchProof": NativeAppleBillingLaunchProof;
     "NativeAppleBillingLaunch": NativeAppleBillingLaunch;
     "NativeAppleBillingChallenge": NativeAppleBillingChallenge;
     "NativeBillingStatus": NativeBillingStatus;
