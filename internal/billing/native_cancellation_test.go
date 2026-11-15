@@ -23,7 +23,7 @@ func TestNativeCancellationRequiresOriginalProofAndConsumesItOnce(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	claim, err := j.LaunchForNativeCancellation(ctx, a, owner, family, now)
+	claim, err := j.LaunchForNativeCancellation(ctx, a, owner, family, [32]byte{1}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,6 +45,7 @@ func TestNativeCancellationRequiresOriginalProofAndConsumesItOnce(t *testing.T) 
 		{"assertion rejected", nil, "unverified cancellation", valid, clock},
 		{"different installation", func(c *NativeCancellation) { c.Family = owner }, "synthetic verified store callback", valid, clock},
 		{"different account", func(c *NativeCancellation) { c.Owner = family }, "synthetic verified store callback", valid, clock},
+		{"different attested app instance", func(c *NativeCancellation) { c.AppInstance[0] ^= 3 }, "synthetic verified store callback", valid, clock},
 		{"different challenge", func(c *NativeCancellation) { c.Challenge[0] ^= 1 }, "synthetic verified store callback", valid, clock},
 		{"at expiry", nil, "synthetic verified store callback", valid, func() time.Time { return now.Add(ReservationLifetime) }},
 	} {
@@ -91,7 +92,7 @@ func TestNativeCancellationRechecksCompetingStoreEventAndRuntime(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			claim, err := j.LaunchForNativeCancellation(ctx, a, owner, family, now)
+			claim, err := j.LaunchForNativeCancellation(ctx, a, owner, family, [32]byte{1}, now)
 			if err != nil {
 				t.Fatal(err)
 			}
