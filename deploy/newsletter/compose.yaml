@@ -1,0 +1,26 @@
+# Apply only with the reviewed operator receipt and verified digest.
+services:
+  newsletter:
+    image: "${MYCHEF_NEWSLETTER_IMAGE:?Set the reviewed image@sha256 digest}"
+    command: ["newsletter", "serve"]
+    user: "65532:65532"
+    network_mode: host
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    init: false
+    restart: unless-stopped
+    stop_grace_period: 20s
+    pids_limit: 64
+    mem_limit: 512m
+    cpus: 1
+    env_file: ["${MYCHEF_NEWSLETTER_ENV_FILE:?Set a protected runtime env file}"]
+    volumes:
+      - "${MYCHEF_NEWSLETTER_SQL_DIR:?Set the dedicated SQL directory}:/data:rw"
+      - "${MYCHEF_NEWSLETTER_JOURNAL_DIR:?Set the independent journal directory}:/journal:rw"
+      - "${MYCHEF_NEWSLETTER_CREDENTIAL_FILE:?Set the protected credential file}:/run/secrets/newsletter.json:ro"
+      - "${MYCHEF_NEWSLETTER_PROOF_FILE:?Set the protected proof keyring}:/run/secrets/proof-keys.json:ro"
+    tmpfs: ["/tmp:rw,noexec,nosuid,nodev,size=64m,uid=65532,gid=65532,mode=0700"]
+    logging:
+      driver: json-file
+      options: {max-size: "5m", max-file: "3"}

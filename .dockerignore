@@ -319,3 +319,6 @@ internal/notifications/**
 !cmd/mychef/notifications.go
 !web/src/PlanningReminders.tsx
 !web/src/reminder-device.ts
+
+!cmd/mychef/newsletter_serve.go
+!internal/config/newsletter_email.go

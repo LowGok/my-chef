@@ -183,3 +183,46 @@ func TestNewsletterRoleServesWithoutRecipeCredentialsAndReleasesLocks(t *testing
 		unlock()
 	}
 }
+
+func TestNewsletterProductionRoleNeedsNoRecipeOrWebhookCredentials(t *testing.T) {
+	newsletterServeFixture(t)
+	var profile map[string]string
+	if raw, err := os.ReadFile(os.Getenv("MYCHEF_CREDENTIALS")); err != nil {
+		t.Fatal(err)
+	} else if json.Unmarshal(raw, &profile) != nil {
+		t.Fatal("profile")
+	}
+	profile["resend_api_key"] = "re_fake_sending_only_role_key"
+	profile["email_fingerprint_key"] = base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{9}, 32))
+	raw, _ := json.Marshal(profile)
+	if err := os.WriteFile(os.Getenv("MYCHEF_CREDENTIALS"), raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("MYCHEF_NEWSLETTER_MODE", "enabled")
+	t.Setenv("MYCHEF_EMAIL_MODE", "resend")
+	t.Setenv("MYCHEF_PROVIDER", "")
+	t.Setenv("MYCHEF_DEV", "")
+	t.Setenv("MYCHEF_E2E", "")
+	cfg, err := loadNewsletterRole()
+	if err != nil || cfg.mail.Fake || len(cfg.mail.WebhookKey) != 0 || cfg.app.Provider != "gemini" {
+		t.Fatal("sending-only production profile rejected", err)
+	}
+	for _, field := range []string{"newsletter_email_from", "newsletter_email_reply_to"} {
+		t.Run(field, func(t *testing.T) {
+			changed := map[string]string{}
+			for key, value := range profile {
+				changed[key] = value
+			}
+			changed[field] = "Other <other@example.test>"
+			path := filepath.Join(t.TempDir(), "changed.json")
+			raw, _ := json.Marshal(changed)
+			if err := os.WriteFile(path, raw, 0600); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("MYCHEF_CREDENTIALS", path)
+			if _, err := loadNewsletterRole(); err == nil {
+				t.Fatal("unapproved production profile accepted")
+			}
+		})
+	}
+}

@@ -1,0 +1,9 @@
+# Resolve placeholders using the existing authenticated Cloudflare account.
+# The tunnel credential remains in the approved secret store.
+tunnel: REPLACE_WITH_OWNED_TUNNEL_ID
+credentials-file: /run/secrets/cloudflared.json
+ingress:
+  - hostname: newsletter-api.mychef.dev
+    path: ^/api/v1/newsletter/(subscribe|confirm|unsubscribe)$
+    service: http://127.0.0.1:18474
+  - service: http_status:404
