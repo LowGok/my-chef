@@ -28,6 +28,19 @@ def authorized(event, environment):
             and environment.get('NATIVE_PLATFORM') in ('android', 'ios-simulator'))
 
 
+def assert_disabled_storage(db):
+    # Signup retains an Off preference/receipt even with no analytics runtime.
+    # Those control records prevent accidental enrollment; they are not events.
+    checks = (
+        'SELECT count(*) FROM analytics_outbox',
+        "SELECT count(*) FROM analytics_preferences WHERE enabled<>0 OR subject<>'' OR epoch<>''",
+        'SELECT count(*) FROM analytics_receipts WHERE enabled<>0',
+        'SELECT count(*) FROM analytics_signup WHERE enabled<>0',
+    )
+    if any(db.execute(query).fetchone()[0] for query in checks):
+        raise RuntimeError('Disabled fixture captured data or enabled enrollment')
+
+
 def main():
     os.umask(0o077)
     event = json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text())
@@ -104,13 +117,11 @@ def main():
         native.wait_for(lambda: ('GET', 'analytics-notice-disabled', 200) in events,
                         'real disabled analytics notice through native transport', 20)
         with sqlite3.connect(state / 'app.db') as db:
-            if any(db.execute('SELECT count(*) FROM ' + table).fetchone()[0]
-                   for table in ('analytics_outbox', 'analytics_preferences', 'analytics_receipts')):
-                raise RuntimeError('Disabled fixture created analytics rows')
+            assert_disabled_storage(db)
         result = dict(platform=native.PLATFORM, source=receipt['candidate']['sourceCommit'],
                       artifactSha256=receipt['artifactSha256'], device=metadata,
                       checks=['verified native HTTPS', 'disabled unchecked labelled signup control',
-                              'layout after requesting OS text size', 'real unavailable notice', 'zero analytics rows'],
+                              'layout after requesting OS text size', 'real unavailable notice', 'zero capture and enabled enrollment'],
                       fullJourneys='not verified', spokenAccessibility='not verified',
                       textScalingPropagation='not verified',
                       distribution='not authorized', productionCollection='disabled')
