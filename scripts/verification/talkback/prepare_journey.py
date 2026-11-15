@@ -55,6 +55,9 @@ def stage(source, output):
   })).toBe(true);
   expect(adb("shell", "settings", "get", "system", "font_scale")).toBe("1.5");
   await checkpoint("large-text-fits");
+  // Use the stock, local speech engine and a clear accessibility volume.
+  adb("shell", "settings", "put", "secure", "tts_default_synth", "com.google.android.tts");
+  adb("shell", "cmd", "media_session", "volume", "--stream", "10", "--set", "10");
   adb("shell", "settings", "put", "secure", "enabled_accessibility_services", service);
   adb("shell", "settings", "put", "secure", "accessibility_enabled", "1");
   await checkpoint("talkback-requested");
