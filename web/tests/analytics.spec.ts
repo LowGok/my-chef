@@ -29,6 +29,17 @@ test("native text scale enlarges the analytics notice and labelled control witho
   expect(sizes.notice).toBeGreaterThanOrEqual(24);
   expect(sizes.fits).toBe(true);
 });
+
+test("Android native tap selector uses the signup button's accessible name", async ({ page }) => {
+  const java = readFileSync(resolve(import.meta.dir, "../../scripts/native-android/NativeJourneyProbe.java"), "utf8");
+  const expression = java.match(/default -> ([\s\S]*?);\n\s*};/)?.[1];
+  expect(expression).toBeTruthy();
+  const selector = expression!.match(/"(?:\\.|[^"\\])*"|quotedLabel/g)!.map(token =>
+    token === "quotedLabel" ? JSON.stringify("Create my account") : JSON.parse(token)).join("");
+  await page.goto("/app/");
+  await page.getByRole("button", { name: "Create an account", exact: true }).click();
+  expect(await page.evaluate("(" + selector + ").length")).toBe(1);
+});
 test("signup offers a visible On switch and preserves Off in the request", async ({
   page,
 }) => {

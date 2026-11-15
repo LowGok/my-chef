@@ -58,7 +58,16 @@ final class AnalyticsProbe: XCTestCase {
         XCTFail(message)
     }
     func reveal(_ element: XCUIElement) {
-        XCTAssertTrue(element.waitForExistence(timeout: 30), "Expected installed app control")
+        let exists = element.waitForExistence(timeout: 30)
+        if !exists {
+            let candidates = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Help improve MyChef")).allElementsBoundByIndex
+            for node in candidates.prefix(8) {
+                let value = node.value as? String
+                let state = value == "0" ? "off" : value == "1" ? "on" : "other"
+                print("Analytics iOS accessibility type: \(node.elementType.rawValue) state: \(state) enabled: \(node.isEnabled)")
+            }
+        }
+        XCTAssertTrue(exists, "Expected installed app control")
         for _ in 0..<8 {
             if element.isHittable { return }
             app.swipeUp()
@@ -87,8 +96,9 @@ final class AnalyticsProbe: XCTestCase {
     }
     func checkbox() -> XCUIElement {
         app.descendants(matching: .any).matching(NSPredicate(format:
-            "label == %@ AND (elementType == %d OR elementType == %d)", "Help improve MyChef",
-            XCUIElement.ElementType.switch.rawValue, XCUIElement.ElementType.checkBox.rawValue)).firstMatch
+            "label BEGINSWITH %@ AND (elementType == %d OR elementType == %d OR elementType == %d OR value == '0' OR value == '1')", "Help improve MyChef",
+            XCUIElement.ElementType.switch.rawValue, XCUIElement.ElementType.checkBox.rawValue,
+            XCUIElement.ElementType.button.rawValue)).firstMatch
     }
     func enabled(_ desired: Bool) {
         let box = checkbox(); reveal(box)

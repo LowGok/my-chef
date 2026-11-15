@@ -115,6 +115,9 @@ def run(state, control, account, identifier, container):
                 detail += '; source lines ' + ', '.join(lines[-6:])
             if stages:
                 detail += '; controls ' + ', '.join(stages[-4:])
+            roles = re.findall(r'Analytics iOS accessibility type: ([0-9]{1,3}) state: (off|on|other) enabled: (true|false)', text)
+            if roles:
+                detail += '; observed roles ' + ', '.join('/'.join(role) for role in roles[-8:])
             diagnostic = safe_diagnostic(text, [*account.values(), control['token'], str(input_path), str(container)])
             if diagnostic:
                 detail += '; ' + diagnostic

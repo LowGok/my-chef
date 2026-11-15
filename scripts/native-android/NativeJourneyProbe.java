@@ -89,7 +89,7 @@ public final class NativeJourneyProbe extends Instrumentation {
             case "Choose recipe photo", "Recipe-page photos" ->
                 "[...document.querySelectorAll('input[type=button]')].filter(n=>!n.disabled&&n.getClientRects().length&&[...n.labels].some(l=>(l.textContent||'').trim()==="
                     + quotedLabel + "))";
-            default -> "[...document.querySelectorAll('button')].filter(n=>(n.textContent||'').trim()==="
+            default -> "[...document.querySelectorAll('button')].filter(n=>(n.getAttribute('aria-label')||n.textContent||'').trim()==="
                 + quotedLabel + "&&!n.disabled&&n.getClientRects().length)";
         };
         String expression = "(() => {const nodes=" + selector + ";"
