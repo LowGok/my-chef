@@ -552,10 +552,10 @@ def android_journeys(state, receipt, metadata, events, reminders=False):
         probe = state / "probe-private.log"
         if probe.is_file():
             safe = [line for line in probe.read_text(errors="replace").splitlines()
-                    if re.fullmatch(r"INSTRUMENTATION_(?:STATUS|RESULT): (?:probe=(?:ready|failed)|probeReason=(?:launch|webview|pinch-disabled|probe-timeout|instrumentation|native-control|native-window-(?:unfocused|bounds)|control-timeout|input-denied|picker-(?:window|target|activation|confirmation|return)|accessibility-controls|permission-dialog-deny))|INSTRUMENTATION_CODE: -?[0-9]+", line)]
+                    if re.fullmatch(r"INSTRUMENTATION_(?:STATUS|RESULT): (?:probe=(?:ready|failed)|probeReason=(?:launch|webview|pinch-disabled|probe-timeout|instrumentation|native-control|native-window-(?:unfocused|bounds)|control-timeout|input-denied|picker-(?:window|target|activation|confirmation|return)|accessibility-controls))|INSTRUMENTATION_CODE: -?[0-9]+", line)]
             print("Disposable probe status: " + "; ".join(safe[-8:]), flush=True)
 
-    groups = (("reminders", 3),) if reminders else (("core", 7), ("media", 5), ("pages", 1), ("account", 4))
+    groups = (("reminders", 2), ("reminder-text", 1)) if reminders else (("core", 7), ("media", 5), ("pages", 1), ("account", 4))
     passed = {}
     failed = []
     adb = lambda *args: command(adb_path, "-s", "emulator-5554", *args)
@@ -570,10 +570,10 @@ def android_journeys(state, receipt, metadata, events, reminders=False):
                 adb("shell", "am", "force-stop", APP)
                 if adb("shell", "pm", "clear", APP) != "Success":
                     raise RuntimeError("Disposable Android app state could not be cleared")
-            account = seed(18137, ORIGIN, capability, "nativeandroid" + group)
+            account = seed(18137, ORIGIN, capability, "nativeandroid" + group.replace("-", ""))
             (state / "native-android-account.json").write_text(json.dumps(account))
             before = len(events)
-            with android_reminder_text(adb) if group == "reminders" else nullcontext():
+            with android_reminder_text(adb) if group == "reminder-text" else nullcontext():
                 output = command("bun", "scripts/native-android-journeys.ts", str(state), group, timeout=270)
             print(output, flush=True)
             if group == "reminders":
@@ -583,13 +583,15 @@ def android_journeys(state, receipt, metadata, events, reminders=False):
                     ("DELETE", "planning-reminders/installation", 204),
                 ]:
                     raise RuntimeError("Unexpected installed reminder registration sequence")
+            if group == "reminder-text" and any(event[1] == "planning-reminders/installation" for event in events[before:]):
+                raise RuntimeError("Reminder text verification attempted device registration")
             result = json.loads((state / f"native-android-journeys-{group}.json").read_text())
             checks = result.get("passed") if isinstance(result, dict) else None
             if (not isinstance(result, dict) or result.get("group") != group
                     or not isinstance(checks, list) or len(checks) != count
                     or not all(isinstance(check, str) and re.fullmatch(r"[A-Za-z0-9 /-]{1,100}", check) for check in checks)
                     or len(set(checks)) != count
-                    or (group == "reminders" and "Android system large text and reminder accessibility nodes" not in checks)):
+                    or (group == "reminder-text" and checks != ["Android system large text and reminder accessibility nodes"])):
                 raise RuntimeError("Installed Android group receipt is incomplete")
             passed[group] = checks
         except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
@@ -600,6 +602,8 @@ def android_journeys(state, receipt, metadata, events, reminders=False):
             diagnose()
     if failed:
         raise RuntimeError("Installed Android groups failed: " + ", ".join(failed))
+    if reminders:
+        passed["reminders"].extend(passed.pop("reminder-text"))
     result = dict(source=receipt["candidate"], artifactSha256=receipt["artifactSha256"], device=metadata,
                   groups=passed, passed=[name for names in passed.values() for name in names],
                   limitations="Disposable API 33 emulator; no physical Android device or audible TalkBack validation.")
