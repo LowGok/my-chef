@@ -167,6 +167,12 @@ class Speech:
             label = re.search(r'help improve my\s?chef', words) is not None
             state = 'on' if matches('on', text) else 'off' if matches('off', text) else 'unknown'
             print('Analytics speech evidence: target=' + target + ' audible=true label=' + str(label).lower() + ' state=' + state, flush=True)
+            # Fixed UI vocabulary only. Never print arbitrary recognized words,
+            # the transcript, audio, account fields or provider output.
+            vocabulary = ('help', 'improve', 'chef', 'checked', 'unchecked',
+                          'checkbox', 'talkback', 'tutorial', 'keyboard', 'welcome')
+            flags = {word: word in words.split() for word in vocabulary}
+            print('Analytics speech vocabulary: ' + json.dumps(flags, sort_keys=True), flush=True)
         path.unlink(missing_ok=True)
         transcript.unlink(missing_ok=True)
         if not passed:

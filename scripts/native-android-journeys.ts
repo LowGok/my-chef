@@ -1219,6 +1219,7 @@ async function analyticsJourneys() {
   const toggle = () =>
     page.getByRole("checkbox", { name: "Help improve MyChef", exact: true });
   const speechEnabled = process.env.NATIVE_ANALYTICS_SPEECH === "1";
+  let speechEngineWarmed = false;
   async function withTalkBack(control: Locator, action: () => Promise<void>) {
     const service = "com.google.android.marvin.talkback/.TalkBackService";
     await control.scrollIntoViewIfNeeded();
@@ -1230,7 +1231,13 @@ async function analyticsJourneys() {
       await expect.poll(() => adb("shell", "dumpsys", "activity", "services", service.split("/")[0])
         .split("\n").some(line => /ServiceRecord/.test(line) && line.includes("TalkBackService"))).toBe(true);
       adb("shell", "am", "start", "-W", "-n", app + "/.MainActivity");
-      await Bun.sleep(2000);
+      await expect.poll(() => adb("shell", "dumpsys", "activity", "services", "com.google.android.tts")
+        .split("\n").some(line => /ServiceRecord/.test(line) && /TextToSpeechService/.test(line)),
+        { timeout: 20_000 }).toBe(true);
+      // The first service binding can precede local voice loading. Let the
+      // stock engine settle before demanding a fresh control announcement.
+      await Bun.sleep(speechEngineWarmed ? 2000 : 10_000);
+      speechEngineWarmed = true;
       // The first TalkBack/TTS tutorial can take the foreground after startup.
       // Require the actual app window before native focus or input.
       await expect.poll(() => {
@@ -1257,7 +1264,7 @@ async function analyticsJourneys() {
       await fixture("speech-start", { target });
       const focus = target === "order" ? "on" : target.replace("signup-", "");
       await probeAction(target === "order" ? "speech-order" : "speech-focus", focus);
-      await Bun.sleep(["stale", "offline", "cleanup", "backup"].includes(target) ? 16000 : 6500);
+      await Bun.sleep(16000);
       expect((await fixture("speech-stop", { target })).passed).toBe(true);
     });
   }
