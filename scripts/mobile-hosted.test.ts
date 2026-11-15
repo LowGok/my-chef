@@ -86,6 +86,28 @@ test("compile-only jobs accept only the owner's labelled public native PR", () =
   expect(() => input(event, "android", "")).toThrow();
 });
 
+test("reminder fixtures require their own owner-labelled public PR and cannot sign or archive", () => {
+  const event = {
+    action: "labeled", number: 12, sender: { login: "LowGok" },
+    label: { name: "native-reminder-fixture" },
+    repository: { id: 1454481532, full_name: "LowGok/my-chef", private: false },
+    pull_request: {
+      base: { ref: "main" },
+      head: { sha: "c".repeat(40), ref: "feat/weekly-reminders",
+        repo: { id: 1454481532, full_name: "LowGok/my-chef" } },
+    },
+  };
+  for (const platform of ["android", "ios-simulator"]) {
+    expect(compileInputs(event, platform, "2", "12")).toMatchObject({
+      installed: true, commit: "c".repeat(40),
+    });
+  }
+  expect(() => compileInputs(event, "ios-device", "2", "12")).toThrow();
+  expect(() => compileInputs(event, "android", "12", "2")).toThrow();
+  expect(() => compileInputs({ ...event, label: { name: "native-compile" } }, "android", "12", "12")).toThrow();
+  expect(() => compileInputs({ ...event, sender: { login: "contributor" } }, "android", "2", "12")).toThrow();
+});
+
 test("compile-only plans build without executing tests, emulators or distribution", () => {
   const ios = compilePlan("ios-simulator", false);
   expect(ios).toContain("CODE_SIGNING_ALLOWED=NO");

@@ -10,7 +10,9 @@ import { personalPhoto } from "./personal-photo";
 export async function fakeNative(
   context: BrowserContext,
   server: APIRequestContext,
+  options: { platform?: "ios" | "android" } = {},
 ) {
+  const platform = options.platform ?? "android";
   let refresh: string | null = null,
     value: NativeShoppingSnapshot | null = null;
   let generation = crypto.randomUUID(),
@@ -68,7 +70,7 @@ export async function fakeNative(
     if (method === "removeListener") return;
     if (method === "configuration")
       return {
-        platform: "android",
+        platform,
         apiOrigin: "https://fixture-node.tailtest.ts.net:8977",
       };
     if (method === "readRefresh") return { value: refresh };
@@ -145,9 +147,9 @@ export async function fakeNative(
       _callNonce: input._callNonce,
     }),
   );
-  await context.addInitScript(() => {
+  await context.addInitScript((platform) => {
     const win = window as any;
-    win.CapacitorCustomPlatform = { name: "android" };
+    win.CapacitorCustomPlatform = { name: platform };
     const methods = [
       "configuration",
       "readRuntime",
@@ -189,7 +191,7 @@ export async function fakeNative(
       nativePromise: (_plugin: string, method: string, input: unknown) =>
         win.__mychefNative(method, input),
     };
-  });
+  }, platform);
   return {
     runtime: async (value: Partial<RuntimeSnapshot>) => {
       runtime = { ...runtime, ...value };

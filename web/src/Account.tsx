@@ -31,6 +31,7 @@ import { AllergenPicker } from "./Choices";
 import { today } from "./dates";
 import { effortLevels } from "./effort";
 import { focusContentTop } from "./scroll";
+import { PlanningReminders } from "./PlanningReminders";
 import { PasswordChange } from "./PasswordChange";
 import { EmailChangeForm } from "./EmailVerification";
 
@@ -448,6 +449,7 @@ export function ProfileForm({
             {busy ? "Saving…" : "Save preferences"}
           </button>
         </details>
+        <PlanningReminders key={user.accountInstance} />
         {favorites}
         {personalRecipes}
       </section>
