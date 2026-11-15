@@ -356,3 +356,5 @@ internal/billing/**
 !internal/billing/native_cancellation.go
 !internal/billing/apple_cancel_assertion.go
 !internal/billing/apple_attest_enrollment.go
+!internal/billing/apple_attest_registry.go
+!internal/billing/apple_app_attestation_root.pem

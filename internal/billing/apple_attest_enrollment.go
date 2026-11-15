@@ -6,8 +6,11 @@ import (
 	"crypto/elliptic"
 	"crypto/sha256"
 	"crypto/x509"
+	_ "embed"
 	"encoding/asn1"
 	"encoding/binary"
+	"encoding/hex"
+	"encoding/pem"
 	"time"
 
 	"github.com/fxamacker/cbor/v2"
@@ -56,6 +59,31 @@ type AppleEnrollmentVerifier struct {
 	Roots       *x509.CertPool // Only the independently approved Apple App Attest roots.
 	Build       AppleAttestBuildPolicy
 	Development bool // Attestation environment, independent of purchase sandbox.
+}
+
+// Source: https://www.apple.com/certificateauthority/private/
+//
+//go:embed apple_app_attestation_root.pem
+var appleAppAttestationRoot []byte
+
+const appleAppAttestationRootFingerprint = "1cb9823ba28ba6ad2d33a006941de2ae4f513ef1d4e831b9f7e0fa7b6242c932"
+
+// NewAppleEnrollmentVerifier uses only Apple's published App Attestation CA,
+// never a root from a request or the host's general-purpose trust pool.
+func NewAppleEnrollmentVerifier(appID string, build AppleAttestBuildPolicy, development bool) (AppleEnrollmentVerifier, error) {
+	block, trailing := pem.Decode(appleAppAttestationRoot)
+	if block == nil || block.Type != "CERTIFICATE" || len(bytes.TrimSpace(trailing)) != 0 {
+		return AppleEnrollmentVerifier{}, ErrStoreUnavailable
+	}
+	digest := sha256.Sum256(block.Bytes)
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil || hex.EncodeToString(digest[:]) != appleAppAttestationRootFingerprint ||
+		!cert.IsCA || cert.CheckSignatureFrom(cert) != nil {
+		return AppleEnrollmentVerifier{}, ErrStoreUnavailable
+	}
+	roots := x509.NewCertPool()
+	roots.AddCert(cert)
+	return AppleEnrollmentVerifier{AppID: appID, Roots: roots, Build: build, Development: development}, nil
 }
 
 // Verify authenticates the key against a server-owned, one-use challenge. It

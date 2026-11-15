@@ -11,6 +11,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"math/big"
+	"sync"
 	"testing"
 	"time"
 
@@ -140,4 +141,99 @@ func TestAppleAttestationEnrollmentAuthenticatesAppAndBuild(t *testing.T) {
 			t.Fatal("untrusted key, challenge or certificate accepted", err)
 		}
 	}
+
+	const family = "99998888777766665555444433332222"
+	const other = "00112233445566778899aabbccddeeff"
+	db, journal, _ := fixture(t)
+	ctx := t.Context()
+	registry := AppleCancellationRegistry{Journal: journal, Environment: Sandbox, Verifier: v}
+	challenge, err = registry.BeginEnrollment(ctx, owner, family, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	object := wire(fixtureAppleApp, "8", "appattest", 2, 0)
+	clock := func() time.Time { return now.Add(time.Minute) }
+	if err := registry.Enroll(ctx, owner, other, challenge, keyID, object, liveNativeTestSession, clock); err == nil {
+		t.Fatal("another installation used the enrollment challenge")
+	}
+	if err := registry.Enroll(ctx, owner, family, challenge, keyID, object,
+		func(func() error) error { return ErrPurchaseBinding }, clock); err == nil {
+		t.Fatal("a signed-out installation enrolled its key")
+	}
+	if err := registry.Enroll(ctx, owner, family, challenge, keyID, object, liveNativeTestSession,
+		func() time.Time { return now.Add(appleEnrollmentLifetime) }); err == nil {
+		t.Fatal("an expired enrollment challenge was accepted")
+	}
+	if err := registry.Enroll(ctx, owner, family, challenge, keyID, object, liveNativeTestSession, clock); err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.Enroll(ctx, owner, family, challenge, keyID, object, liveNativeTestSession, clock); err == nil {
+		t.Fatal("the enrollment proof was accepted twice")
+	}
+	challenge, err = registry.BeginEnrollment(ctx, other, family, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	object = wire(fixtureAppleApp, "8", "appattest", 2, 0)
+	if err := registry.Enroll(ctx, other, family, challenge, keyID, object, liveNativeTestSession, clock); err == nil {
+		t.Fatal("the same verified key moved to another account")
+	}
+
+	enrolled, err := registry.EnrolledInstance(ctx, owner, family)
+	if err != nil || enrolled != keyID {
+		t.Fatal("the original installation lost its verified key", err)
+	}
+	changedPolicy := registry
+	changedPolicy.Verifier.Build.Version = "9"
+	if _, err := changedPolicy.EnrolledInstance(ctx, owner, family); !errors.Is(err, ErrPurchaseBinding) {
+		t.Fatal("a changed build inherited the old key enrollment", err)
+	}
+	if _, err := registry.EnrolledInstance(ctx, owner, other); !errors.Is(err, ErrPurchaseBinding) {
+		t.Fatal("a sibling acquired the original installation's key", err)
+	}
+
+	attempt, err := journal.ReserveNative(ctx, owner, family, Sandbox, Apple, Monthly, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cancel, err := journal.LaunchForNativeCancellation(ctx, attempt, owner, family, enrolled, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertion := fixtureAppleAssertion(t, appKey, fixtureAppleApp, cancel, 1, v.Build)
+	authorize := AppleCancellationVerifier{AppID: v.AppID, Keys: registry, Build: v.Build}
+	// Two requests using the same signed Apple counter can both observe the
+	// original key but only one can complete the checkout.
+	var wg sync.WaitGroup
+	results := make(chan error, 2)
+	for range 2 {
+		wg.Go(func() {
+			results <- journal.CompleteNativeCancellation(ctx, cancel, assertion, authorize, liveNativeTestSession, clock)
+		})
+	}
+	wg.Wait()
+	close(results)
+	success := 0
+	for result := range results {
+		if result == nil {
+			success++
+		}
+	}
+	if success != 1 {
+		t.Fatalf("verified cancellation succeeded %d times; want 1", success)
+	}
+	restarted, err := StartRuntime(ctx, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry.Journal = restarted
+	saved, err := registry.CancellationCredential(ctx, cancel)
+	if err != nil || saved.Count != 1 || !saved.PublicKey.Equal(&appKey.PublicKey) {
+		t.Fatal("the replay counter did not survive restart", err)
+	}
+	authorize.Keys = registry
+	if err := authorize.VerifyCancellation(ctx, cancel, assertion); !errors.Is(err, ErrPurchaseBinding) {
+		t.Fatal("a restarted runtime reused an old Apple signature counter", err)
+	}
+
 }

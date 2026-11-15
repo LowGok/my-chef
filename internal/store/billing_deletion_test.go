@@ -40,6 +40,19 @@ func TestBillingDeletionFencesLateProofAndScrubsOnlyTheDeletedOwner(t *testing.T
 	}
 	old := seed(inc, "98701")
 	_ = seed(other, "98702")
+	for i, id := range []string{inc, other} {
+		key := make([]byte, 32)
+		key[0] = byte(i + 1)
+		if _, err := j.store.SQL.ExecContext(ctx, `INSERT INTO billing_apple_attested_keys
+ (incarnation,family,environment,scope,key_id,point,counter) VALUES(?,?,'sandbox',zeroblob(32),?,zeroblob(65),1)`, id, id, key); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := j.store.SQL.ExecContext(ctx, `INSERT INTO billing_apple_enrollments
+ (incarnation,family,environment,scope,digest,issued_ns,expires_ns,generation)
+ VALUES(?,?,'sandbox',zeroblob(32),zeroblob(32),1,2,'synthetic')`, id, id); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if err := b.EnqueueAppleNotice(ctx, billing.AppleNotice{Environment: billing.Sandbox, ID: "99887766-5544-4321-8123-4567890abc01", Binding: old.Binding, Transaction: "98703"}, now); err != nil {
 		t.Fatal(err)
 	}
@@ -103,11 +116,17 @@ func TestBillingDeletionFencesLateProofAndScrubsOnlyTheDeletedOwner(t *testing.T
 		{"SELECT count(*) FROM billing_runtime_proofs WHERE proof=?", old.Transaction},
 		{"SELECT count(*) FROM billing_apple_notices WHERE binding=?", old.Binding},
 		{"SELECT count(*) FROM billing_apple_polls WHERE binding=?", old.Binding},
+		{"SELECT count(*) FROM billing_apple_enrollments WHERE incarnation=?", inc},
+		{"SELECT count(*) FROM billing_apple_attested_keys WHERE incarnation=?", inc},
 	} {
 		var n int
 		if err := j.store.SQL.QueryRowContext(ctx, query.sql, query.arg).Scan(&n); err != nil || n != 0 {
 			t.Fatal("deleted billing material remained", query.sql, err)
 		}
+	}
+	var keptKeys int
+	if err := j.store.SQL.QueryRowContext(ctx, `SELECT count(*) FROM billing_apple_attested_keys WHERE incarnation=? AND counter=1`, other).Scan(&keptKeys); err != nil || keptKeys != 1 {
+		t.Fatal("deletion removed the other account's attested key", err)
 	}
 	var markers int
 	if err := j.store.SQL.QueryRowContext(ctx, `SELECT count(*) FROM billing_replay_markers WHERE length(digest)=32`).Scan(&markers); err != nil || markers < 3 {
