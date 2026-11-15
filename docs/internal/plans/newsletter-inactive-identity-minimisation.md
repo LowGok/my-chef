@@ -1,6 +1,7 @@
 ---
-status: planned
-status_description: "Owner accepted R-2 baseline fa1881e; nineteen tasks are prepared. Fresh-main spec review precedes claim publication, and code waits for the runtime signed delivery."
+status: in-progress
+status_description: "Proposed claim after accepted R-2 and clean fresh-main R-3 review. Nineteen tasks remain; code waits for signed runtime delivery and this claim merged on main."
+branch: feat/newsletter-inactive-identity-minimisation
 issue: null
 goal: "Inactive newsletter contacts retain their userID and non-consenting state without unnecessary clear email or expired mail/proof history."
 covers:
