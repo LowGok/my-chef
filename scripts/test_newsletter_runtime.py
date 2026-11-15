@@ -130,6 +130,14 @@ def main():
         seed_env = dict(env, MYCHEF_NEWSLETTER_REHEARSAL_DIR=directory)
         run("go", "test", "./cmd/mychef", "-run", "^TestNewsletterRehearsalSeed$", "-count=1", settings=seed_env)
         authority = json.loads((state / "authority.json").read_text())
+        original_keys = keys.read_bytes()
+        changed_keys = json.loads(original_keys)
+        changed_keys["rate_key"] = key()
+        replaced = state / "changed-keys.json"
+        replaced.write_text(json.dumps(changed_keys))
+        run(binary, "newsletter", "serve", settings=dict(env, MYCHEF_EMAIL_PROOF_KEYS_FILE=str(replaced)), ok=False)
+        checks.append("changed stable key refuses startup without rebinding")
+
         with server() as settings:
             report = call("/internal/newsletter/readiness")
             assert report["role"] == "newsletter" and report["mode"] == "fixture" and not report["ready"]
@@ -159,6 +167,23 @@ def main():
             assert sql("SELECT user_id FROM users WHERE email_key='captured@runtime.example.test'")[0][0] == captured
             assert sql("SELECT attempts FROM email_outbox WHERE recipient='captured@runtime.example.test'") == [(1,)]
             call("/api/v1/newsletter/unsubscribe", {"proof": authority["pending"]["unsubscribe"]})
+            # Prove the actual one-minute scheduler, rather than a direct sweep
+            # helper. The still-authorized captured contact is the control.
+            deadline = time.monotonic() + 80
+            while time.monotonic() < deadline:
+                reduced = sql("SELECT newsletter_minimised,email,email_key,username FROM users WHERE user_id=?",
+                              (authority["pending"]["userID"],))
+                flags = sql("SELECT physical_cleanup_pending,legacy_vacuum_pending FROM newsletter_identity_namespace")
+                if reduced == [(1, None, None, None)] and flags == [(0, 0)]:
+                    break
+                time.sleep(.25)
+            else:
+                raise AssertionError("one-minute inactive cleanup did not complete")
+            for suffix in ("", "-wal", "-shm"):
+                active = Path(str(db) + suffix)
+                assert not active.exists() or b"pending@runtime.example.test" not in active.read_bytes(), "obsolete plaintext in active files"
+            assert sql("SELECT user_id FROM users WHERE email_key='captured@runtime.example.test'") == [(captured,)]
+        checks.append("actual one-minute cleanup, active-file removal and authorized control")
         checks.append("backend-only activation, fake dispatch, stable ID/restart, pause and withdrawal")
         target = authority["erased"]
         actor = json.dumps(target["authority"]).encode()
@@ -173,14 +198,14 @@ def main():
             assert sql("SELECT count(*) FROM users WHERE user_id=?", (target["userID"],), restored) == [(0,)]
             for name in ("pending", "withdrawn"):
                 item = authority[name]
-                assert sql("SELECT status FROM newsletter_subscriptions WHERE user_id=?", (item["userID"],), restored) == [("pending",)]
+                assert sql("SELECT status FROM newsletter_subscriptions WHERE user_id=?", (item["userID"],), restored) == [("unsubscribed",)]
                 for action in ("confirm", "unsubscribe"):
                     # Consumed withdrawal is an idempotent acknowledgement; it
                     # must have no authority to mutate the restored subscription.
                     call("/api/v1/newsletter/" + action, {"proof": item[action]},
                          expected=400 if action == "confirm" else 200)
                     assert sql("SELECT status FROM newsletter_subscriptions WHERE user_id=?",
-                               (item["userID"],), restored) == [("pending",)]
+                               (item["userID"],), restored) == [("unsubscribed",)]
             assert sql("SELECT count(*) FROM email_outbox WHERE state IN ('queued','sending')", database=restored) == [(0,)]
         checks.append("protected export/erase, authoritative restore replay and old-link suppression")
         # A wrong-purpose queue row stops the actual role worker and capture.

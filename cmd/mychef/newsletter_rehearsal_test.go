@@ -38,6 +38,10 @@ func TestNewsletterRehearsalSeed(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer unlock()
+	identityKey, err := store.DeriveNewsletterIdentityKey(cfg.rateKey)
+	if err != nil || db.ConfigureNewsletterIdentity(t.Context(), identityKey) != nil {
+		t.Fatal("explicit matching namespace unavailable")
+	}
 	journal, err := db.OpenLifecycleJournal(t.Context(), cfg.app.LifecycleDatabase)
 	if err != nil {
 		t.Fatal(err)

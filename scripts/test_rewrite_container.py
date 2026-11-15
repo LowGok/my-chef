@@ -98,6 +98,15 @@ def main() -> None:
                     "internal/http/newsletter.go", "internal/store/newsletter.go", "internal/store/newsletter_lifecycle.go",
                     "cmd/mychef/newsletter.go", "cmd/mychef/newsletter_runtime.go",
                     "cmd/mychef/newsletter_serve.go", "internal/config/newsletter_email.go"}.issubset(paths), "newsletter runtime inputs were excluded"
+            required_minimisation_inputs = {
+                "migrations/027_newsletter_identity_minimisation.sql",
+                "internal/store/account_restore.go", "internal/store/newsletter_minimisation_schema.go",
+                "internal/store/newsletter_identity.go", "internal/store/newsletter_identity_journal.go",
+                "internal/store/newsletter_identity_transaction.go", "internal/store/newsletter_identity_backfill.go",
+                "internal/store/newsletter_file_cleanup.go", "internal/newsletter/minimisation.go",
+                "internal/newsletter/maintenance.go", "internal/email/mailqueue/account_expiry.go",
+            }
+            assert required_minimisation_inputs.issubset(paths), "newsletter minimisation runtime inputs were excluded"
             required_analytics_inputs = {
                 "cmd/mychef/analytics.go", "internal/analytics/contract.go",
                 "internal/analytics/delivery.go", "internal/analytics/worker.go",
@@ -171,8 +180,6 @@ def main() -> None:
                        "--mount", f"type=volume,src={role_journal},dst=/journal",
                        "--mount", f"type=bind,src={newsletter_credentials},dst=/run/secrets/newsletter.json,readonly",
                        "--mount", f"type=bind,src={email['MYCHEF_EMAIL_PROOF_KEYS_FILE']},dst=/run/secrets/proofs.json,readonly"]
-        run("run", "--rm", *options, "--network=none", *role_mounts, "--entrypoint", "/app/mychef-migrate",
-            image, "up", "--db", "/data/mychef.db", "--lifecycle-db", "/journal/mychef.lifecycle")
         with socket.socket() as role_socket:
             role_socket.bind(("127.0.0.1", 0))
             role_port = role_socket.getsockname()[1]
@@ -185,6 +192,9 @@ def main() -> None:
             "MYCHEF_NEWSLETTER_PENDING_DAYS": "none", "MYCHEF_NEWSLETTER_WITHDRAWN_DAYS": "none",
             "MYCHEF_NEWSLETTER_OPERATIONS_READY": "1", "MYCHEF_NEWSLETTER_COLLECT": "0"}
         role_flags = [part for name, value in role_settings.items() for part in ("--env", f"{name}={value}")]
+        run("run", "--rm", *options, "--network=none", *role_mounts, *role_flags,
+            "--entrypoint", "/app/mychef-migrate", image, "up", "--db", "/data/mychef.db",
+            "--lifecycle-db", "/journal/mychef.lifecycle")
         role_container = output("run", "--detach", *options, "--network=host", *role_mounts, *role_flags,
                                 image, "newsletter", "serve")
         containers.append(role_container)
