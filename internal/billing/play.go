@@ -15,6 +15,11 @@ import (
 
 const playAPI = "https://androidpublisher.googleapis.com/androidpublisher/v3/applications/"
 
+const (
+	playMonthlyEUR = 699
+	playAnnualEUR  = 6990
+)
+
 var (
 	playPackage  = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)+$`)
 	playProduct  = regexp.MustCompile(`^[a-z0-9][a-z0-9_.-]{0,127}$`)
@@ -205,11 +210,11 @@ func (p *PlayProvider) verify(ctx context.Context, token string, initial bool, p
 		line.Promotion != nil || line.Offer.OfferID != "" || !solePlayPhase(line.Phase, "basePrice") {
 		return ProviderProof{}, ErrPurchaseBinding
 	}
-	interval, price := Monthly, int64(699)
+	interval, price := Monthly, int64(playMonthlyEUR)
 	switch line.Offer.BasePlan {
 	case p.cfg.MonthlyBasePlan:
 	case p.cfg.AnnualBasePlan:
-		interval, price = Annual, 6990
+		interval, price = Annual, playAnnualEUR
 	default:
 		return ProviderProof{}, ErrPurchaseBinding
 	}

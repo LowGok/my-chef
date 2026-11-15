@@ -78,8 +78,27 @@ func TestPlaySandboxRequiresPrivateFixtureAndSeparateExpiringCredentials(t *test
 	defer cancel()
 	publisherChecks, pubsubChecks := make(chan bool, 1), make(chan bool, 1)
 	const fakeReceipt = "synthetic-play-proof-check"
+	const catalogPath = "/androidpublisher/v3/applications/" + playPreviewPackage + "/subscriptions/fixture-premium"
+	const approvedCatalog = `{"packageName":"` + playPreviewPackage + `","productId":"fixture-premium","basePlans":[
+		{"basePlanId":"monthly","state":"ACTIVE","autoRenewingBasePlanType":{"billingPeriodDuration":"P1M","gracePeriodDuration":"P0D"},
+		 "regionalConfigs":[{"regionCode":"BE","newSubscriberAvailability":true,"price":{"currencyCode":"EUR","units":"6","nanos":990000000}}]},
+		{"basePlanId":"annual","state":"ACTIVE","autoRenewingBasePlanType":{"billingPeriodDuration":"P1Y","gracePeriodDuration":"P0D"},
+		 "regionalConfigs":[{"regionCode":"BE","newSubscriberAvailability":true,"price":{"currencyCode":"EUR","units":"69","nanos":900000000}}]}]}`
+	catalog := approvedCatalog
+	catalogReads := 0
 	client := &http.Client{Transport: appleFixtureTransport(func(req *http.Request) (*http.Response, error) {
 		if req.URL.Host == "androidpublisher.googleapis.com" {
+			if req.URL.Path == catalogPath || req.URL.Path == catalogPath+"/basePlans/-/offers" {
+				catalogReads++
+				if req.Method != "GET" || req.Header.Get("Authorization") != "Bearer "+publisher {
+					t.Fatal("Sandbox catalog read used the wrong scope")
+				}
+				payload := "{}"
+				if req.URL.Path == catalogPath {
+					payload = catalog
+				}
+				return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(payload))}, nil
+			}
 			select {
 			case publisherChecks <- req.Method == "GET" &&
 				req.URL.Path == "/androidpublisher/v3/applications/"+playPreviewPackage+"/purchases/subscriptionsv2/tokens/"+fakeReceipt &&
@@ -101,6 +120,9 @@ func TestPlaySandboxRequiresPrivateFixtureAndSeparateExpiringCredentials(t *test
 	if err != nil || native == nil || service == nil || native.CheckoutEnabled || native.PlayCheckoutEnabled ||
 		!native.SyntheticAccountsOnly || native.Environment != billing.Sandbox || native.Play == nil || !native.Available() {
 		t.Fatal("default Play mode did not start with checkout disabled", err)
+	}
+	if catalogReads != 0 {
+		t.Fatal("recovery-only Sandbox checked the sales catalog")
 	}
 	if len(native.Offers) != 2 || !native.Play.Offers(billing.Offer{App: playPreviewPackage, Product: "fixture-premium",
 		BasePlan: "annual", Store: billing.Play, Environment: billing.Sandbox, Interval: billing.Annual}) {
@@ -168,9 +190,17 @@ func TestPlaySandboxRequiresPrivateFixtureAndSeparateExpiringCredentials(t *test
 	if err != nil || licensed == nil || !licensed.checkout {
 		t.Fatal("explicit testing stage could not be prepared offline", err)
 	}
-	native, _, err = licensed.start(t.Context(), j, client, nil)
+	catalog = strings.Replace(approvedCatalog, "900000000", "990000000", 1)
+	var health billing.PlayWorkerHealth
+	native, _, err = licensed.start(t.Context(), j, client, func(v billing.PlayWorkerHealth) { health = v })
+	if err != nil || native == nil || !native.Available() || native.Play == nil || native.CheckoutEnabled || native.PlayCheckoutEnabled ||
+		health.Stage != billing.PlayCatalogStage || !health.Degraded {
+		t.Fatal("mismatched price did not block checkout and preserve recovery", err)
+	}
+	catalog = approvedCatalog
+	native, _, err = licensed.start(t.Context(), j, client, func(v billing.PlayWorkerHealth) { health = v })
 	if err != nil || native == nil || !native.CheckoutEnabled || !native.PlayCheckoutEnabled ||
-		native.Environment != billing.Sandbox || !native.SyntheticAccountsOnly {
+		native.Environment != billing.Sandbox || !native.SyntheticAccountsOnly || catalogReads != 3 || health.Degraded {
 		t.Fatal("explicit fixture checkout escaped licensed Sandbox limits", err)
 	}
 }

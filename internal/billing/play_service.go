@@ -15,9 +15,10 @@ const (
 type PlayStage string
 
 const (
-	PlayPullStage   PlayStage = "play_notice_pull"
-	PlayNoticeStage PlayStage = "play_notice_queue"
-	PlayKnownStage  PlayStage = "play_known_subscriptions"
+	PlayCatalogStage PlayStage = "play_sandbox_catalog"
+	PlayPullStage    PlayStage = "play_notice_pull"
+	PlayNoticeStage  PlayStage = "play_notice_queue"
+	PlayKnownStage   PlayStage = "play_known_subscriptions"
 )
 
 // PlayWorkerHealth contains aggregate status only. Stage reports can be called

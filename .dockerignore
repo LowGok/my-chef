@@ -339,6 +339,7 @@ internal/billing/**
 !internal/http/native_billing_attest.go
 !internal/billing/apple.go
 !internal/billing/play.go
+!internal/billing/play_catalog.go
 !internal/billing/play_pull.go
 !internal/billing/play_inbox.go
 !internal/billing/play_worker.go

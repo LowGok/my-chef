@@ -153,7 +153,16 @@ func (mode *playBillingSandbox) start(ctx context.Context, journal *store.Lifecy
 	if err != nil {
 		return nil, nil, errPlaySandbox
 	}
+	checkout := false
+	if mode.checkout {
+		catalogCtx, cancel := context.WithDeadline(ctx, mode.expires)
+		checkout = provider.CheckSandboxCheckoutCatalog(catalogCtx) == nil && available()
+		cancel()
+		if report != nil {
+			report(billing.PlayWorkerHealth{Stage: billing.PlayCatalogStage, Degraded: !checkout})
+		}
+	}
 	return &httpapi.NativeBilling{Journal: protected, Environment: billing.Sandbox, Offers: offers,
-		Available: available, SyntheticAccountsOnly: true, CheckoutEnabled: mode.checkout, PlayCheckoutEnabled: mode.checkout,
+		Available: available, SyntheticAccountsOnly: true, CheckoutEnabled: checkout, PlayCheckoutEnabled: checkout,
 		Play: inbox}, service, nil
 }
