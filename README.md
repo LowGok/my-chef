@@ -148,6 +148,18 @@ protected credential file and the Sites server environment. Preserve the rate
 key through key rotation because it binds durable rate and erasure records.
 Retain encryption keys needed by outstanding protected messages and proposals.
 
+Newsletter-only sender overrides use `newsletter_email_from` and optional
+`newsletter_email_reply_to` in that protected JSON. The selected MyChef values
+are `MyChef <newsletter@mychef.dev>` and `feedback@gkldevelopment.com`.
+They apply only to the six newsletter confirmation/withdrawal templates.
+App/security mail continues using `email_from` and `email_reply_to`.
+With no newsletter From, the legacy shared profile is preserved. With an explicit
+newsletter From, an absent newsletter Reply-To is omitted instead of inheriting
+the app Reply-To. A newsletter Reply-To without its From is invalid. Existing
+attempted mail stops rather than retrying under a changed effective sender,
+Reply-To or provider credential. Fixture mode can load the same override while
+still using its fake sender; tests never need real recipient delivery.
+
 The authenticated backend accepts only the newsletter JSON contracts through
 `POST /api/v1/newsletter/subscribe`, `/confirm` and `/unsubscribe`. The Sites
 Worker supplies the fixed canonical Origin and trusted source address. The
