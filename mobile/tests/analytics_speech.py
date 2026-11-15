@@ -136,6 +136,9 @@ class Speech:
             self.capture = None
 
     def operate(self, operation, target):
+        if operation == 'speech-gesture':
+            from analytics_touch import gesture
+            return gesture(target, self.native)
         if target not in TARGETS:
             raise ValueError('Unknown closed speech target')
         if operation == 'speech-start':

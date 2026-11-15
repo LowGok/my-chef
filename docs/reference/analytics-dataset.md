@@ -784,8 +784,13 @@ functional/layout lane and does not establish speech behavior on every OS versio
 
 A speech-only supplement can pass while primary journeys are unavailable, but
 then the combined full receipt is withheld. A complete receipt requires all
-primary observations and matching same-artifact speech evidence. Android reports
-whether TalkBack/TTS are installed; an accessibility node alone never sets speech
+primary observations and matching same-artifact speech evidence. Android uses
+stock TalkBack speaker output with checksum-pinned local recognition;
+raw audio and transcripts stay on the disposable runner. Missing speech can be
+refocused at most three times per unchanged control, with attempt counts retained.
+TalkBack taps/swipes use the emulator hardware-event console so Android processes
+its accessibility input filter; native focus order and UI/server acknowledgement
+remain required. An accessibility node alone never sets speech
 flags. Record exact runtimes and results before closing the criterion. These
 checks authorize no device signing, store distribution, beta operation, live
 migration or collection.

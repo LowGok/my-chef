@@ -131,6 +131,7 @@ final class AnalyticsProbe: XCTestCase {
         XCTAssertTrue(element.isHittable, "Control must be reachable at OS text size")
     }
     func tapSettled(_ element: XCUIElement) {
+        if !element.exists || !element.isHittable { reveal(element) }
         let end = Date().addingTimeInterval(20)
         var previous = CGRect.null
         var unchanged = 0
@@ -463,7 +464,7 @@ final class AnalyticsProbe: XCTestCase {
                 // Reserve time for both directions if the first reaches a
                 // boundary without throwing or changing its announcement.
                 let deadline = Date().addingTimeInterval(45)
-                for _ in 0..<32 {
+                for _ in 0..<64 {
                     if Date() >= deadline { break }
                     let output = observe { try (reverse ? voice.moveBackward() : voice.moveForward()).utterance }
                     guard let output = output else {
@@ -474,6 +475,8 @@ final class AnalyticsProbe: XCTestCase {
                         continue
                     }
                     if matches(output) { return output }
+                    if words(output).contains("web content"),
+                       let entered = observe({ try voice.moveIn().utterance }), matches(entered) { return entered }
                 }
             }
             // Only fixed app vocabulary, never arbitrary speech or fields.
@@ -482,11 +485,13 @@ final class AnalyticsProbe: XCTestCase {
             throw Failure.missingControl
         }
         func focusSpeech(_ element: XCUIElement, _ phrase: String) throws -> String {
-            XCTAssertTrue(element.exists && element.isHittable, "Spoken control must be in the visible native tree")
-            // A real single-finger touch explores the visible WebKit element.
-            // This anchors VoiceOver inside its content before sequential moves.
-            element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
-            let control = [XCUIElement.ElementType.button, .switch, .checkBox, .link, .disclosureTriangle].contains(element.elementType)
+            // Enabling VoiceOver may scroll to its current focus. Use a real
+            // visible touch anchor when available; otherwise let VoiceOver's
+            // own navigation reach and scroll to the required announcement.
+            if element.exists && element.isHittable {
+                element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+            }
+            let control = ["Help improve MyChef", "Save preferences", "Refresh analytics setting"].contains(phrase)
             return try spoken(phrase, backward: control, controlRole: control)
         }
         func state(_ utterance: String) -> String {

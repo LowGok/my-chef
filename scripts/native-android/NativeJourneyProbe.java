@@ -379,62 +379,28 @@ public final class NativeJourneyProbe extends Instrumentation {
     private void speechToggle(String before) throws Exception {
         speechTouchMode();
         speechFocus(before);
-        UiAutomation automation = interactiveWindows();
-        int[] origin = new int[2], size = new int[2];
-        runOnMainSync(() -> { web.getLocationOnScreen(origin); size[0] = web.getWidth(); size[1] = web.getHeight(); });
-        SystemClock.sleep(350);
-        // TalkBack routes a real double tap to the accessibility-focused node.
-        for (int tap = 0; tap < 2; tap++) {
-            long down = SystemClock.uptimeMillis();
-            for (int action : new int[]{MotionEvent.ACTION_DOWN, MotionEvent.ACTION_UP}) {
-                MotionEvent event = MotionEvent.obtain(down, SystemClock.uptimeMillis(), action,
-                    origin[0] + size[0] * .5f, origin[1] + size[1] * .4f, 0);
-                event.setSource(InputDevice.SOURCE_TOUCHSCREEN);
-                // Waiting for each dispatch can stretch a double tap into
-                // separate explore taps on a hosted emulator. Inject this
-                // real gesture asynchronously; the caller verifies its effect.
-                try {
-                    if (!automation.injectInputEvent(event, false)) throw new IllegalStateException("input-denied");
-                } finally { event.recycle(); }
-                SystemClock.sleep(30);
-            }
-            SystemClock.sleep(80);
-        }
+        // The coordinator now sends the hardware gesture through the
+        // emulator console. UiAutomation injection bypasses InputFilter.
     }
 
     private void speechOrder() throws Exception {
         speechTouchMode();
-        speechFocus("on");
         UiAutomation automation = interactiveWindows();
         boolean status = false;
-        int[] origin = new int[2], size = new int[2];
-        runOnMainSync(() -> { web.getLocationOnScreen(origin); size[0] = web.getWidth(); size[1] = web.getHeight(); });
-        for (int step = 0; step < 20; step++) {
-            // Real TalkBack swipe-next gesture, rather than direct focus of the
-            // desired later control. The intervening status must precede Refresh.
-            float y = size[1] * .5f;
-            long down = SystemClock.uptimeMillis();
-            for (int move = 0; move <= 8; move++) {
-                int action = move == 0 ? MotionEvent.ACTION_DOWN : move == 8 ? MotionEvent.ACTION_UP : MotionEvent.ACTION_MOVE;
-                MotionEvent event = MotionEvent.obtain(down, SystemClock.uptimeMillis(), action,
-                    origin[0] + size[0] * (.3f + .4f * move / 8), origin[1] + y, 0);
-                event.setSource(InputDevice.SOURCE_TOUCHSCREEN);
-                try {
-                    if (!automation.injectInputEvent(event, false)) throw new IllegalStateException("input-denied");
-                } finally { event.recycle(); }
-                SystemClock.sleep(25);
-            }
-            SystemClock.sleep(500);
+        long end = SystemClock.uptimeMillis() + 22_000;
+        while (SystemClock.uptimeMillis() < end) {
             AccessibilityNodeInfo root = speechWindow(automation);
             AccessibilityNodeInfo focused = root == null ? null : root.findFocus(AccessibilityNodeInfo.FOCUS_ACCESSIBILITY);
-            if (focused == null) continue;
-            String text = String.valueOf(focused.getText()).strip();
-            String description = String.valueOf(focused.getContentDescription()).strip();
-            if (text.equals("On") || description.equals("On")) status = true;
-            if (text.equals("Refresh analytics setting") || description.equals("Refresh analytics setting")) {
-                if (status) return;
-                throw new IllegalStateException("accessibility-controls");
+            if (focused != null) {
+                String text = String.valueOf(focused.getText()).strip();
+                String description = String.valueOf(focused.getContentDescription()).strip();
+                if (text.equals("On") || description.equals("On")) status = true;
+                if (text.equals("Refresh analytics setting") || description.equals("Refresh analytics setting")) {
+                    if (status) return;
+                    throw new IllegalStateException("accessibility-controls");
+                }
             }
+            SystemClock.sleep(100);
         }
         throw new IllegalStateException("accessibility-controls");
     }

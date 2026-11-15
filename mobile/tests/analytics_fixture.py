@@ -97,7 +97,7 @@ class Fixture:
         if type(value) is not dict or set(value) - {'operation', 'enabled', 'recipient', 'target'}:
             raise ValueError('Invalid fixture controller request')
         op = value.get('operation')
-        if op in ('speech-start', 'speech-stop'):
+        if op in ('speech-start', 'speech-stop', 'speech-gesture'):
             if self.speech is None or set(value) != {'operation', 'target'}:
                 raise ValueError('Speech observation unavailable')
             return self.speech.operate(op, value['target'])
@@ -221,7 +221,7 @@ class Fixture:
                     status = 200
                 except (ValueError, RuntimeError, OSError) as error:
                     operation = request.get('operation') if type(request) is dict else None
-                    closed = {'proof', 'approved', 'speech-start', 'speech-stop', 'preference', 'counts',
+                    closed = {'proof', 'approved', 'speech-start', 'speech-stop', 'speech-gesture', 'preference', 'counts',
                               'tick', 'backup', 'maintenance', 'other-session-choice', 'offline', 'online',
                               'foreign-export', 'verify-native-export'}
                     operation = operation if isinstance(operation, str) and operation in closed else 'unknown'
@@ -229,7 +229,10 @@ class Fixture:
                               'Fixture signup inbox refused': 'proof-inbox',
                               'Speaker capture is silent or outside bounds': 'speech-audio',
                               'Speech capture timeline mismatch': 'speech-timeline',
-                              'Offline model changed': 'speech-model'}.get(str(error), 'refused')
+                              'Offline model changed': 'speech-model',
+                              'Expected one emulator touch device': 'touch-device',
+                              'Emulator console authentication refused': 'touch-console-auth',
+                              'Emulator hardware command refused': 'touch-console-command'}.get(str(error), 'refused')
                     print('Analytics fixture refusal: operation=' + operation + ' reason=' + reason, flush=True)
                     status, body = 409, b'{"error":"fixture_operation_refused"}'
                 self.send_response(status)

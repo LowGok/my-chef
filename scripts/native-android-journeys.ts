@@ -1161,7 +1161,8 @@ async function analyticsJourneys() {
     | "verify-native-export"
     | "foreign-export"
     | "speech-start"
-    | "speech-stop",
+    | "speech-stop"
+    | "speech-gesture",
     { passed: boolean }
   >;
   async function fixture<K extends keyof FixtureReplies>(
@@ -1266,8 +1267,24 @@ async function analyticsJourneys() {
       for (let attempt = 1; attempt <= 3; attempt++) {
         await fixture("speech-start", { target });
         const focus = target === "order" ? "on" : target.replace("signup-", "");
-        await probeAction(target === "order" ? "speech-order" : "speech-focus", focus);
-        await Bun.sleep(16000);
+        await probeAction("speech-focus", focus);
+        if (target === "order") {
+          let complete = false;
+          let failure: unknown;
+          const observed = probeAction("speech-order", "on").then(
+            () => { complete = true; },
+            (error: unknown) => { complete = true; failure = error; },
+          );
+          await Bun.sleep(350);
+          try {
+            for (let step = 0; step < 20 && !complete; step++) {
+              await fixture("speech-gesture", { target: "next" });
+              await Bun.sleep(500);
+            }
+          } finally { await observed; }
+          if (failure) throw failure;
+        }
+        await Bun.sleep(target === "order" ? 6500 : 16000);
         try {
           expect((await fixture("speech-stop", { target })).passed).toBe(true);
           return;
@@ -1284,6 +1301,7 @@ async function analyticsJourneys() {
   async function voiceToggle(before: "on" | "off") {
     await withTalkBack(toggle(), async () => {
       await probeAction("speech-toggle", before);
+      await fixture("speech-gesture", { target: "double-tap" });
       await Bun.sleep(400);
     });
   }
