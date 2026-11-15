@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"strconv"
+	"syscall"
 	"time"
 
 	"github.com/LowGok/my-chef/internal/auth"
@@ -18,6 +20,15 @@ import (
 )
 
 func runNewsletter(args []string, input io.Reader, output, diagnostics io.Writer) int {
+	if len(args) == 1 && args[0] == "serve" {
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		if err := serveNewsletter(ctx); err != nil {
+			_, _ = fmt.Fprintln(diagnostics, "Newsletter service unavailable.")
+			return 1
+		}
+		return 0
+	}
 	if len(args) == 0 || args[0] != "export" && args[0] != "erase" {
 		return 2
 	}
