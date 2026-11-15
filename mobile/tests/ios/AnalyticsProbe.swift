@@ -85,14 +85,22 @@ final class AnalyticsProbe: XCTestCase {
             }
         }
         XCTAssertTrue(exists, "Expected installed app control")
-        for _ in 0..<8 {
+        for _ in 0..<12 {
             if element.isHittable { return }
-            app.swipeUp()
+            // Keep the content gesture above the software keyboard. A whole-
+            // screen swipe can land entirely on the keyboard on a small phone.
+            let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4))
+            let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15))
+            start.press(forDuration: 0.05, thenDragTo: end)
         }
         XCTAssertTrue(element.isHittable, "Control must be reachable at OS text size")
     }
     func tap(_ label: String) {
         print("Analytics iOS control: " + label)
+        if app.keyboards.firstMatch.exists {
+            let done = app.buttons.matching(NSPredicate(format: "label == %@", "Done")).firstMatch
+            if done.exists && done.isHittable { done.tap() }
+        }
         let element = app.descendants(matching: .any).matching(NSPredicate(format:
             "label == %@ AND (elementType == %d OR elementType == %d OR elementType == %d OR elementType == %d)", label,
             XCUIElement.ElementType.button.rawValue, XCUIElement.ElementType.switch.rawValue,

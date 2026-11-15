@@ -371,7 +371,7 @@ public final class NativeJourneyProbe extends Instrumentation {
         } catch (Exception error) {
             Bundle failure = new Bundle(); failure.putString("probe", "failed");
             String reason = error.getMessage();
-            failure.putString("probeReason", reason != null && reason.matches("launch|webview|pinch-disabled|probe-timeout|native-control|native-window-(?:unfocused|bounds)|control-timeout|input-denied|picker-(?:window|target|activation|confirmation|return)|accessibility-controls") ? reason : "instrumentation");
+            failure.putString("probeReason", reason != null && reason.matches("launch|webview|pinch-disabled|probe-timeout|native-control|native-window-(?:unfocused|bounds)|control-(?:timeout|target|geometry|viewport|outside-viewport|outside-webview|screen-bounds)|input-denied|picker-(?:window|target|activation|confirmation|return)|accessibility-controls") ? reason : "instrumentation");
             finish(Activity.RESULT_CANCELED, failure);
         } finally {
             runOnMainSync(() -> WebView.setWebContentsDebuggingEnabled(false));

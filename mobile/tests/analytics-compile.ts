@@ -1,4 +1,5 @@
 // Dedicated unsigned verification entry point. It never fabricates PR events.
+import { authorizedAnalyticsCI } from "./analytics-ci";
 import { readFile, mkdir, copyFile, writeFile } from "node:fs/promises";
 import { resolve, join } from "node:path";
 import { createHash } from "node:crypto";
@@ -18,17 +19,7 @@ const platform = process.env.NATIVE_PLATFORM;
 const event = JSON.parse(
   await readFile(process.env.GITHUB_EVENT_PATH!, "utf8"),
 );
-if (
-  process.env.GITHUB_EVENT_NAME !== "push" ||
-  process.env.GITHUB_ACTIONS !== "true" ||
-  process.env.GITHUB_REPOSITORY !== "LowGok/my-chef" ||
-  event.repository?.id !== 1454481532 ||
-  event.repository?.private !== false ||
-  event.sender?.login !== "LowGok" ||
-  event.ref !== "refs/heads/ci/analytics-installed-b9e9699" ||
-  event.after !== process.env.GITHUB_SHA ||
-  !["android", "ios-simulator"].includes(platform ?? "")
-)
+if (!authorizedAnalyticsCI(event, process.env))
   throw Error("Analytics verification authorization refused");
 const env = { ...process.env, CI: "1", CAPACITOR_TELEMETRY_DISABLED: "1" };
 if (platform === "android") {

@@ -180,7 +180,7 @@ async function probeAction(
         const reason = log.match(
           /INSTRUMENTATION_RESULT: probeReason=([a-z-]{1,50})\b/,
         )?.[1];
-        if (reason) throw Error("Disposable OS probe refused: " + reason);
+        if (reason) throw Error("Disposable OS probe refused: " + reason + "; control " + kind + " " + name);
         try {
           return adb("shell", "run-as", app, "cat", "cache/native-check-done");
         } catch {
@@ -195,6 +195,7 @@ async function probeAction(
     .toBe(sequence);
 }
 async function activateControl(control: Locator, name: string) {
+  console.log("Installed Android control: " + name);
   await expect(
     control,
     name + " must be visible for a native tap",
@@ -238,7 +239,12 @@ async function activateControl(control: Locator, name: string) {
             rect.left + rect.width / 2,
             rect.top + rect.height / 2,
           );
-          return Boolean(target && node.contains(target));
+          const viewport = visualViewport;
+          const x = rect.left + rect.width / 2 - (viewport?.offsetLeft ?? 0);
+          const y = rect.top + rect.height / 2 - (viewport?.offsetTop ?? 0);
+          return Boolean(target && node.contains(target)
+            && x >= 0 && y >= 0 && x < (viewport?.width ?? innerWidth)
+            && y < (viewport?.height ?? innerHeight));
         }),
       { message: name + " must own its center point in the native WebView" },
     )

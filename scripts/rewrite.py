@@ -85,6 +85,8 @@ def main() -> None:
         run("go", "build", "-trimpath", "-buildvcs=false", "-o", str(CACHE / "mychef-migrate"), "./cmd/mychef-migrate")
     elif command == "test":
         run("python3", "scripts/test_native_verification.py")
+        run("python3", "scripts/test_analytics_ci.py")
+        run("python3", "mobile/tests/test_analytics_fixture.py")
         run("go", "test", "./...")
         run("bun", "--bun", "./node_modules/typescript/bin/tsc", "--noEmit",
             "--module", "preserve", "--moduleResolution", "bundler", "--target", "ESNext",
@@ -96,11 +98,13 @@ def main() -> None:
             "../scripts/mobile-hosted.test.ts",
             "../scripts/native-android-journeys.ts",
             "../scripts/native-android-report.ts", "../scripts/native-android-report.test.ts",
+            "../mobile/tests/analytics-ci.ts", "../mobile/tests/analytics-ci.test.ts",
             "generate.ts", "../scripts/generate-api.test.ts", web=True)
         run("bun", "test", "src", "../scripts/audit-web.test.ts",
             "../scripts/generate-api.test.ts", "../scripts/mobile-build.test.ts",
             "../scripts/mobile-java.test.ts", "../scripts/mobile-delivery.test.ts",
-            "../scripts/mobile-hosted.test.ts", "../scripts/native-android-report.test.ts", web=True)
+            "../scripts/mobile-hosted.test.ts", "../scripts/native-android-report.test.ts",
+            "../mobile/tests/analytics-ci.test.ts", web=True)
     elif command == "lint":
         run("go", "vet", "./...")
         run("golangci-lint", "config", "verify")

@@ -20,14 +20,25 @@ import analytics_ios
 
 
 def authorized(event, environment):
-    return (environment.get('GITHUB_ACTIONS') == 'true'
+    if not isinstance(event, dict) or not isinstance(environment, dict):
+        return False
+    repository, sender = event.get('repository'), event.get('sender')
+    revision = environment.get('GITHUB_SHA')
+    if not isinstance(repository, dict) or not isinstance(sender, dict):
+        return False
+    return (isinstance(revision, str) and re.fullmatch(r'[a-f0-9]{40}', revision) is not None
+            and environment.get('GITHUB_ACTIONS') == 'true'
             and environment.get('GITHUB_EVENT_NAME') == 'push'
             and environment.get('GITHUB_REPOSITORY') == 'LowGok/my-chef'
-            and event.get('repository', {}).get('id') == 1454481532
-            and event.get('repository', {}).get('private') is False
-            and event.get('sender', {}).get('login') == 'LowGok'
+            and environment.get('GITHUB_ACTOR') == 'LowGok'
+            and repository.get('id') == 1454481532
+            and repository.get('full_name') == 'LowGok/my-chef'
+            and repository.get('private') is False
+            and sender.get('login') == 'LowGok'
+            and event.get('deleted') is False
             and event.get('ref') == 'refs/heads/ci/analytics-installed-b9e9699'
-            and event.get('after') == environment.get('GITHUB_SHA')
+            and environment.get('GITHUB_REF') == event['ref']
+            and event.get('after') == revision
             and environment.get('NATIVE_PLATFORM') in ('android', 'ios-simulator'))
 
 
