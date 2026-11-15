@@ -151,6 +151,9 @@ public class MyChefNativePlugin: CAPPlugin, CAPBridgedPlugin, URLSessionDataDele
                 snapshot["billingChanged"] = true
                 purchaseUpdated = false
             }
+            let traits = bridge?.webView?.traitCollection
+            let scaled = UIFontMetrics(forTextStyle: .body).scaledValue(for: 16, compatibleWith: traits)
+            snapshot["textScale"] = Double(scaled / 16)
             nativeReply(call, snapshot)
         }
     }
@@ -515,6 +518,7 @@ final class MyChefBridgeViewController: CAPBridgeViewController {
 
     private func checkReminderFixtureUI(_ expected: String, in directory: URL, attempts: Int) {
         guard attempts > 0 else { return }
+        let accessibilityText = webView?.traitCollection.preferredContentSizeCategory.isAccessibilityCategory == true
         webView?.evaluateJavaScript("""
             (() => {
               const [week, meal] = \(expected);
@@ -535,13 +539,18 @@ final class MyChefBridgeViewController: CAPBridgeViewController {
               const root = document.documentElement;
               const size = root.style.fontSize;
               const fonts = () => controls.map(node => parseFloat(getComputedStyle(node).fontSize));
+              const system = fonts();
+              const systemFits = panel.scrollWidth <= panel.clientWidth + 1 && root.scrollWidth <= innerWidth + 1;
+              if (!\(accessibilityText) || parseFloat(getComputedStyle(root).fontSize) < 24) return null;
               try {
                 root.style.fontSize = '100%';
                 const normal = fonts();
                 root.style.fontSize = '200%';
                 const doubled = fonts();
                 return {weekAndMeal: true, scaledControls: normal.length > 0 &&
-                  normal.every((font, index) => doubled[index] === 2 * font) && panel.scrollWidth <= panel.clientWidth};
+                  normal.every((font, index) => doubled[index] === 2 * font) && panel.scrollWidth <= panel.clientWidth,
+                  systemTextSize: normal.length > 0 && systemFits &&
+                    normal.every((font, index) => system[index] >= 1.45 * font)};
               } finally {
                 root.style.fontSize = size;
               }

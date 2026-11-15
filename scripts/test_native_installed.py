@@ -1,5 +1,5 @@
 """Exercise the real native session bridge on disposable hosted devices."""
-from contextlib import ExitStack, closing
+from contextlib import ExitStack, closing, contextmanager, nullcontext
 from datetime import datetime
 import base64
 import hashlib
@@ -465,6 +465,8 @@ def ios(state, stack, ca, package, reminder_inputs=None, billing=False):
         launches += 1
         if launches != 2 or reminder_inputs is None:
             return sim("launch", identifier, APP)
+        # The app must read the simulator's real OS setting on its cold launch.
+        sim("ui", identifier, "content_size", "accessibility-medium")
         container = Path(sim("get_app_container", identifier, APP, "data"))
         temporary = container / "tmp"
         if not temporary.is_dir() or not temporary.resolve().is_relative_to(container.resolve()):
@@ -501,8 +503,8 @@ def ios_reminder_ui_passed(path):
         value = json.loads(path.read_text())
     except (OSError, ValueError):
         return False
-    return (isinstance(value, dict) and value.keys() == {"weekAndMeal", "scaledControls"}
-            and value["weekAndMeal"] is True and value["scaledControls"] is True)
+    required = {"weekAndMeal", "scaledControls", "systemTextSize"}
+    return isinstance(value, dict) and value.keys() == required and all(value[key] is True for key in required)
 
 
 def ios_reminder_inputs(state):
@@ -534,10 +536,6 @@ def ios_reminder_inputs(state):
                    "SELECT user_id,?,? FROM account_incarnations WHERE incarnation=?",
                    (meal_date, meal_title, owner))
     return dict(account, reference=reference, target=target, mealTitle=meal_title)
-
-
-
-
 
 
 def ios_billing_verified(result, events):
@@ -572,6 +570,24 @@ def ios_billing_journey(state, receipt, metadata, events, stop, start):
     (ARTIFACTS / "installed-journeys.json").write_text(json.dumps(output, indent=2) + "\n")
 
 
+@contextmanager
+def android_reminder_text(adb):
+    """Use the disposable emulator's OS setting and restore it on every exit."""
+    previous = adb("shell", "settings", "get", "system", "font_scale")
+    if not re.fullmatch(r"(?:null|[0-9]{1,2}(?:\.[0-9]+)?)", previous):
+        raise RuntimeError("Android system font setting could not be read")
+    try:
+        adb("shell", "settings", "put", "system", "font_scale", "1.5")
+        if adb("shell", "settings", "get", "system", "font_scale") != "1.5":
+            raise RuntimeError("Android system font setting did not apply")
+        yield
+    finally:
+        if previous == "null":
+            adb("shell", "settings", "delete", "system", "font_scale")
+        else:
+            adb("shell", "settings", "put", "system", "font_scale", previous)
+
+
 def android_journeys(state, receipt, metadata, events, reminders=False, billing=False):
     from native_android_probe import build
     from native_fixture_account import seed
@@ -597,7 +613,7 @@ def android_journeys(state, receipt, metadata, events, reminders=False, billing=
                     if re.fullmatch(r"INSTRUMENTATION_(?:STATUS|RESULT): (?:probe=(?:ready|failed)|probeReason=(?:launch|webview|pinch-disabled|probe-timeout|instrumentation|native-control|native-window-(?:unfocused|bounds)|control-timeout|input-denied|picker-(?:window|target|activation|confirmation|return)|accessibility-controls))|INSTRUMENTATION_CODE: -?[0-9]+", line)]
             print("Disposable probe status: " + "; ".join(safe[-8:]), flush=True)
 
-    groups = (("billing", 2),) if billing else (("reminders", 2),) if reminders else (("core", 7), ("media", 5), ("pages", 1), ("account", 4))
+    groups = (("billing", 2),) if billing else (("reminders", 3),) if reminders else (("core", 7), ("media", 5), ("pages", 1), ("account", 4))
     passed = {}
     failed = []
     adb = lambda *args: command(adb_path, "-s", "emulator-5554", *args)
@@ -616,7 +632,8 @@ def android_journeys(state, receipt, metadata, events, reminders=False, billing=
                        else seed(18137, ORIGIN, capability, "nativeandroid" + group))
             (state / "native-android-account.json").write_text(json.dumps(account))
             before = len(events)
-            output = command("bun", "scripts/native-android-journeys.ts", str(state), group, timeout=270)
+            with android_reminder_text(adb) if group == "reminders" else nullcontext():
+                output = command("bun", "scripts/native-android-journeys.ts", str(state), group, timeout=270)
             if billing and [event for event in events[before:] if event[0] == "POST" and event[1].startswith("billing/")] != [
                     ("POST", "billing/checkouts", 201), ("POST", "billing/launch", 204), ("POST", "billing/restore", 200)]:
                 raise RuntimeError("Unexpected installed Play billing sequence")
@@ -633,7 +650,8 @@ def android_journeys(state, receipt, metadata, events, reminders=False, billing=
             if (not isinstance(result, dict) or result.get("group") != group
                     or not isinstance(checks, list) or len(checks) != count
                     or not all(isinstance(check, str) and re.fullmatch(r"[A-Za-z0-9 /-]{1,100}", check) for check in checks)
-                    or len(set(checks)) != count):
+                    or len(set(checks)) != count
+                    or (group == "reminders" and "Android system large text and reminder accessibility nodes" not in checks)):
                 raise RuntimeError("Installed Android group receipt is incomplete")
             passed[group] = checks
         except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
@@ -734,7 +752,8 @@ def main():
                 "signed-out cold reminder handoff and open after login",
                 "target week and saved meal rendered after reminder open",
                 "reminder labels and controls scale at 200 percent in iOS WebView",
-            ], limitations="Synthetic tap and WebView text scaling; no production APNs, lock-screen, OS text setting or VoiceOver verification.")
+                "reminder controls fit at the simulator OS accessibility text size",
+            ], limitations="Synthetic tap and simulator text scaling; no production APNs, physical lock-screen or VoiceOver verification.")
             (ARTIFACTS / "installed-journeys.json").write_text(json.dumps(result, indent=2) + "\n")
         if subscription and PLATFORM == "android":
             android_journeys(state, receipt, metadata, events, billing=True)

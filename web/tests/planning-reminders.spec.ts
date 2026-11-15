@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { fakeNative } from "./support/native";
 import { personalGrant } from "./support/personal-recipes";
 import { registerFixture } from "./support/registration";
 
@@ -56,4 +57,45 @@ test("Profile explains the fixed nudge and separates Premium advance settings", 
   await page.getByText("Planning reminders", { exact: true }).click();
   await expect(group.getByLabel("Reminder for next week")).toHaveCount(0);
   await expect(group.getByLabel("Monday reminder")).toBeChecked();
+});
+
+
+test("iOS native text preference scales reminder controls without changing the default", async ({
+  page,
+  context,
+  playwright,
+  baseURL,
+}) => {
+  const account = {
+    firstName: "Text", lastName: "Fixture", username: "ios-reminder-text",
+    email: "ios-reminder-text@example.test", password: "Private fixture reminder 2026!",
+  };
+  const server = await playwright.request.newContext({ baseURL });
+  try {
+    await page.setViewportSize({ width: 320, height: 720 });
+    await registerFixture(page, account);
+    await context.clearCookies();
+    const os = await fakeNative(context, server, { platform: "ios" });
+    await page.goto("/app/");
+    await page.getByLabel("Email", { exact: true }).fill(account.email);
+    await page.getByLabel("Password", { exact: true }).fill(account.password);
+    await page.getByRole("button", { name: "Sign in to MyChef", exact: true }).click();
+    await page.getByRole("button", { name: "Profile", exact: true }).click();
+    await page.getByText("Planning reminders", { exact: true }).click();
+    const panel = page.locator(".planning-reminders");
+    const save = panel.getByRole("button", { name: "Save reminder preferences" });
+    const fontSize = () => save.evaluate((node) => parseFloat(getComputedStyle(node).fontSize));
+    const normal = await fontSize();
+    for (const width of [320, 430]) {
+      await page.setViewportSize({ width, height: 720 });
+      await os.runtime({ textScale: 1.75 });
+      await expect.poll(fontSize).toBe(normal * 1.75);
+      await expect(save).toBeEnabled();
+      expect(await panel.evaluate((node) => node.scrollWidth <= node.clientWidth + 1)).toBe(true);
+    }
+    await os.runtime({ textScale: 1 });
+    await expect.poll(fontSize).toBe(normal);
+  } finally {
+    await server.dispose();
+  }
 });

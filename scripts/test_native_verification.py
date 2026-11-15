@@ -52,6 +52,10 @@ class NativeVerificationTest(unittest.TestCase):
                 result.write_text(json.dumps(value))
                 self.assertFalse(installed.ios_reminder_ui_passed(result))
             result.write_text('{"weekAndMeal":true,"scaledControls":true}')
+            self.assertFalse(installed.ios_reminder_ui_passed(result))
+            result.write_text('{"weekAndMeal":true,"scaledControls":true,"systemTextSize":false}')
+            self.assertFalse(installed.ios_reminder_ui_passed(result))
+            result.write_text('{"weekAndMeal":true,"scaledControls":true,"systemTextSize":true}')
             self.assertTrue(installed.ios_reminder_ui_passed(result))
 
     def test_subscription_install_authorization_requires_public_pr_and_exact_artifact(self):
@@ -189,6 +193,31 @@ class NativeVerificationTest(unittest.TestCase):
         self.assertFalse(installed.ios_billing_verified({**accepted, "terms": 1}, routes))
         self.assertFalse(installed.ios_billing_verified(accepted, routes[:-1]))
         self.assertFalse(installed.ios_billing_verified(accepted, [routes[0], routes[2], routes[1], routes[3]]))
+
+    def test_android_reminder_text_restores_the_emulator_setting_on_failure(self):
+        for initial in ("null", "1.15"):
+            with self.subTest(initial=initial):
+                scale = initial
+                changes = []
+
+                def adb(*args):
+                    nonlocal scale
+                    if args == ("shell", "settings", "get", "system", "font_scale"):
+                        return scale
+                    changes.append(args)
+                    scale = args[-1] if args[2] == "put" else "null"
+                    return ""
+
+                with self.assertRaisesRegex(RuntimeError, "synthetic journey failure"):
+                    with installed.android_reminder_text(adb):
+                        self.assertEqual(scale, "1.5")
+                        raise RuntimeError("synthetic journey failure")
+                self.assertEqual(scale, initial)
+                self.assertEqual(changes, [
+                    ("shell", "settings", "put", "system", "font_scale", "1.5"),
+                    ("shell", "settings", "delete", "system", "font_scale") if initial == "null" else
+                    ("shell", "settings", "put", "system", "font_scale", initial),
+                ])
 
     def test_android_groups_continue_on_failure_without_issuing_a_full_receipt(self):
         with tempfile.TemporaryDirectory() as temporary:

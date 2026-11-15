@@ -10,10 +10,12 @@ export type RuntimeSnapshot = {
   link?: string;
   invalidLink?: boolean;
   reminder?: string;
+  textScale?: number;
 };
 export type NativeRuntimeBridge = { readRuntime(): Promise<RuntimeSnapshot> };
 type RuntimeEvent =
   | { type: "connection"; active: boolean; online: boolean }
+  | { type: "text-size"; percent: number }
   | { type: "proof"; entry: NativeProof }
   | { type: "back" | "invalid-link" | "unavailable" | "billing-changed" };
 export function validateNativeProof(
@@ -50,6 +52,7 @@ export function createNativeRuntime(
     work: Promise<void> | null = null,
     again = false;
   let last: Pick<RuntimeSnapshot, "active" | "online"> | null = null;
+  let lastTextSize: number | undefined;
   async function pull() {
     try {
       const value = await bridge.readRuntime();
@@ -67,6 +70,19 @@ export function createNativeRuntime(
           online: value.online,
         });
       last = { active: value.active, online: value.online };
+      const scale = value.textScale;
+      if (
+        typeof scale === "number" &&
+        Number.isFinite(scale) &&
+        scale >= 0.5 &&
+        scale <= 4
+      ) {
+        const percent = Math.round(scale * 100);
+        if (lastTextSize !== percent) {
+          lastTextSize = percent;
+          publish({ type: "text-size", percent });
+        }
+      }
       if (value.link !== undefined || value.invalidLink) {
         const entry =
           typeof value.link === "string"
@@ -139,7 +155,12 @@ export async function installNativeRuntime(
       window.dispatchEvent(new Event(nativeBackEvent));
     else if (event.type === "billing-changed")
       window.dispatchEvent(new Event(nativePurchaseEvent));
-    else if (event.type === "connection") {
+    else if (event.type === "text-size") {
+      document.documentElement.style.setProperty(
+        "--native-text-size",
+        `${event.percent}%`,
+      );
+    } else if (event.type === "connection") {
       active = event.active;
       online = event.online;
       if (nativeStoreReachable())

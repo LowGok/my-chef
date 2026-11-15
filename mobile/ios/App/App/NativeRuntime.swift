@@ -23,7 +23,8 @@ final class NativeRuntime {
             DispatchQueue.main.async { self?.online = path.status == .satisfied; self?.signal() }
         }
         network.start(queue: DispatchQueue(label: "com.gkldevelopment.mychef.connectivity"))
-        for name in [UIApplication.didBecomeActiveNotification, UIApplication.willResignActiveNotification] {
+        for name in [UIApplication.didBecomeActiveNotification, UIApplication.willResignActiveNotification,
+                     UIContentSizeCategory.didChangeNotification] {
             observers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in self?.signal() })
         }
     }

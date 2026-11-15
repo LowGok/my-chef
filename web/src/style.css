@@ -1,4 +1,5 @@
 :root {
+  font-size: var(--native-text-size, 100%);
   --green: #4a694b;
   --ink: #30342d;
   --paper: #f9f5ea;
