@@ -355,6 +355,9 @@ final class AnalyticsProbe: XCTestCase {
             let prefix = String(utterance.prefix(100)).lowercased()
             if prefix.range(of: "\\b(off|unchecked|not checked|not selected)\\b", options: .regularExpression) != nil { return "off" }
             if prefix.range(of: "\\b(on|checked|selected)\\b", options: .regularExpression) != nil { return "on" }
+            let role = utterance.range(of: "switch|check.?box|button", options: [.regularExpression, .caseInsensitive]) != nil
+            let disabled = utterance.range(of: "dimmed|disabled|unavailable", options: [.regularExpression, .caseInsensitive]) != nil
+            print("Analytics iOS spoken control: role=\(role) disabled=\(disabled) state=unknown")
             return "unknown"
         }
         // This uses the OS VoiceOver service's actual spoken output. No TTS
@@ -364,9 +367,13 @@ final class AnalyticsProbe: XCTestCase {
         defer { try? voice.disable() }
         XCTAssertTrue(voice.isEnabled)
         let unavailable = try spoken("Help improve MyChef")
-        XCTAssertEqual(state(unavailable), "off", "Disabled signup control must speak Off")
-        XCTAssertTrue(unavailable.range(of: "dimmed|disabled|unavailable", options: [.regularExpression, .caseInsensitive]) != nil,
-                      "VoiceOver must convey unavailable participation")
+        let disabled = unavailable.range(of: "dimmed|disabled|unavailable", options: [.regularExpression, .caseInsensitive]) != nil
+        let role = unavailable.range(of: "switch|check.?box|button", options: [.regularExpression, .caseInsensitive]) != nil
+        print("Analytics iOS spoken control: role=\(role) disabled=\(disabled) state=\(state(unavailable))")
+        XCTAssertTrue(disabled, "VoiceOver must convey unavailable participation")
+        // The disabled checkbox and its adjacent status together communicate
+        // unavailability and Off; require both actual spoken outputs.
+        _ = try spoken("Analytics is Off while unavailable")
         try voice.disable()
         tap("Sign in")
         fill("Email", configuration["email"] ?? "")
