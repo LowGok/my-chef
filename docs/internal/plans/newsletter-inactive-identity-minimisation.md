@@ -1,6 +1,6 @@
 ---
 status: in-progress
-status_description: "Proposed claim after accepted R-2, clean fresh-main R-3 review and signed runtime 0.22.0. Nineteen tasks remain; code waits for this claim merged on main."
+status_description: "Claim published through merged PR38 after signed runtime0.22.0. T1 schema tests are red as expected; migration implementation is next. Public signup stays off."
 branch: feat/newsletter-inactive-identity-minimisation
 issue: null
 goal: "Inactive newsletter contacts retain their userID and non-consenting state without unnecessary clear email or expired mail/proof history."
@@ -147,7 +147,8 @@ Backend and website retain separate independent reviews and delivery receipts. T
 
 ## Tasks
 
-- [ ] T1 `internal/store/newsletter_minimisation_schema_test.go` - add failing tests for explicit nullable reduced identities, unchanged full-account constraints, migration checksums, mixed rows and integrity/foreign keys (AC-01, AC-04).
+- [x] T1 `internal/store/newsletter_minimisation_schema_test.go` - add failing tests for explicit nullable reduced identities, unchanged full-account constraints, migration checksums, mixed rows and integrity/foreign keys (AC-01, AC-04).
+      Evidence: pinned `go test ./internal/store -run '^TestNewsletterMinimisationSchema' -count=1 -v` logs actual SQLite3.54.1 and successful native nullable ALTER, then three expected failures for the absent reduced-state column/protected-match table. Schema26 SQL/checksum fixture is bound to the unchanged signed0.22.0 baseline. Transcript: private staging evidence/min-t1-red.log. Gofmt and diff checks pass. This is the intentional red task; no criterion or migration is claimed complete. Manual documentation review found only this test/task record affected; the repository has no mechanical coverage adoption.
 - [ ] T2 `migrations/`, `internal/store/newsletter_minimisation_schema.go`, `internal/store/migrate.go` and models - add the next coordinated additive migration and conditional identity/subscription/proof metadata without a users-table rebuild; T1 passes (AC-01, AC-04).
 - [ ] T3 `internal/store/newsletter_identity_test.go` - add failing purpose-derived v1 key, canonical lookup, missing/mismatched key, duplicate ownership and low-level creation-guard tests using isolated SQL fixtures (AC-01, AC-02, AC-04).
 - [ ] T4 `internal/store/newsletter_identity.go`, `internal/store/email_identity.go` and store configuration - implement immutable key/context and the shared raw/protected resolver with creation guards; T3 and normal identity tests pass (AC-01, AC-02, AC-04).
