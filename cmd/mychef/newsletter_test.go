@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/LowGok/my-chef/internal/email/mailqueue"
 	"github.com/LowGok/my-chef/internal/newsletter"
@@ -110,5 +111,108 @@ func TestNewsletterCommandExportsProtectedFileAndErasesContact(t *testing.T) {
 	var remaining int
 	if err := check.SQL.QueryRow("SELECT count(*) FROM users").Scan(&remaining); err != nil || remaining != 0 {
 		t.Fatal("CLI left the contact behind", err)
+	}
+}
+
+func TestNewsletterCommandReducedContactExportAndErase(t *testing.T) {
+	directory := t.TempDir()
+	path := filepath.Join(directory, "app.db")
+	db, err := store.Open(path, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Migrate(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	proofKey, root := bytes.Repeat([]byte{3}, 32), bytes.Repeat([]byte{8}, 32)
+	keys, err := mailqueue.NewProofKeys("test", map[string][]byte{"test": proofKey})
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, err := store.DeriveNewsletterIdentityKey(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	j, err := db.InitializeLifecycleJournal(t.Context(), path+".lifecycle")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := j.InitializeNewsletterIdentity(t.Context(), key); err != nil {
+		t.Fatal(err)
+	}
+	if err := j.CompleteNewsletterIdentityBootstrap(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if err := j.CleanupNewsletterFiles(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC().Add(-48 * time.Hour)
+	service := &newsletter.Service{Store: db, Keys: keys, RateKey: root, Origin: "https://mychef.dev", ConsentVersion: "newsletter-v1", Now: func() time.Time { return now }, Lifecycle: j}
+	if _, err := service.Request(t.Context(), "192.0.2.90", newsletter.Input{Email: "operator-reduced@example.test", Locale: "en", ConsentVersion: service.ConsentVersion}); err != nil {
+		t.Fatal(err)
+	}
+	if worked, err := service.Step(t.Context()); err != nil || !worked {
+		t.Fatal(err)
+	}
+	now = now.Add(25 * time.Hour)
+	if err := service.Minimise(t.Context(), j); err != nil {
+		t.Fatal(err)
+	}
+	if err := j.CleanupNewsletterFiles(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	var actor store.NewsletterContactAuthority
+	if err := db.DB.Raw("SELECT user_id,incarnation FROM account_incarnations").Scan(&actor).Error; err != nil {
+		t.Fatal(err)
+	}
+	actor.EmailKey = "operator-reduced@example.test"
+	actor.RequestReference = "verified-reduced-mailbox"
+	input, err := json.Marshal(actor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := j.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	settings, _ := json.Marshal(map[string]any{"active": "test", "keys": map[string]string{"test": base64.StdEncoding.EncodeToString(proofKey)}, "rate_key": base64.StdEncoding.EncodeToString(root)})
+	keyFile := filepath.Join(directory, "proof-keys.json")
+	if err := os.WriteFile(keyFile, settings, 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("MYCHEF_EMAIL_PROOF_KEYS_FILE", keyFile)
+	flags := []string{"--db", path, "--lifecycle-db", path + ".lifecycle", "--user-id", strconv.FormatInt(actor.UserID, 10)}
+	outputFile := filepath.Join(directory, "export.json")
+	args := append([]string{"export"}, flags...)
+	args = append(args, "--output", outputFile)
+	var output, diagnostics bytes.Buffer
+	if code := runNewsletter(args, bytes.NewReader(input), &output, &diagnostics); code != 0 {
+		t.Fatal("reduced export failed", code)
+	}
+	raw, err := os.ReadFile(outputFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var exported map[string]any
+	if err := json.Unmarshal(raw, &exported); err != nil || exported["email"] != nil || exported["newsletterMinimised"] != true {
+		t.Fatal("reduced export misreported stored email", err)
+	}
+	args = append([]string{"erase"}, flags...)
+	if code := runNewsletter(args, bytes.NewReader(input), &output, &diagnostics); code != 0 {
+		t.Fatal("reduced erasure failed", code)
+	}
+	if strings.Contains(output.String()+diagnostics.String(), actor.EmailKey) {
+		t.Fatal("operator diagnostics leaked the verification address")
+	}
+	check, err := store.Open(path, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = check.Close() }()
+	var remaining int
+	if err := check.SQL.QueryRowContext(t.Context(), "SELECT count(*) FROM users").Scan(&remaining); err != nil || remaining != 0 {
+		t.Fatal("erased contact remains", err)
 	}
 }

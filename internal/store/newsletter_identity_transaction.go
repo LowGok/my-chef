@@ -176,6 +176,11 @@ func (j *LifecycleJournal) prepareNewsletterTransaction(ctx context.Context, tx 
 		if err := j.MarkNewsletterIdentityCommit(ctx, tx, intent); err != nil {
 			return intents, err
 		}
+		if intent.Record.Class == "retired" {
+			if err := tx.Exec("UPDATE newsletter_identity_namespace SET physical_cleanup_pending=1 WHERE singleton=1").Error; err != nil {
+				return intents, err
+			}
+		}
 	}
 	return intents, nil
 }

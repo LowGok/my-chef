@@ -57,15 +57,16 @@ func (s *Store) ExportNewsletterContact(ctx context.Context, actor NewsletterCon
 			return err
 		}
 		var consent []struct {
-			Status         string `json:"status"`
-			Locale         string `json:"locale"`
-			ConsentVersion string `json:"consentVersion"`
-			Source         string `json:"source"`
-			RequestedUnix  int64  `json:"requestedUnix"`
-			ConfirmedUnix  *int64 `json:"confirmedUnix"`
-			WithdrawnUnix  *int64 `json:"withdrawnUnix"`
+			Status         string  `json:"status"`
+			Locale         *string `json:"locale"`
+			ConsentVersion string  `json:"consentVersion"`
+			Source         *string `json:"source"`
+			RequestedUnix  *int64  `json:"requestedUnix"`
+			ConfirmedUnix  *int64  `json:"confirmedUnix"`
+			WithdrawnUnix  *int64  `json:"withdrawnUnix"`
+			DecisionUnix   *int64  `json:"decisionUnix"`
 		}
-		if err := tx.Table("newsletter_subscriptions").Select("status,locale,consent_version,source,requested_unix,confirmed_unix,withdrawn_unix").Where("user_id=?", actor.UserID).Find(&consent).Error; err != nil {
+		if err := tx.Table("newsletter_subscriptions").Select("status,locale,consent_version,source,requested_unix,confirmed_unix,withdrawn_unix,decision_unix").Where("user_id=?", actor.UserID).Find(&consent).Error; err != nil {
 			return err
 		}
 		var proofs []struct {
@@ -77,8 +78,12 @@ func (s *Store) ExportNewsletterContact(ctx context.Context, actor NewsletterCon
 		if err := tx.Table("newsletter_proofs").Select("purpose,created_unix,expires_unix,consumed_unix").Where("user_id=?", actor.UserID).Order("created_unix,purpose").Find(&proofs).Error; err != nil {
 			return err
 		}
+		var storedEmail *string
+		if user.Email != "" {
+			storedEmail = Ptr(user.Email)
+		}
 		var err error
-		output, err = json.MarshalIndent(map[string]any{"userID": strconv.FormatInt(user.ID, 10), "email": user.Email, "isNewsletterOnly": true, "subscriptions": consent, "proofHistory": proofs}, "", "  ")
+		output, err = json.MarshalIndent(map[string]any{"userID": strconv.FormatInt(user.ID, 10), "email": storedEmail, "isNewsletterOnly": true, "newsletterMinimised": user.NewsletterMinimised, "verification": map[string]string{"suppliedEmail": actor.EmailKey, "requestReference": actor.RequestReference}, "subscriptions": consent, "proofHistory": proofs}, "", "  ")
 		return err
 	})
 	return output, err
@@ -102,7 +107,11 @@ func (j *LifecycleJournal) EraseNewsletterContact(ctx context.Context, actor New
 		}
 		return nil
 	}
-	return j.deleteAccount(ctx, actor.UserID, operation, now, opts, func(tx *gorm.DB) error { return j.app.newsletterContactAuthority(tx, actor) })
+	result, err := j.deleteAccount(ctx, actor.UserID, operation, now, opts, func(tx *gorm.DB) error { return j.app.newsletterContactAuthority(tx, actor) })
+	if err == nil && j.app.newsletterJournalRequired.Load() {
+		err = j.CleanupNewsletterFiles(ctx)
+	}
+	return result, err
 }
 
 // ExpireNewsletterContact adds consent-state authority to the normal guarded

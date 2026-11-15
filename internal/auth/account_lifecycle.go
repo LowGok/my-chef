@@ -12,7 +12,7 @@ import (
 // EraseAccountLinks joins deletion's transaction. Anonymous signup requests
 // and another account's proposed-email request are not owned by this account.
 func (m *Manager) EraseAccountLinks(ctx context.Context, tx *gorm.DB, user store.User, now time.Time) error {
-	if len(m.RecoveryRateKey) == 32 {
+	if len(m.RecoveryRateKey) == 32 && user.EmailKey != "" {
 		if err := store.RecordNewsletterErasure(ctx, tx, m.RecoveryRateKey, user.EmailKey); err != nil {
 			return err
 		}
@@ -49,7 +49,13 @@ func (m *Manager) EraseAccountLinks(ctx context.Context, tx *gorm.DB, user store
 			}
 		}
 	}
-	if err := invalidateRecovery(ctx, tx, now, user.ID, m.RecoveryRateKey, user.EmailKey); err != nil {
+	var addressKeys []string
+	if user.EmailKey != "" {
+		addressKeys = append(addressKeys, user.EmailKey)
+	} else if !user.NewsletterMinimised {
+		return store.ErrAccountDeletion
+	}
+	if err := invalidateRecovery(ctx, tx, now, user.ID, m.RecoveryRateKey, addressKeys...); err != nil {
 		return err
 	}
 	if err := consumeVerificationProofs(ctx, tx, now, user.ID); err != nil {

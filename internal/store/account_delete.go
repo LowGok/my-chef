@@ -109,9 +109,11 @@ func (j *LifecycleJournal) DeleteAccount(ctx context.Context, actor AccountActor
 	if confirmation != "DELETE" || !opaqueLifecycleID(operation) {
 		return AccountDeletion{}, ErrAccountConfirmation
 	}
-	return j.deleteAccount(ctx, actor.UserID, operation, now, opts, func(tx *gorm.DB) error {
-		return accountAuthority(tx, actor, now)
-	})
+	result, err := j.deleteAccount(ctx, actor.UserID, operation, now, opts, func(tx *gorm.DB) error { return accountAuthority(tx, actor, now) })
+	if err == nil && j.app.newsletterJournalRequired.Load() {
+		err = j.CleanupNewsletterFiles(ctx)
+	}
+	return result, err
 }
 
 func (j *LifecycleJournal) deleteAccount(ctx context.Context, userID int64, operation string, now time.Time, opts AccountDeletionOptions, authorize func(*gorm.DB) error) (AccountDeletion, error) {

@@ -276,6 +276,39 @@ func TestMinimisationRestoreRefusesPromotionAndOlderAppOwnership(t *testing.T) {
 			t.Fatal("stale app ownership published")
 		}
 	}
+	*now = now.Add(time.Hour)
+	restoreCapture(t, n, "old-owner@example.test")
+	freshA, found, err := n.Store.ResolveEmailOwner(t.Context(), "old-owner@example.test")
+	if err != nil || !found {
+		t.Fatal(err)
+	}
+	current, err := manager.Login(t.Context(), "current-owner@example.test", "restore account password fixture")
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := manager.Rotate(t.Context(), &current.ID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := j.DeleteAccount(t.Context(), store.AccountActor{UserID: current.ID, SessionHash: auth.Hash(session), PasswordHash: current.Password}, strings.Repeat("d", 32), "DELETE", *now, store.AccountDeletionOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	*now = now.Add(time.Hour)
+	restoreCapture(t, n, "current-owner@example.test")
+	freshB, found, err := n.Store.ResolveEmailOwner(t.Context(), "current-owner@example.test")
+	if err != nil || !found {
+		t.Fatal(err)
+	}
+	for _, snapshot := range []string{placeholder, appSnapshot} {
+		restored, _ := restoreMinimised(t, snapshot, j, key)
+		for address, want := range map[string]int64{"old-owner@example.test": freshA.ID, "current-owner@example.test": freshB.ID} {
+			owner, found, err := restored.ResolveEmailOwner(t.Context(), address)
+			if err != nil || !found || owner.ID != want || owner.ID == account.ID || !owner.IsNewsletterOnly {
+				t.Fatal("older copy revived erased ownership or lost new contact", err)
+			}
+		}
+	}
+
 }
 
 func TestMinimisationReducedExportAndErasureUseFreshVerifiedAddress(t *testing.T) {
@@ -331,5 +364,112 @@ func TestMinimisationReducedExportAndErasureUseFreshVerifiedAddress(t *testing.T
 	}
 	if strings.Contains(string(body), "ciphertext") {
 		t.Fatal("export included delivery secrets")
+	}
+}
+
+func TestMinimisationRestoreKeepsDeletionAndInvalidatesOlderSignupQueue(t *testing.T) {
+	n, j, key, now := minimisationRestoreFixture(t)
+	*now = time.Now().UTC().Add(-time.Hour)
+	restoreCapture(t, n, "erased-restore@example.test")
+	owner, found, err := n.Store.ResolveEmailOwner(t.Context(), "erased-restore@example.test")
+	if err != nil || !found {
+		t.Fatal(err)
+	}
+	signup := &auth.SignUp{Store: n.Store, Keys: n.Keys, RateKey: n.RateKey, Origin: n.Origin, Now: n.Now, Lifecycle: j, Newsletter: n}
+	if _, err := signup.Request(t.Context(), "192.0.2.83", auth.SignUpRequest{Email: owner.Email, SignUpDetails: auth.SignUpDetails{FirstName: "Queued", LastName: "Owner", Username: "queued-owner"}}); err != nil {
+		t.Fatal(err)
+	}
+	snapshot := minimisationSnapshot(t, n.Store)
+	var incarnation string
+	if err := n.Store.SQL.QueryRowContext(t.Context(), "SELECT incarnation FROM account_incarnations WHERE user_id=?", owner.ID).Scan(&incarnation); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := j.EraseNewsletterContact(t.Context(), store.NewsletterContactAuthority{UserID: owner.ID, EmailKey: owner.EmailKey, Incarnation: incarnation, RequestReference: "verified-before-restore"}, n.RateKey, *now, store.AccountDeletionOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	restored, paired := restoreMinimised(t, snapshot, j, key)
+	var total int
+	if err := restored.SQL.QueryRowContext(t.Context(), "SELECT count(*) FROM users WHERE user_id=?", owner.ID).Scan(&total); err != nil || total != 0 {
+		t.Fatal("erased identity restored", err)
+	}
+	signup.Store, signup.Lifecycle = restored, paired
+	if worked, err := signup.Step(t.Context()); err != nil || worked {
+		t.Fatal("old unverified signup request replayed after erasure/restore", err)
+	}
+	active := &newsletter.Service{Store: restored, Keys: n.Keys, RateKey: n.RateKey, Origin: n.Origin, ConsentVersion: n.ConsentVersion, Now: n.Now, Lifecycle: paired}
+	*now = now.Add(time.Hour)
+	restoreCapture(t, active, "erased-restore@example.test")
+	replacement, found, err := restored.ResolveEmailOwner(t.Context(), "erased-restore@example.test")
+	if err != nil || !found || replacement.ID <= owner.ID {
+		t.Fatal("restored allocator reused erased ID", err)
+	}
+}
+
+func TestMinimisationRestoreConfirmedChoiceNeedsFreshProofAndKeepsApp(t *testing.T) {
+	for _, app := range []bool{false, true} {
+		name := "contact"
+		if app {
+			name = "app"
+		}
+		t.Run(name, func(t *testing.T) {
+			n, j, key, now := minimisationRestoreFixture(t)
+			confirmation, _ := restoreCapture(t, n, "confirmed-restore@example.test")
+			if err := n.Confirm(t.Context(), confirmation); err != nil {
+				t.Fatal(err)
+			}
+			owner, found, err := n.Store.ResolveEmailOwner(t.Context(), "confirmed-restore@example.test")
+			if err != nil || !found {
+				t.Fatal(err)
+			}
+			if app {
+				owner = promoteMinimisationContact(t, n, j, owner.Email)
+			}
+			snapshot := minimisationSnapshot(t, n.Store)
+			restored, paired := restoreMinimised(t, snapshot, j, key)
+			var status string
+			if err := restored.SQL.QueryRowContext(t.Context(), "SELECT status FROM newsletter_subscriptions WHERE user_id=?", owner.ID).Scan(&status); err != nil || status != "pending" {
+				t.Fatal("restored confirmation remained active", err)
+			}
+			active := &newsletter.Service{Store: restored, Keys: n.Keys, RateKey: n.RateKey, Origin: n.Origin, ConsentVersion: n.ConsentVersion, Now: n.Now, Lifecycle: paired}
+			if err := active.Confirm(t.Context(), confirmation); err == nil {
+				t.Fatal("snapshot's old proof revived consent")
+			}
+			if app {
+				account, err := auth.New(restored).Login(t.Context(), owner.Email, "restore account password fixture")
+				if err != nil || account.ID != owner.ID || account.IsNewsletterOnly {
+					t.Fatal("restore changed app login/profile", err)
+				}
+			}
+			*now = now.Add(time.Hour)
+			fresh, _ := restoreCapture(t, active, "confirmed-restore@example.test")
+			if err := active.Confirm(t.Context(), fresh); err != nil {
+				t.Fatal("fresh request/confirmation did not work", err)
+			}
+		})
+	}
+}
+
+func TestMinimisationDirectOlderCopyCannotServe(t *testing.T) {
+	n, j, key, _ := minimisationRestoreFixture(t)
+	_, withdrawal := restoreCapture(t, n, "direct-copy@example.test")
+	snapshot := minimisationSnapshot(t, n.Store)
+	if err := n.Unsubscribe(t.Context(), withdrawal); err != nil {
+		t.Fatal(err)
+	}
+	copied, err := store.Open(snapshot, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = copied.Close() }()
+	if err := copied.ConfigureNewsletterIdentity(t.Context(), key); err != nil {
+		t.Fatal(err)
+	}
+	paired, err := copied.OpenLifecycleJournal(t.Context(), j.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = paired.Close() }()
+	if err := paired.ValidateNewsletterIdentities(t.Context()); err == nil {
+		t.Fatal("direct old SQL copy was allowed to serve stale consent")
 	}
 }

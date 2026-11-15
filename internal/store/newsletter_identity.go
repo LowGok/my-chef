@@ -252,3 +252,17 @@ func guardNewsletterIdentityCreate(tx *gorm.DB, address string) error {
 	}
 	return nil
 }
+
+// ConfigureNewsletterIdentityIfBound never initializes a namespace. Operators
+// use it to install the existing key while preserving generic deployments.
+func (s *Store) ConfigureNewsletterIdentityIfBound(ctx context.Context, key *NewsletterIdentityKey) (bool, error) {
+	var binding NewsletterIdentityNamespace
+	err := s.DB.WithContext(ctx).Take(&binding, "singleton=1").Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, s.ConfigureNewsletterIdentity(ctx, key)
+}
