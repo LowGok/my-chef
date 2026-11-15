@@ -15,14 +15,17 @@ export type NativeBillingBridge = {
     products: string[];
     plans: BillingStatus["plans"];
   }): Promise<{ quotes: BillingQuote[] }>;
+  billingPrepare?(input: { access: string }): Promise<{ ready: boolean }>;
   billingPurchase(input: {
     product: string;
     basePlan?: string;
     interval: string;
     displayPrice: string;
     binding: string;
+    checkout?: string;
+    access?: string;
   }): Promise<{
-    state: "pending" | "cancelled" | "proof";
+    state: "pending" | "cancelled" | "proof" | "released";
     proof?: BillingReceipt;
   }>;
   billingUnfinished(): Promise<{ receipts: BillingReceipt[] }>;
@@ -38,6 +41,7 @@ let active: {
 export function setNativeBillingStore(
   platform: "ios" | "android",
   bridge: NativeBillingBridge,
+  authorizeApple?: <T>(work: (access: string) => Promise<T>) => Promise<T>,
 ) {
   active = null;
   configured = {
@@ -60,6 +64,30 @@ export function setNativeBillingStore(
       if (result.state === "proof" && result.proof) return result.proof;
       return result.state === "cancelled" ? "cancelled" : "pending";
     },
+    ...(platform === "ios" && authorizeApple && bridge.billingPrepare ? {
+      async prepareAttestation() {
+        try {
+          const state = await authorizeApple((access) => bridge.billingPrepare!({ access }));
+          return state?.ready === true;
+        } catch (err) {
+          if (err instanceof DOMException && err.name === "AbortError") throw err;
+          return false;
+        }
+      },
+      async purchaseAttested(quote, attempt) {
+        const result = await authorizeApple((access) => bridge.billingPurchase({
+          product: quote.product,
+          interval: quote.interval,
+          displayPrice: quote.displayPrice,
+          binding: attempt.binding,
+          checkout: attempt.id,
+          access,
+        }));
+        if (result.state === "released") return "released";
+        if (result.state === "proof" && result.proof) return result.proof;
+        return "pending";
+      },
+    } : {}),
     async unfinished() {
       const result = await bridge.billingUnfinished();
       if (!Array.isArray(result?.receipts))

@@ -687,6 +687,18 @@ export type AnalyticsPreferenceConflict = {
     current: AnalyticsPreference;
 };
 
+export type NativeAppleBillingKey = {
+    keyID: string;
+};
+
+export type NativeAppleBillingLaunch = {
+    checkout: string;
+    binding: string;
+    product: string;
+    interval: 'monthly' | 'annual';
+    challenge: string;
+};
+
 export type NativeAppleBillingChallenge = {
     challenge: string;
 };
@@ -7461,6 +7473,51 @@ export type StartAppleBillingEnrollmentResponses = {
 
 export type StartAppleBillingEnrollmentResponse = StartAppleBillingEnrollmentResponses[keyof StartAppleBillingEnrollmentResponses];
 
+export type GetAppleBillingEnrollmentData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/native/v1/billing/apple/enrollment';
+};
+
+export type GetAppleBillingEnrollmentErrors = {
+    /**
+     * Malformed request
+     */
+    400: Error;
+    /**
+     * Native sign-in required
+     */
+    401: Error;
+    /**
+     * Verified email required
+     */
+    403: Error;
+    /**
+     * Not available for this app or device
+     */
+    404: Error;
+    /**
+     * Verification or storage is temporarily unavailable
+     */
+    503: Error;
+};
+
+export type GetAppleBillingEnrollmentError = GetAppleBillingEnrollmentErrors[keyof GetAppleBillingEnrollmentErrors];
+
+export type GetAppleBillingEnrollmentResponses = {
+    /**
+     * The current native session’s enrolled key identifier
+     */
+    200: NativeAppleBillingKey;
+    /**
+     * This installation has no matching enrolled key
+     */
+    204: void;
+};
+
+export type GetAppleBillingEnrollmentResponse = GetAppleBillingEnrollmentResponses[keyof GetAppleBillingEnrollmentResponses];
+
 export type EnrollAppleBillingInstallationData = {
     body: {
         challenge: string;
@@ -7608,9 +7665,9 @@ export type LaunchNativeCheckoutError = LaunchNativeCheckoutErrors[keyof LaunchN
 
 export type LaunchNativeCheckoutResponses = {
     /**
-     * A one-use server challenge for the original iOS installation
+     * The authorized checkout terms and its one-use cancellation challenge
      */
-    200: NativeAppleBillingChallenge;
+    200: NativeAppleBillingLaunch;
     /**
      * Checkout may be launched
      */
@@ -8147,6 +8204,8 @@ export interface components {
     "AnalyticsPreferenceUpdate": AnalyticsPreferenceUpdate;
     "AnalyticsNotice": AnalyticsNotice;
     "AnalyticsPreferenceConflict": AnalyticsPreferenceConflict;
+    "NativeAppleBillingKey": NativeAppleBillingKey;
+    "NativeAppleBillingLaunch": NativeAppleBillingLaunch;
     "NativeAppleBillingChallenge": NativeAppleBillingChallenge;
     "NativeBillingStatus": NativeBillingStatus;
     "PlanningStatus": PlanningStatus;

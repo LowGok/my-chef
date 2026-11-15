@@ -103,6 +103,7 @@ func TestNativeAppleCheckoutRequiresEnrollmentAndOriginalCancellationProof(t *te
 	const plan = `{"interval":"monthly"}`
 	token := signed.AccessToken
 	assert(404, "POST", begin, "", token)
+	assert(404, "GET", enroll, "", token)
 	assert(404, "POST", start, plan, token)
 	if got := assert(200, "GET", status, "", token); !strings.Contains(got, `"checkoutEnabled":false`) {
 		t.Fatal("real checkout enabled without attestation")
@@ -126,19 +127,29 @@ func TestNativeAppleCheckoutRequiresEnrollmentAndOriginalCancellationProof(t *te
 	}
 	sibling, android := install("ios"), install("android")
 	assert(404, "POST", begin, "", android)
+	assert(404, "GET", enroll, "", android)
+	assert(204, "GET", enroll, "", token)
 	assert(400, "POST", begin, "{}", token)
 	n := reply(assert(200, "POST", begin, "", token), "challenge")
 	key := [32]byte{42}
 	input := payload(map[string]string{"challenge": n, "keyID": enc(key[:]), "attestation": enc([]byte("verified fixture"))})
 	assert(404, "POST", enroll, input, sibling)
 	assert(204, "POST", enroll, input, token)
+	if got := reply(assert(200, "GET", enroll, "", token), "keyID"); got != enc(key[:]) {
+		t.Fatal("readiness did not return the enrolled installation's key")
+	}
+	assert(204, "GET", enroll, "", sibling)
 	assert(404, "POST", enroll, input, token)
 	assert(404, "POST", start, plan, sibling)
 	id := reply(assert(201, "POST", start, plan, token), "id")
 	path := start + "/" + id
 	pathCancel := path + "/cancel"
 	assert(404, "POST", path+"/launch", "", sibling)
-	launch := reply(assert(200, "POST", path+"/launch", "", token), "challenge")
+	issued := assert(200, "POST", path+"/launch", "", token)
+	launch := reply(issued, "challenge")
+	if reply(issued, "interval") != "monthly" || reply(issued, "product") != "monthly" || reply(issued, "checkout") != id {
+		t.Fatal("the native app did not receive the original purchase parameters")
+	}
 	assert(409, "DELETE", path, "", token)
 	assert(400, "POST", pathCancel, `{"terminal":true}`, token)
 	assert(404, "POST", pathCancel, payload(map[string]string{"challenge": launch, "assertion": enc([]byte("untrusted result"))}), token)

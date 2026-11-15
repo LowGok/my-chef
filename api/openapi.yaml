@@ -13096,6 +13096,80 @@
       }
     },
     "/api/native/v1/billing/apple/enrollment": {
+      "get": {
+        "operationId": "getAppleBillingEnrollment",
+        "description": "Read the key for the current verified iOS sandbox installation, if already enrolled.",
+        "security": [
+          {
+            "nativeBearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The current native session’s enrolled key identifier",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeAppleBillingKey"
+                }
+              }
+            }
+          },
+          "204": {
+            "description": "This installation has no matching enrolled key"
+          },
+          "400": {
+            "description": "Malformed request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Native sign-in required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Verified email required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not available for this app or device",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Verification or storage is temporarily unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
       "post": {
         "operationId": "enrollAppleBillingInstallation",
         "description": "Register an attested iOS key for the same native session family.",
@@ -13365,11 +13439,11 @@
         ],
         "responses": {
           "200": {
-            "description": "A one-use server challenge for the original iOS installation",
+            "description": "The authorized checkout terms and its one-use cancellation challenge",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/NativeAppleBillingChallenge"
+                  "$ref": "#/components/schemas/NativeAppleBillingLaunch"
                 }
               }
             }
@@ -17231,6 +17305,59 @@
           "error",
           "current"
         ]
+      },
+      "NativeAppleBillingKey": {
+        "type": "object",
+        "properties": {
+          "keyID": {
+            "type": "string",
+            "minLength": 43,
+            "maxLength": 43,
+            "pattern": "^[A-Za-z0-9_-]{43}$"
+          }
+        },
+        "required": [
+          "keyID"
+        ],
+        "additionalProperties": false
+      },
+      "NativeAppleBillingLaunch": {
+        "type": "object",
+        "properties": {
+          "checkout": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "binding": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "product": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "interval": {
+            "type": "string",
+            "enum": [
+              "monthly",
+              "annual"
+            ]
+          },
+          "challenge": {
+            "type": "string",
+            "minLength": 43,
+            "maxLength": 43,
+            "pattern": "^[A-Za-z0-9_-]{43}$"
+          }
+        },
+        "required": [
+          "checkout",
+          "binding",
+          "product",
+          "interval",
+          "challenge"
+        ],
+        "additionalProperties": false
       },
       "NativeAppleBillingChallenge": {
         "type": "object",

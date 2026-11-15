@@ -35,7 +35,7 @@ const proof: BillingReceipt = {
 const id = "a0e99b92-a5a2-4d5b-95c1-7307c3747c77";
 const binding = "5095aae8-27e3-45de-bef1-bf9b179cedcf";
 
-function fixture() {
+function fixture(protectedCheckout = false) {
   const events: string[] = [];
   let current = status;
   let owned = true;
@@ -45,6 +45,8 @@ function fixture() {
   let checkQuote: (attempt: number) => Promise<void> = async () => {};
   let purchase: "pending" | "cancelled" | BillingReceipt = proof;
   let unfinished = [proof];
+  let eligible = true;
+  let protectedOutcome: "released" | "pending" = "released";
   let finish: (id: string) => Promise<void> = async () => {};
   const flow = createBillingFlow(
     {
@@ -93,6 +95,18 @@ function fixture() {
         unfinished = [proof];
         return purchase;
       },
+      ...(protectedCheckout ? {
+        async prepareAttestation() {
+          events.push("prepare attestation");
+          return eligible;
+        },
+        async purchaseAttested(value: BillingQuote, attempt: { id: string; binding: string }) {
+          expect(value).toEqual(quote);
+          expect(attempt).toMatchObject({ id, binding });
+          events.push("native launch and purchase");
+          return protectedOutcome;
+        },
+      } : {}),
       async unfinished() {
         events.push("unfinished");
         return unfinished;
@@ -112,6 +126,8 @@ function fixture() {
   return {
     flow,
     events,
+    setEligible: (ok: boolean) => { eligible = ok; },
+    setProtectedOutcome: (outcome: typeof protectedOutcome) => { protectedOutcome = outcome; },
     setStatus: (v: BillingStatus) => {
       current = v;
     },
@@ -430,4 +446,29 @@ test("a stale session cannot release a checkout on behalf of another account", a
   });
   await expect(f.flow.purchase("monthly")).rejects.toThrow("session changed");
   expect(f.events).toEqual(["unfinished", "quote", "reserve", "quote"]);
+});
+
+
+test("protected Apple checkout only opens through the native attested operation", async () => {
+  const noAdapter = fixture();
+  const protectedStatus = { ...status, appleAttestationRequired: true };
+  noAdapter.setStatus(protectedStatus);
+  noAdapter.setUnfinished();
+  expect(await noAdapter.flow.purchase("monthly")).toBe("unavailable");
+  expect(noAdapter.events).not.toContain("reserve");
+  const f = fixture(true);
+  f.setStatus(protectedStatus);
+  f.setUnfinished();
+  f.setEligible(false);
+  expect(await f.flow.purchase("monthly")).toBe("unavailable");
+  expect(f.events).toContain("prepare attestation");
+  expect(f.events).not.toContain("reserve");
+  f.setEligible(true);
+  expect(await f.flow.purchase("monthly")).toBe("released");
+  expect(f.events.filter((v) => v === "native launch and purchase")).toHaveLength(1);
+  expect(f.events).not.toContain("launch");
+  expect(f.events).not.toContain("purchase");
+  f.setProtectedOutcome("pending");
+  expect(await f.flow.purchase("monthly")).toBe("pending");
+  expect(f.events).not.toContain("finish");
 });

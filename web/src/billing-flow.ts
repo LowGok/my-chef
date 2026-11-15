@@ -21,7 +21,7 @@ export type BillingReceipt = {
 };
 
 type Reserved = Plan & { store: BillingStore; id: string; binding: string };
-type Result = "verified" | "unavailable" | "pending" | "empty";
+type Result = "verified" | "unavailable" | "pending" | "empty" | "released";
 export type CheckoutStore = {
   readonly store: BillingStore;
   quotes(plans: readonly Plan[]): Promise<BillingQuote[]>;
@@ -30,6 +30,10 @@ export type CheckoutStore = {
     quote: BillingQuote,
     binding: string,
   ): Promise<BillingReceipt | "pending" | "cancelled">;
+  prepareAttestation?(): Promise<boolean>;
+  // The iOS adapter authorizes its own launch and sends any cancellation proof
+  // to the server itself. Only a confirmed outcome reaches the shared UI.
+  purchaseAttested?(quote: BillingQuote, attempt: Reserved): Promise<BillingReceipt | "pending" | "released">;
   unfinished(): Promise<BillingReceipt[]>;
   restore(): Promise<BillingReceipt[]>;
   finish(id: string): Promise<void>;
@@ -200,6 +204,14 @@ export function createBillingFlow(
       const [first] = await quotePlans(current, plans);
       if (!first) return "unavailable";
       requireSession();
+      const guarded = current.appleAttestationRequired === true;
+      if (guarded) {
+        if (device.store !== "apple" || !device.prepareAttestation || !device.purchaseAttested)
+          return "unavailable";
+        const ready = await device.prepareAttestation();
+        requireSession();
+        if (!ready) return "unavailable";
+      }
       const attempt = await server.reserve(interval);
       requireSession();
       if (
@@ -224,10 +236,16 @@ export function createBillingFlow(
       }
       requireSession();
       if (!fresh) return "unavailable";
-      await server.launch(attempt.id);
+      let evidence: Awaited<ReturnType<CheckoutStore["purchase"]>> | "released";
+      if (guarded) {
+        evidence = await device.purchaseAttested!(fresh, attempt);
+      } else {
+        await server.launch(attempt.id);
+        requireSession();
+        evidence = await device.purchase(fresh, attempt.binding);
+      }
       requireSession();
-      const evidence = await device.purchase(fresh, attempt.binding);
-      requireSession();
+      if (evidence === "released") return "released";
       if (evidence === "pending" || evidence === "cancelled") return "pending";
       if (evidence.interval !== interval) return "pending";
       return finish(evidence, (value) => server.verify(attempt.id, value));

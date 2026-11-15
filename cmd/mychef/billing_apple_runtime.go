@@ -37,12 +37,15 @@ var (
 	applePrivateOrigin  = regexp.MustCompile(`^[a-z0-9-]+\.tail[a-z0-9]+\.ts\.net$`)
 	applePreviewProduct = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,128}$`)
 	applePreviewGroup   = regexp.MustCompile(`^[0-9]{1,32}$`)
+	applePreviewAppID   = regexp.MustCompile(`^[A-Z0-9]{10}\.` + regexp.QuoteMeta(applePreviewBundle) + `$`)
+	applePreviewBuild   = regexp.MustCompile(`^[0-9]{1,24}(\.[0-9]{1,12}){0,2}$`)
 )
 
 type appleBillingSandbox struct {
-	provider billing.AppleConfig
-	expires  time.Time
-	checkout bool
+	provider    billing.AppleConfig
+	expires     time.Time
+	checkout    bool
+	attestation *billing.AppleEnrollmentVerifier
 }
 
 type appleBillingCredential struct {
@@ -53,6 +56,10 @@ type appleBillingCredential struct {
 	Monthly string `json:"monthly_product"`
 	Annual  string `json:"annual_product"`
 	KeyPEM  string `json:"private_key_pem"`
+	Attest  *struct {
+		AppID   string `json:"app_id"`
+		Version string `json:"bundle_version"`
+	} `json:"app_attest,omitempty"`
 }
 
 func loadAppleBillingSandbox(app config.Config, inbox *config.FixtureInbox) (*appleBillingSandbox, error) {
@@ -110,7 +117,21 @@ func loadAppleBillingSandbox(app config.Config, inbox *config.FixtureInbox) (*ap
 	if err != nil {
 		return nil, err
 	}
-	mode := &appleBillingSandbox{expires: inbox.Expires, checkout: checkout, provider: billing.AppleConfig{
+	var attestation *billing.AppleEnrollmentVerifier
+	if checkout {
+		if saved.Attest == nil || !applePreviewAppID.MatchString(saved.Attest.AppID) || !applePreviewBuild.MatchString(saved.Attest.Version) {
+			return nil, errAppleSandbox
+		}
+		// TestFlight App Attest uses its production root/AAGUID regardless of
+		// StoreKit's independent purchase sandbox. Require signed build metadata.
+		build := billing.AppleAttestBuildPolicy{Category: 2, Version: saved.Attest.Version}
+		configured, err := billing.NewAppleEnrollmentVerifier(saved.Attest.AppID, build, false)
+		if err != nil {
+			return nil, errAppleSandbox
+		}
+		attestation = &configured
+	}
+	mode := &appleBillingSandbox{expires: inbox.Expires, checkout: checkout, attestation: attestation, provider: billing.AppleConfig{
 		BundleID: applePreviewBundle, GroupID: saved.Group, Issuer: saved.Issuer, KeyID: saved.KeyID,
 		AppAppleID: saved.AppleID, Environment: billing.Sandbox, Key: key, Roots: roots,
 		Products: map[string]billing.Interval{saved.Monthly: billing.Monthly, saved.Annual: billing.Annual},
@@ -170,7 +191,7 @@ func appleSandboxRoots() (*x509.CertPool, error) {
 func (mode *appleBillingSandbox) start(ctx context.Context, journal *store.LifecycleJournal, client *http.Client,
 	report func(billing.AppleWorkerHealth)) (*httpapi.NativeBilling, *billing.AppleWorker, error) {
 	allowed := func() bool { return time.Now().Before(mode.expires) }
-	if !allowed() || journal == nil || mode.provider.Environment != billing.Sandbox || mode.provider.BundleID != applePreviewBundle {
+	if !allowed() || journal == nil || mode.provider.Environment != billing.Sandbox || mode.provider.BundleID != applePreviewBundle || (mode.checkout && mode.attestation == nil) {
 		return nil, nil, errAppleSandbox
 	}
 	provider, err := billing.NewAppleProvider(mode.provider, client, nil)
@@ -190,8 +211,21 @@ func (mode *appleBillingSandbox) start(ctx context.Context, journal *store.Lifec
 	if err != nil {
 		return nil, nil, err
 	}
+	var attestation *httpapi.AppleBillingAttestation
+	if mode.checkout {
+		keys := billing.AppleCancellationRegistry{
+			Journal: protected, Environment: billing.Sandbox, Verifier: *mode.attestation,
+		}
+		attestation = &httpapi.AppleBillingAttestation{
+			Registry: keys,
+			Verifier: billing.AppleCancellationVerifier{
+				AppID: mode.attestation.AppID, Keys: keys, Build: mode.attestation.Build,
+			},
+		}
+	}
 	return &httpapi.NativeBilling{Journal: protected, Environment: billing.Sandbox, Offers: offers,
-		Available: allowed, CheckoutEnabled: mode.checkout, SyntheticAccountsOnly: true, RequireAppleAttestation: true, Providers: map[billing.Store]billing.Provider{billing.Apple: provider}}, worker, nil
+		Available: allowed, CheckoutEnabled: mode.checkout, SyntheticAccountsOnly: true, RequireAppleAttestation: true,
+		Providers: map[billing.Store]billing.Provider{billing.Apple: provider}, AppleAttestation: attestation}, worker, nil
 }
 
 // Apple Root CA G3, published at https://www.apple.com/certificateauthority/.

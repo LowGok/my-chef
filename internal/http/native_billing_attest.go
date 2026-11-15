@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"net/http"
 	"time"
 
@@ -79,6 +80,35 @@ func (a *API) appleBillingFence(r *http.Request, owner, family string) func(func
 		}
 		return commit()
 	}
+}
+
+// A lost enrollment response or app restart does not allocate another
+// key. The current verified Apple session can read only its own identifier.
+func (a *API) billingAppleEnrollmentState(w http.ResponseWriter, r *http.Request) {
+	if !a.personalNoQuery(w, r) {
+		return
+	}
+	if r.ContentLength != 0 {
+		a.personalError(w, r, store.ErrPersonalInput)
+		return
+	}
+	a.Store.AccountWork.RLock()
+	defer a.Store.AccountWork.RUnlock()
+	owner, err := a.billingAppleActor(r)
+	if err != nil {
+		a.billingError(w, r, err)
+		return
+	}
+	key, err := a.Config.NativeBilling.AppleAttestation.Registry.EnrolledInstance(r.Context(), owner, info(r).Family)
+	if errors.Is(err, billing.ErrPurchaseBinding) {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if err != nil {
+		a.billingError(w, r, err)
+		return
+	}
+	a.write(w, http.StatusOK, map[string]string{"keyID": base64.RawURLEncoding.EncodeToString(key[:])})
 }
 
 func (a *API) billingAppleEnrollmentChallenge(w http.ResponseWriter, r *http.Request) {

@@ -29,6 +29,7 @@ const notices = {
     "Your purchase is still being checked. You can safely come back later.",
   unavailable: "This purchase option is unavailable.",
   empty: "No purchases were found for this store account.",
+  released: "Purchase cancelled.",
 };
 
 export function Subscriptions({ onHelp }: { onHelp: () => void }) {

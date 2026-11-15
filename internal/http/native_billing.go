@@ -100,6 +100,7 @@ func (a *API) billingRoutes(mux *http.ServeMux) {
 	if a.Config.NativeBilling.appleAttestationEnabled() {
 		routes["POST /api/v1/billing/apple/enrollment/challenge"] = a.billingAppleEnrollmentChallenge
 		routes["POST /api/v1/billing/apple/enrollment"] = a.billingAppleEnroll
+		routes["GET /api/v1/billing/apple/enrollment"] = a.billingAppleEnrollmentState
 		routes["POST /api/v1/billing/checkouts/{checkout}/cancel"] = a.billingAppleCancel
 	}
 	for path, handler := range routes {
@@ -317,10 +318,17 @@ func (a *API) billingLaunch(w http.ResponseWriter, r *http.Request) {
 				a.billingError(w, r, lookupErr)
 				return
 			}
+			offer, _, ok := b.offer(attempt.Store, attempt.Interval)
+			if !ok {
+				a.billingError(w, r, billing.ErrPurchaseBinding)
+				return
+			}
 			var claim billing.NativeCancellation
 			claim, err = b.Journal.LaunchForNativeCancellation(r.Context(), attempt, id, family, instance, time.Now())
 			if err == nil {
-				a.write(w, http.StatusOK, appleChallengeResponse(claim.Challenge))
+				body := appleChallengeResponse(claim.Challenge)
+				body["checkout"], body["binding"], body["product"], body["interval"] = attempt.ID, attempt.Binding, offer.Product, string(attempt.Interval)
+				a.write(w, http.StatusOK, body)
 				return
 			}
 		} else {

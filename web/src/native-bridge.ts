@@ -22,6 +22,7 @@ const methods = [
   "openExternal",
   "cancelMedia",
   "billingQuotes",
+  "billingPrepare",
   "billingPurchase",
   "billingUnfinished",
   "billingRestore",

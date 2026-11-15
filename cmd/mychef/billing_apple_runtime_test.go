@@ -111,6 +111,22 @@ func TestAppleSandboxRequiresPrivatePreviewAndAnOwnedCredential(t *testing.T) {
 		t.Fatal("ambiguous sandbox checkout setting was accepted", err)
 	}
 	t.Setenv("MYCHEF_APPLE_BILLING_SANDBOX_CHECKOUT", "1")
+	if mode, err := loadAppleBillingSandbox(cfg, inbox); mode != nil || err == nil {
+		t.Fatal("sandbox checkout accepted no signed Preview candidate identity")
+	}
+	for _, wrong := range []map[string]string{
+		{"app_id": "TESTTEAM01.com.example.other", "bundle_version": "3001"},
+		{"app_id": "TESTTEAM01." + applePreviewBundle, "bundle_version": ""},
+		{"app_id": "TESTTEAM01." + applePreviewBundle, "bundle_version": "3001", "category": "4"},
+	} {
+		fields["app_attest"] = wrong
+		write()
+		if mode, err := loadAppleBillingSandbox(cfg, inbox); mode != nil || err == nil {
+			t.Fatal("sandbox checkout accepted an unapproved App Attest policy")
+		}
+	}
+	fields["app_attest"] = map[string]string{"app_id": "TESTTEAM01." + applePreviewBundle, "bundle_version": "3001"}
+	write()
 	checkoutMode, err := loadAppleBillingSandbox(cfg, inbox)
 	if err != nil || checkoutMode == nil {
 		t.Fatal("explicit sandbox checkout could not be prepared", err)
@@ -118,8 +134,17 @@ func TestAppleSandboxRequiresPrivatePreviewAndAnOwnedCredential(t *testing.T) {
 	_, checkoutJournal := runtimeDatabase(t)
 	native, _, err := checkoutMode.start(t.Context(), checkoutJournal, nil, nil)
 	if err != nil || native == nil || !native.CheckoutEnabled || native.PlayCheckoutEnabled || !native.RequireAppleAttestation ||
-		native.Environment != billing.Sandbox || !native.SyntheticAccountsOnly {
+		native.Environment != billing.Sandbox || !native.SyntheticAccountsOnly || native.AppleAttestation == nil ||
+		native.AppleAttestation.Registry == nil || native.AppleAttestation.Verifier == nil {
 		t.Fatal("checkout was not bounded to the Apple sandbox and synthetic accounts", err)
+	}
+	keys, registryOK := native.AppleAttestation.Registry.(billing.AppleCancellationRegistry)
+	verifier, verifierOK := native.AppleAttestation.Verifier.(billing.AppleCancellationVerifier)
+	if !registryOK || !verifierOK || keys.Environment != billing.Sandbox || keys.Journal != native.Journal ||
+		keys.Verifier.Development || keys.Verifier.Build.AllowLegacy || keys.Verifier.Build.Category != 2 ||
+		keys.Verifier.Build.Version != "3001" || keys.Verifier.AppID != "TESTTEAM01."+applePreviewBundle ||
+		verifier.AppID != keys.Verifier.AppID || verifier.Build != keys.Verifier.Build {
+		t.Fatal("identity was not restricted to the configured TestFlight sandbox candidate")
 	}
 	t.Setenv("MYCHEF_APPLE_BILLING_SANDBOX_FILE", "")
 	if mode, err := loadAppleBillingSandbox(cfg, inbox); mode != nil || err == nil {

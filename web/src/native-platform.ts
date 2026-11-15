@@ -261,7 +261,11 @@ export async function initializeNativePlatform() {
     setShoppingStorage(await openNativeShoppingStorage(bridge));
   });
   setPlatformTransport(transport);
-  setNativeBillingStore(platform, bridge);
+  setNativeBillingStore(
+    platform,
+    bridge,
+    platform === "ios" ? (operation) => transport.authorizeAppleBilling(operation) : undefined,
+  );
   setMediaPlatform(createNativeMedia(bridge));
   setReminderBridge(bridge);
   await runNativeStartupStep("device", async () =>

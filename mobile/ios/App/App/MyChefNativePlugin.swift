@@ -102,6 +102,7 @@ public class MyChefNativePlugin: CAPPlugin, CAPBridgedPlugin, URLSessionDataDele
         CAPPluginMethod(name: "cancelMedia", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "request", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "cancelRequest", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "billingPrepare", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "billingQuotes", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "billingPurchase", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "billingUnfinished", returnType: CAPPluginReturnPromise),
@@ -341,9 +342,15 @@ public class MyChefNativePlugin: CAPPlugin, CAPBridgedPlugin, URLSessionDataDele
             catch { call.reject("Subscription offers are unavailable", "native_billing") }
         }
     }
+    @objc func billingPrepare(_ call: CAPPluginCall) {
+        Task { @MainActor in
+            do { nativeReply(call, ["ready": try await NativeSubscriptions.prepare(call, origin: self.origin)]) }
+            catch { nativeReply(call, ["ready": false]) }
+        }
+    }
     @objc func billingPurchase(_ call: CAPPluginCall) {
         Task { @MainActor in
-            do { nativeReply(call, try await NativeSubscriptions.purchase(call)) }
+            do { nativeReply(call, try await NativeSubscriptions.purchase(call, origin: self.origin)) }
             catch { call.reject("The store result is unavailable", "native_billing") }
         }
     }
