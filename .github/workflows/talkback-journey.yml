@@ -1,0 +1,95 @@
+name: Installed TalkBack reminder verification
+on:
+  push:
+    branches: [ci/reminder-talkback-preflight-0f3e4a8]
+    paths:
+      - .github/workflows/talkback-journey.yml
+      - scripts/verification/talkback/**
+permissions:
+  contents: read
+jobs:
+  verify:
+    if: github.repository_id == '1454481532' && github.repository == 'LowGok/my-chef' && !github.event.repository.private && github.actor == 'LowGok'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 24
+    env:
+      CI: "1"
+      CAPACITOR_TELEMETRY_DISABLED: "1"
+      FIXTURE_SOURCE: 0f3e4a8764669be1a1d6ca02d6a93612f6f1f053
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+          path: verification
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: 0f3e4a8764669be1a1d6ca02d6a93612f6f1f053
+          persist-credentials: false
+          path: candidate
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version-file: candidate/mobile/package.json
+          no-cache: true
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version-file: candidate/go.mod
+          cache: false
+      - name: Compile exact candidate for a disposable HTTPS fixture
+        working-directory: candidate
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$FIXTURE_SOURCE"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          export JAVA_HOME="$JAVA_HOME_21_X64"
+          export PATH="$JAVA_HOME/bin:$PATH"
+          java -version
+          (cd web && bun install --frozen-lockfile && bun run build)
+          (cd mobile && bun install --frozen-lockfile)
+          bun scripts/mobile-build.ts prepare web/dist/app mobile/.generated https://localhost:8977 "$FIXTURE_SOURCE"
+          (cd mobile && bun run cap copy android)
+          (cd mobile/android && ./gradlew --no-daemon --dependency-verification=strict -PmychefVersionName=0.1.0 -PmychefVersionCode=2 assembleDebug)
+          bun scripts/mobile-build.ts verify mobile/.generated
+          test -z "$(git status --porcelain --untracked-files=all)"
+      - name: Verify the existing fixture tools and official audio capture utility
+        working-directory: candidate
+        run: |
+          set -euo pipefail
+          python3 scripts/rewrite.py bootstrap
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install platform-tools
+          "$ANDROID_HOME/platform-tools/adb" version
+          cd "$RUNNER_TEMP"
+          archive=scrcpy-linux-x86_64-v5.0.1.tar.gz
+          curl -fsSL --max-time 75 "https://github.com/Genymobile/scrcpy/releases/download/v5.0.1/$archive" --output "$archive"
+          echo "9f969d30cc574816077edecda65719c1c70b0aee1df1ba5fa00779ac07b8fd6e  $archive" | sha256sum -c -
+          tar -xzf "$archive"
+          test -x scrcpy-linux-x86_64-v5.0.1/scrcpy
+          test -f scrcpy-linux-x86_64-v5.0.1/scrcpy-server
+          ffmpeg -version | sed -n '1p'
+      - name: Prepare a checksum-verified offline recognizer
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          source=d1be6fde11ac6e0407606b4e42fe72d34add8037
+          git init offline-stt
+          git -C offline-stt fetch --depth=1 https://github.com/ggml-org/whisper.cpp.git "$source"
+          git -C offline-stt checkout --detach FETCH_HEAD
+          test "$(git -C offline-stt rev-parse HEAD)" = "$source"
+          cmake -S offline-stt -B offline-stt/build -DCMAKE_BUILD_TYPE=Release -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_SERVER=OFF -DWHISPER_CURL=OFF
+          cmake --build offline-stt/build --target whisper-cli -j 4
+          curl -fsSL --max-time 90 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin' --output ggml-base.en.bin
+          echo 'a03779c86df3323075f5e796cb2ce5029f00ec8869eee3fdfb897afe36c6d002  ggml-base.en.bin' | sha256sum -c -
+      - name: Verify TalkBack phrases locally on the runner
+        run: |
+          set -euo pipefail
+          export JAVA_HOME="$JAVA_HOME_21_X64"
+          export PATH="$JAVA_HOME/bin:$PATH"
+          python3 verification/scripts/verification/talkback/run.py candidate \
+            "$RUNNER_TEMP/scrcpy-linux-x86_64-v5.0.1/scrcpy" \
+            "$RUNNER_TEMP/offline-stt/build/bin/whisper-cli" "$RUNNER_TEMP/ggml-base.en.bin" \
+            "$RUNNER_TEMP/talkback-result"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: talkback-phrase-verification
+          path: ${{ runner.temp }}/talkback-result/focus-receipt.json
+          if-no-files-found: error
+          retention-days: 1

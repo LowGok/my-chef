@@ -2,6 +2,7 @@ name: Android screen reader preflight
 on:
   push:
     branches: [ci/reminder-talkback-preflight-0f3e4a8]
+    paths: [.github/workflows/talkback-preflight.yml]
 
 permissions:
   contents: read
