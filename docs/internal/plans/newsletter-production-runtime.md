@@ -106,11 +106,16 @@ Rollback pauses site then backend capture, preserves proof routes, SQL, authorit
 
 ## Acceptance Criteria
 
-- [ ] AC-01: The newsletter-only command starts with only its approved credentials and exposes no full-app, fixture, provider, analytics or public operator surface.
+- [x] AC-01: The newsletter-only command starts with only its approved credentials and exposes no full-app, fixture, provider, analytics or public operator surface.
+      Evidence: independent implementation review R-5 at 572435c returned met; the reviewer executed full affected-package and targeted race suites plus the exact-source process rehearsal. No live deployment is claimed.
 - [ ] AC-02: Missing prerequisites and failed workers keep capture unavailable; the exact paused-preflight/backend-only/site-last activation sequence works while valid confirmation/withdrawal remains available during pause.
-- [ ] AC-03: The role sends only authorized newsletter templates with the selected sender profile, preserves full-app settings, and rejects stale consent and unrelated queue work without real mail in tests.
-- [ ] AC-04: Durable SQL and the independent journal preserve IDs, suppression, operator erasure and conservative restore across process restart/concurrency and compatible rollback without beta changes or automatic age deletion.
+      Evidence: R-5 returned not verified for the missing exact website/HTTPS activation pair and delivery/live receipts. This composite criterion remains open.
+- [x] AC-03: The role sends only authorized newsletter templates with the selected sender profile, preserves full-app settings, and rejects stale consent and unrelated queue work without real mail in tests.
+      Evidence: independent implementation review R-5 at 572435c returned met; the reviewer executed full affected-package and targeted race suites plus the exact-source process rehearsal. No live deployment is claimed.
+- [x] AC-04: Durable SQL and the independent journal preserve IDs, suppression, operator erasure and conservative restore across process restart/concurrency and compatible rollback without beta changes or automatic age deletion.
+      Evidence: independent implementation review R-5 at 572435c returned met; the reviewer executed full affected-package and targeted race suites plus the exact-source process rehearsal. No live deployment is claimed.
 - [ ] AC-05: Reviewed host templates/runbooks, independent implementation review, normal CI and signed-image receipts bind the exact backend to the separately reviewed website and truthfully identify any remaining live-operation evidence.
+      Evidence: R-5 returned not verified for the missing exact website/HTTPS activation pair and delivery/live receipts. This composite criterion remains open.
 
 ## Test Plan
 
@@ -153,6 +158,7 @@ None for the technical scope. Controller, contact, retention-review criteria and
 | 2026-11-15 | R-2 | spec | `8e5cdee68f34719d89dc4d905beb2bb0870b159f` | n/a | n/a | accepted by owner |
 | 2026-11-15 | R-3 | spec | `946c91c5cd424f35ac8d0d660d5266d064050a20` | unknown | procedural | No findings after current-main/schema-26 freshness review. Accepted normative baseline unchanged; model identity not attested. |
 | 2026-11-15 | R-4 | spec | `d2df37b9e1c1ee59c55a11bf93a671055d00ef83` | unknown | procedural | No findings after merged dependency and published claim; accepted normative baseline unchanged. Model identity not attested. |
+| 2026-11-15 | R-5 | implementation | `572435c16cfe6a6244316e14e7a8d5fbeced3e06` | unknown | procedural | AC-01, AC-03 and AC-04 met; AC-02 and AC-05 not verified for the exact website/deployment/delivery pair. No code finding. Model identity not attested. |
 
 ### R-1
 
@@ -174,6 +180,30 @@ NO FINDINGS
 ### R-4
 
 NO FINDINGS
+
+### R-5
+
+TARGET: 572435c16cfe6a6244316e14e7a8d5fbeced3e06
+
+CRITERION: AC-01 The newsletter-only command starts with only its approved credentials and exposes no full-app, fixture, provider, analytics or public operator surface.
+VERDICT: met
+EVIDENCE: At 572435c16cfe6a6244316e14e7a8d5fbeced3e06, independent go test -count=1 -timeout 5m ./cmd/mychef ./internal/config ./internal/http ./internal/email ./internal/newsletter ./internal/auth ./internal/store passed. Role tests established sending-only production configuration without recipe or webhook credentials, rejection of unsafe configuration, protected operator readiness and forbidden route/method behavior. Inspection of newsletter_serve.go and NewsletterHandler confirmed literal loopback binding, isolated construction and the restricted mux. Independently built exact-source binaries passed the disposable executable rehearsal without recipe credentials. Actual host ingress remains outside this local proof.
+
+CRITERION: AC-02 Missing prerequisites and failed workers keep capture unavailable; the exact paused-preflight/backend-only/site-last activation sequence works while valid confirmation/withdrawal remains available during pause.
+VERDICT: not verified
+EVIDENCE: At 572435c16cfe6a6244316e14e7a8d5fbeced3e06, independently executed configuration, readiness, worker-failure and paused-proof tests passed. The exact-source executable rehearsal passed paused readiness, confirmation, backend-only capture with fake dispatch, renewed pause, withdrawal and failed-worker capture rejection. The targeted newsletter/retention/restore race command passed all seven affected packages. deploy/newsletter/README.md specifies website-off/backend-first/site-last activation and recovery, but execution against the exact separately reviewed website and HTTPS deployment pair was not observed. Passing backend checks do not establish this composite criterion.
+
+CRITERION: AC-03 The role sends only authorized newsletter templates with the selected sender profile, preserves full-app settings, and rejects stale consent and unrelated queue work without real mail in tests.
+VERDICT: met
+EVIDENCE: At 572435c16cfe6a6244316e14e7a8d5fbeced3e06, the full config and email suites passed independently, as did go test -race -count=1 -timeout 5m -run 'Newsletter|NoExpiry|Retention|Restore' across the seven affected packages. Inspected assertions cover captured fake payloads for all six templates, selected From/Reply-To, stable retry payloads, unchanged shared/full-app profiles, stale and expired authority rejection, unrelated queue refusal with zero dispatch attempts, and withdrawal waiting for an in-flight fake provider. The executable rehearsal independently confirmed unrelated work stops the worker and fences capture. No real mail was sent.
+
+CRITERION: AC-04 Durable SQL and the independent journal preserve IDs, suppression, operator erasure and conservative restore across process restart/concurrency and compatible rollback without beta changes or automatic age deletion.
+VERDICT: met
+EVIDENCE: At 572435c16cfe6a6244316e14e7a8d5fbeced3e06, independently built binaries passed scripts/test_newsletter_runtime.py with scratch-only output and disposable state: fresh initialization, schema-23 upgrade, lock contention, restart without duplicate dispatch, stable IDs, protected export, operator erasure, authoritative-journal restore replay, invalidated old confirmation authority, pending restored subscriptions and no queued automatic reconfirmation. Full affected-package suites and targeted race suites passed, including retention, signup/email-change identity, withdrawal, operator and restore regressions. Inspection confirmed production none/none enforcement, unchanged full-app compatibility guard and the current-role paused recovery fallback. Verification touched no beta service or production database; actual host durability and backup operation remain deployment evidence.
+
+CRITERION: AC-05 Reviewed host templates/runbooks, independent implementation review, normal CI and signed-image receipts bind the exact backend to the separately reviewed website and truthfully identify any remaining live-operation evidence.
+VERDICT: not verified
+EVIDENCE: At 572435c16cfe6a6244316e14e7a8d5fbeced3e06, independent inspection covered placeholder-only credentials/configuration, restricted Compose and ingress templates, deployment/rollback instructions, Docker allowlist additions and existing signed release workflow. vh-adlc lint passed. Independent affected-package tests, targeted race tests and the exact-source executable rehearsal passed. This review did not observe normal CI, final-image verification, signed-image/SBOM/provenance receipts or the resolved backend/website/host/provider/mailbox/backup receipt for this target. The feature document leaves T7 and acceptance criteria unchecked and the runbook explicitly identifies these missing proofs. Repository status remained clean at the target after review.
 
 ## Sources
 
