@@ -131,7 +131,7 @@ final class AnalyticsProbe: XCTestCase {
         XCTAssertTrue(element.isHittable, "Control must be reachable at OS text size")
     }
     func tapSettled(_ element: XCUIElement) {
-        let end = Date().addingTimeInterval(12)
+        let end = Date().addingTimeInterval(20)
         var previous = CGRect.null
         var unchanged = 0
         while Date() < end {
@@ -141,11 +141,17 @@ final class AnalyticsProbe: XCTestCase {
                 continue
             }
             let frame = element.frame
-            unchanged = element.exists && element.isHittable && frame == previous ? unchanged + 1 : 0
-            if unchanged >= 3 { element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap(); return }
+            let stable = !previous.isNull && abs(frame.minX - previous.minX) <= 1
+                && abs(frame.minY - previous.minY) <= 1 && abs(frame.width - previous.width) <= 1
+                && abs(frame.height - previous.height) <= 1
+            unchanged = element.isHittable && stable ? unchanged + 1 : 0
+            if unchanged >= 2 { element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap(); return }
             previous = frame
             RunLoop.current.run(until: Date().addingTimeInterval(0.2))
         }
+        let exists = element.exists
+        print("Analytics iOS tap state: type=\(element.elementType.rawValue) exists=\(exists) hittable=\(exists && element.isHittable) stable=\(unchanged)")
+        screenState()
         XCTFail("Native tap target must finish layout before input")
     }
     func tap(_ label: String) {

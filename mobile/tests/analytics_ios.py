@@ -136,6 +136,9 @@ def run(state, control, account, identifier, container, layout_only=False, voice
                 detail += '; app state/webview/alert ' + '/'.join(app_state[-1])
             if states:
                 detail += '; screens ' + ', '.join(name + '=' + value for name, value in states[-5:])
+            taps = re.findall(r'Analytics iOS tap state: type=([0-9]{1,3}) exists=(true|false) hittable=(true|false) stable=([0-9]{1,3})', text)
+            if taps:
+                detail += '; tap type/exists/hittable/stable ' + ', '.join('/'.join(row) for row in taps[-3:])
             speech = re.findall(r'Analytics iOS spoken control: role=(true|false) disabled=(true|false) state=(on|off|unknown)', text)
             if speech:
                 detail += '; spoken role/disabled/state ' + ', '.join('/'.join(row) for row in speech[-4:])
