@@ -97,7 +97,7 @@ CREATE INDEX IF NOT EXISTS billing_subscriptions_owner ON billing_subscriptions(
 // against the ordinary application database or at application startup.
 func Migrate(ctx context.Context, db *sql.DB) error {
 	return transaction(ctx, db, func(tx *sql.Tx) error {
-		if _, err := tx.ExecContext(ctx, schema+appleReconciliationSchema+applePollSchema+playInboxSchema+playPollSchema+playReplacementSchema+privacySchema+runtimeSchema); err != nil {
+		if _, err := tx.ExecContext(ctx, schema+appleReconciliationSchema+applePollSchema+playInboxSchema+playPollSchema+playReplacementSchema+playSignupSchema+privacySchema+runtimeSchema); err != nil {
 			return err
 		}
 		var key [32]byte

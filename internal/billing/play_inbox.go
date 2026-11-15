@@ -88,6 +88,10 @@ func (i *PlayInbox) Retain(ctx context.Context, n PlayNotice, now time.Time) err
 		return err
 	}
 	proof, err := i.provider.VerifyExisting(ctx, n.Token)
+	var signup *playSignup
+	if errors.As(err, &signup) {
+		return i.retainSignup(ctx, signup, n.Token, "")
+	}
 	if errors.Is(err, ErrUnresolved) {
 		return i.retainReplacement(ctx, "", n.Token, nil, func(ctx context.Context, tx *sql.Tx, r PlayReplacement) error {
 			// Reconciliation now follows the durable, leased poll row.

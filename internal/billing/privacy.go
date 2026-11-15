@@ -49,8 +49,8 @@ func CheckDeletionStorage(ctx context.Context, db *sql.DB) error {
 	var count int
 	err := db.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_schema WHERE type='table' AND name IN(
  'billing_attempts','billing_subscriptions','billing_periods','billing_apple_polls','billing_apple_notices','billing_replay_markers',
- 'billing_play_notices','billing_play_polls','billing_play_replacements','billing_app_origins','billing_deletion_origins','billing_runtime','billing_runtime_proofs')`).Scan(&count)
-	if err != nil || count != 13 {
+ 'billing_play_notices','billing_play_polls','billing_play_replacements','billing_play_signups','billing_app_origins','billing_deletion_origins','billing_runtime','billing_runtime_proofs')`).Scan(&count)
+	if err != nil || count != 14 {
 		return ErrStoreUnavailable
 	}
 	return nil
@@ -121,6 +121,7 @@ func PurgeForDeletion(ctx context.Context, tx *sql.Tx, operation, incarnation st
 		}
 	}
 	for _, query := range []string{
+		`DELETE FROM billing_play_signups WHERE binding IN (SELECT binding FROM billing_attempts WHERE incarnation=?)`,
 		`DELETE FROM billing_play_replacements WHERE binding IN (SELECT binding FROM billing_attempts WHERE incarnation=?)`,
 		`DELETE FROM billing_play_polls WHERE binding IN (SELECT binding FROM billing_attempts WHERE incarnation=?)`,
 		`DELETE FROM billing_play_notices WHERE binding IN (SELECT binding FROM billing_attempts WHERE incarnation=?)`,

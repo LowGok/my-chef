@@ -223,7 +223,7 @@ final class NativePlaySubscriptions {
             var account = purchase.getAccountIdentifiers();
             if (matches(purchase, pending.plan) && account != null
                     && pending.binding.equalsIgnoreCase(account.getObfuscatedAccountId())) {
-                var proof = receipt(purchase);
+                var proof = receipt(purchase, true);
                 if (proof != null) {
                     finishAttempt("proof", proof.put("interval", pending.plan.interval)); return;
                 }
@@ -245,10 +245,13 @@ final class NativePlaySubscriptions {
         }
     }
 
-    private static JSObject receipt(Purchase purchase) {
+    private static JSObject receipt(Purchase purchase, boolean includePending) {
         var token = purchase.getPurchaseToken();
         var account = purchase.getAccountIdentifiers();
-        if (purchase.getPurchaseState() != Purchase.PurchaseState.PURCHASED || purchase.getProducts().size() != 1
+        int state = purchase.getPurchaseState();
+        boolean verifiable = state == Purchase.PurchaseState.PURCHASED
+                || (includePending && state == Purchase.PurchaseState.PENDING);
+        if (!verifiable || purchase.getProducts().size() != 1
                 || account == null || !isBinding(account.getObfuscatedAccountId()) || token == null
                 || token.length() > 2048 || !token.matches("[A-Za-z0-9._-]+") || ".".equals(token) || "..".equals(token)) return null;
         return new JSObject().put("id", handle(token)).put("receipt", token);
@@ -268,7 +271,7 @@ final class NativePlaySubscriptions {
             if (purchases == null || purchases.size() > 32) { respond.accept(null); return; }
             var receipts = new JSArray();
             for (var purchase : purchases) {
-                var value = receipt(purchase);
+                var value = receipt(purchase, unfinished);
                 if (value != null && (!unfinished || !purchase.isAcknowledged())) receipts.put(value);
             }
             respond.accept(new JSObject().put("receipts", receipts));
@@ -281,7 +284,7 @@ final class NativePlaySubscriptions {
             if (purchases == null) { respond.accept(null); return; }
             Purchase purchase = null;
             for (var candidate : purchases) {
-                var value = receipt(candidate);
+                var value = receipt(candidate, false);
                 if (value == null || !id.equals(value.optString("id"))) continue;
                 if (purchase != null) { respond.accept(null); return; }
                 purchase = candidate;

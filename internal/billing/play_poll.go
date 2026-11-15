@@ -45,7 +45,19 @@ func (i *PlayInbox) ReconcileCheckout(ctx context.Context, owner string, attempt
 	if !i.Offers(offer) {
 		return CheckoutResult{}, ErrPurchaseBinding
 	}
-	return i.journal.reconcileCheckoutWithHook(ctx, owner, attempt, offer, token, i.provider, fence, i.remember(token))
+	result, err := i.journal.reconcileCheckoutWithHook(ctx, owner, attempt, offer, token, i.provider, fence, i.remember(token))
+	var pending *playSignup
+	if !errors.As(err, &pending) {
+		return result, err
+	}
+	if pending.binding != attempt.Binding || pending.offer != offer {
+		return CheckoutResult{}, ErrPurchaseBinding
+	}
+	commit := func() error { return i.retainSignup(ctx, pending, token, owner) }
+	if fence != nil {
+		return CheckoutResult{}, fence(commit)
+	}
+	return CheckoutResult{}, commit()
 }
 
 // Restore applies the same transaction rule to a recovered purchase.

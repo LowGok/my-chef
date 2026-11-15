@@ -184,6 +184,8 @@ func (p *PlayProvider) verify(ctx context.Context, token string, initial bool, p
 		return ProviderProof{}, ErrUnresolved
 	}
 	switch sub.State {
+	case "SUBSCRIPTION_STATE_PENDING", "SUBSCRIPTION_STATE_PENDING_PURCHASE_CANCELED":
+		return ProviderProof{}, p.signupState(sub, token)
 	case "SUBSCRIPTION_STATE_ACTIVE", "SUBSCRIPTION_STATE_CANCELED":
 	case "SUBSCRIPTION_STATE_IN_GRACE_PERIOD", "SUBSCRIPTION_STATE_EXPIRED":
 		if initial {
