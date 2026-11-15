@@ -1,6 +1,6 @@
 ---
 status: draft
-status_description: "Owner approved the reduced inactive-contact scope and prepared plan through the Hub. Concrete SQL/key/restore design is being prepared for independent review before task and claim publication."
+status_description: "Owner approved the reduced inactive-contact scope and prepared plan through the Hub. Concrete SQL/key/restore design passed R-2 independent review; technical-baseline acceptance is pending before task and claim publication."
 issue: null
 goal: "Inactive newsletter contacts retain their userID and non-consenting state without unnecessary clear email or expired mail/proof history."
 covers:
@@ -157,6 +157,7 @@ None for the product scope. The owner selected Q1 option A, protected matching a
 | Date | Review | Kind | Commit | Model | Isolation | Outcome |
 | --- | --- | --- | --- | --- | --- | --- |
 | 2026-11-15 | R-1 | spec | `f102c46ceb437e5f0123ea5bbaa053a9ff578a23` | unknown | procedural | Two blocking factual findings: active SQLite remnants and ownership after promotion/address change/deletion. Model identity not attested. |
+| 2026-11-15 | R-2 | spec | `fa1881e211a98565e05503832c48a58326282d5f` | unknown | procedural | No findings after the complete correction review. Technical-baseline acceptance pending; model identity not attested. |
 
 ### R-1
 
@@ -175,6 +176,11 @@ SEVERITY: blocking
 WHERE: Scope line 49; Design SQL representation and identity ownership line 61, Transient work and minimisation line 81, Withdrawal and rights lines 87-89, Authoritative state lines 93-99; AC-02 and AC-03; Test Plan AC-02 and AC-03.
 EVIDENCE: The draft introduces protected ownership in SQL and a durable identity registry, and specifies promotion, but does not define whether either match remains active after promotion or how subsequent ordinary full-account email changes and deletion update it. Existing internal/auth/email_change.go:373-380 changes the account's raw address and invalidates newsletter consent; ordinary account deletion uses internal/store/account_delete.go rather than the newsletter-only erasure authority. For a reduced contact at address A promoted to an app account and later changed to B, retaining A's active protected match can bind A to the wrong current account or permanently reject its legitimate reuse. A stale authoritative registry can also restore that ownership after SQL cleanup. The listed email-change placeholder-transfer test does not establish this lifecycle.
 PROPOSAL: Specify active-match and journal transitions for promotion, subsequent ordinary email changes, full-account deletion and address reuse, including atomic retirement and conservative restore behavior. Add a reduced-contact to app-account to changed-address to deletion scenario, with restart and older-snapshot replay at each ownership transition.
+
+### R-2
+
+TARGET: fa1881e211a98565e05503832c48a58326282d5f
+NO FINDINGS
 
 ## Sources
 
