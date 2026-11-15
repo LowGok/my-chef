@@ -31,7 +31,8 @@ func TestBillingDeletionFencesLateProofAndScrubsOnlyTheDeletedOwner(t *testing.T
 			t.Fatal(err)
 		}
 		p := billing.VerifiedPeriod{Store: billing.Apple, Environment: billing.Sandbox, Binding: a.Binding, Subscription: ref,
-			Transaction: ref, Interval: billing.Monthly, StartsAt: now, PaidThrough: now.Add(time.Hour), ObservedAt: now}
+			Transaction: ref, Interval: billing.Monthly, StartsAt: now, PaidThrough: now.Add(time.Hour), ObservedAt: now,
+			Renewal: &billing.RenewalObservation{State: billing.RenewalEnds, ObservedAt: now}}
 		if err := b.Fulfil(ctx, p); err != nil {
 			t.Fatal(err)
 		}
@@ -98,6 +99,7 @@ func TestBillingDeletionFencesLateProofAndScrubsOnlyTheDeletedOwner(t *testing.T
 		{"SELECT count(*) FROM billing_attempts WHERE incarnation=?", inc},
 		{"SELECT count(*) FROM billing_subscriptions WHERE incarnation=?", inc},
 		{"SELECT count(*) FROM billing_periods WHERE proof=?", old.Transaction},
+		{"SELECT count(*) FROM billing_period_renewals WHERE proof=?", old.Transaction},
 		{"SELECT count(*) FROM billing_runtime_proofs WHERE proof=?", old.Transaction},
 		{"SELECT count(*) FROM billing_apple_notices WHERE binding=?", old.Binding},
 		{"SELECT count(*) FROM billing_apple_polls WHERE binding=?", old.Binding},

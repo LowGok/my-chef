@@ -65,7 +65,7 @@ async function runIOSBillingFixture(
   await wait(() => completed() === 1 &&
     panel.querySelector('[role="status"]')?.textContent === "Purchase verified." &&
     panel.textContent?.includes("Premium · Monthly") &&
-    panel.textContent.includes("Paid through") &&
+    panel.textContent.includes("Renews on") &&
     [...panel.querySelectorAll<HTMLAnchorElement>("a")].some(
       (link) => link.href === "https://apps.apple.com/account/subscriptions",
     ) ? true : undefined);

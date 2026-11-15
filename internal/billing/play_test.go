@@ -31,6 +31,9 @@ func TestPlayVerifiesMatchedFundedPeriodAndSeparatesInitialSale(t *testing.T) {
 		want             error
 	}{
 		{"matched Belgian order supports checkout", purchase, payment, false, nil},
+		{"verified Play renewal", strings.Replace(purchase, "2026-12-02", "2026-12-01", 1), payment, false, nil},
+		{"verified Play cancellation keeps access", strings.ReplaceAll(strings.Replace(strings.Replace(purchase,
+			"2026-12-02", "2026-12-01", 1), "STATE_ACTIVE", "STATE_CANCELED", 1), "Enabled\":true", "Enabled\":false"), payment, true, nil},
 		{"existing international customer", strings.Replace(purchase, `"BE"`, `"FR"`, 1), strings.ReplaceAll(payment, `"EUR"`, `"USD"`), true, nil},
 		{"wrong initial region", strings.Replace(purchase, `"BE"`, `"FR"`, 1), payment, false, ErrPurchaseBinding},
 		{"wrong gross order amount", purchase, strings.ReplaceAll(payment, "990000000", "980000000"), false, ErrPurchaseBinding},
@@ -87,6 +90,13 @@ func TestPlayVerifiesMatchedFundedPeriodAndSeparatesInitialSale(t *testing.T) {
 				result.Period.Binding != binding || result.Period.Subscription == token || result.Period.Subscription == "" ||
 				!result.Period.PaidThrough.Equal(wantPaid) || result.Period.Revoked != (test.name == "early expiry revokes the paid period") {
 				t.Fatal("accepted facts did not match the paid order")
+			}
+			wantState := map[string]RenewalState{
+				"verified Play renewal": RenewalRenews, "verified Play cancellation keeps access": RenewalEnds,
+			}[test.name]
+			if renewal := result.Period.Renewal; wantState == "" && renewal != nil ||
+				wantState != "" && (renewal == nil || renewal.State != wantState) {
+				t.Fatalf("renewal = %+v, want %q", renewal, wantState)
 			}
 		})
 	}

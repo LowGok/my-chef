@@ -15,6 +15,19 @@ import (
 type Store string
 type Environment string
 type Interval string
+type RenewalState string
+
+const (
+	RenewalRenews RenewalState = "renews"
+	RenewalEnds   RenewalState = "ends"
+)
+
+// RenewalObservation describes what the selling store last verified. It does
+// not extend or revoke a paid period.
+type RenewalObservation struct {
+	State      RenewalState
+	ObservedAt time.Time
+}
 
 const (
 	Apple      Store       = "apple"
@@ -53,6 +66,7 @@ type VerifiedPeriod struct {
 	Interval                           Interval
 	StartsAt, PaidThrough, ObservedAt  time.Time
 	Revoked                            bool
+	Renewal                            *RenewalObservation
 }
 
 type Journal struct {
@@ -88,6 +102,13 @@ CREATE TABLE IF NOT EXISTS billing_periods(
  observed_ns INTEGER NOT NULL, revoked INTEGER NOT NULL CHECK(revoked IN (0,1)),
  PRIMARY KEY(environment,store,proof),
  FOREIGN KEY(environment,store,subscription) REFERENCES billing_subscriptions(environment,store,subscription)
+) STRICT;
+CREATE TABLE IF NOT EXISTS billing_period_renewals(
+ environment TEXT NOT NULL, store TEXT NOT NULL, proof TEXT NOT NULL,
+ state TEXT NOT NULL CHECK(state IN ('renews','ends')),
+ observed_ns INTEGER NOT NULL, generation TEXT NOT NULL,
+ PRIMARY KEY(environment,store,proof),
+ FOREIGN KEY(environment,store,proof) REFERENCES billing_periods(environment,store,proof) ON DELETE CASCADE
 ) STRICT;
 CREATE INDEX IF NOT EXISTS billing_periods_subscription ON billing_periods(environment,store,subscription,ends_ns);
 CREATE INDEX IF NOT EXISTS billing_subscriptions_owner ON billing_subscriptions(incarnation,environment);
@@ -379,6 +400,9 @@ func (j *Journal) fulfil(ctx context.Context, p VerifiedPeriod, expectedOwner st
 		if err != nil {
 			return err
 		}
+		if err := j.recordRenewal(ctx, tx, p); err != nil {
+			return err
+		}
 		if err := j.confirmRuntimeProof(ctx, tx, p); err != nil {
 			return err
 		}
@@ -389,6 +413,21 @@ func (j *Journal) fulfil(ctx context.Context, p VerifiedPeriod, expectedOwner st
 		}
 		return err
 	})
+}
+
+func (j *Journal) recordRenewal(ctx context.Context, tx *sql.Tx, p VerifiedPeriod) error {
+	r := p.Renewal
+	if r == nil || p.Revoked || (r.State != RenewalRenews && r.State != RenewalEnds) ||
+		r.ObservedAt.Before(p.StartsAt) || !r.ObservedAt.Before(p.PaidThrough) {
+		return nil
+	}
+	_, err := tx.ExecContext(ctx, `INSERT INTO billing_period_renewals(environment,store,proof,state,observed_ns,generation)
+ VALUES(?,?,?,?,?,?) ON CONFLICT(environment,store,proof) DO UPDATE SET
+ state=excluded.state,observed_ns=excluded.observed_ns,generation=excluded.generation
+ WHERE excluded.observed_ns>billing_period_renewals.observed_ns OR
+ (excluded.observed_ns=billing_period_renewals.observed_ns AND excluded.state=billing_period_renewals.state)`,
+		p.Environment, p.Store, p.Transaction, r.State, timeNS(r.ObservedAt), j.generation)
+	return err
 }
 
 type reader interface {
@@ -436,9 +475,10 @@ type NativeOverview struct {
 }
 
 type SubscriptionSummary struct {
-	Store       Store     `json:"store"`
-	Interval    Interval  `json:"interval"`
-	PaidThrough time.Time `json:"paidThrough"`
+	Store       Store        `json:"store"`
+	Interval    Interval     `json:"interval"`
+	PaidThrough time.Time    `json:"paidThrough"`
+	Renewal     RenewalState `json:"renewal,omitempty"`
 }
 
 // SubscriptionManagement describes a selling store without granting paid access.
@@ -524,6 +564,12 @@ func (j *Journal) NativeOverview(ctx context.Context, owner, family string, env 
 	}
 	if active != nil {
 		result.Subscription = &SubscriptionSummary{Store: active.Store, Interval: active.Interval, PaidThrough: active.PaidThrough.UTC()}
+		err := tx.QueryRowContext(ctx, `SELECT state FROM billing_period_renewals
+ WHERE environment=? AND store=? AND proof=? AND generation=? AND observed_ns<=?`,
+			env, active.Store, active.Transaction, j.generation, timeNS(now)).Scan(&result.Subscription.Renewal)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return NativeOverview{}, err
+		}
 	}
 	var resume PendingAttempt
 	var savedStore Store

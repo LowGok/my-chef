@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -66,6 +67,7 @@ func (p *AppleProvider) currentApplePeriod(ctx context.Context, lineage, account
 				Original    string `json:"originalTransactionId"`
 				Status      int    `json:"status"`
 				Transaction string `json:"signedTransactionInfo"`
+				Renewal     string `json:"signedRenewalInfo"`
 			} `json:"lastTransactions"`
 		} `json:"data"`
 	}
@@ -109,12 +111,47 @@ func (p *AppleProvider) currentApplePeriod(ctx context.Context, lineage, account
 			if last.Status >= 2 && last.Status <= 4 && proof.Period.PaidThrough.After(at) {
 				return ProviderProof{}, ErrStoreUnavailable
 			}
+			if last.Status == 1 && proof.Period.PaidThrough.After(at) {
+				proof.Period.Renewal = p.appleRenewal(last.Renewal, tx, at)
+			}
 		}
 	}
 	if proof.Period.Transaction == "" {
 		return ProviderProof{}, ErrStoreUnavailable
 	}
 	return proof, nil
+}
+
+// appleRenewal checks a separately signed statement against the already
+// verified transaction. Missing renewal information cannot change entitlement.
+func (p *AppleProvider) appleRenewal(signed string, tx appleTransaction, now time.Time) *RenewalObservation {
+	var renewal struct {
+		Subscription string `json:"originalTransactionId"`
+		Product      string `json:"productId"`
+		Environment  string `json:"environment"`
+		Binding      string `json:"appAccountToken"`
+		AutoRenew    *int   `json:"autoRenewStatus"`
+		RenewalDate  int64  `json:"renewalDate"`
+		SignedDate   int64  `json:"signedDate"`
+	}
+	raw, err := p.verifySignedPayload(signed, now)
+	if err != nil || json.Unmarshal(raw, &renewal) != nil ||
+		renewal.Subscription != tx.OriginalTransaction || renewal.Product != tx.Product ||
+		renewal.Environment != tx.Environment || (renewal.Binding != "" && !strings.EqualFold(renewal.Binding, tx.Binding)) ||
+		renewal.RenewalDate != tx.ExpiresDate || renewal.SignedDate < tx.PurchaseDate ||
+		renewal.SignedDate > now.UnixMilli() || renewal.AutoRenew == nil {
+		return nil
+	}
+	var state RenewalState
+	switch *renewal.AutoRenew {
+	case 0:
+		state = RenewalEnds
+	case 1:
+		state = RenewalRenews
+	default:
+		return nil
+	}
+	return &RenewalObservation{State: state, ObservedAt: time.UnixMilli(renewal.SignedDate)}
 }
 
 type applePoll struct {

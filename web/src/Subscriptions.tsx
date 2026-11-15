@@ -146,7 +146,11 @@ export function Subscriptions({ onHelp }: { onHelp: () => void }) {
             {subscription.interval === "monthly" ? "Monthly" : "Annual"}
           </p>
           <p>
-            Paid through{" "}
+            {subscription.renewal === "renews"
+              ? "Renews on"
+              : subscription.renewal === "ends"
+                ? "Ends on"
+                : "Paid through"}{" "}
             {new Date(subscription.paidThrough).toLocaleDateString()}.
           </p>
           <p>

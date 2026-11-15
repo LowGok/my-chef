@@ -82,7 +82,8 @@ func (p *FixtureProvider) Verify(_ context.Context, token string) (ProviderProof
 	}
 	return ProviderProof{App: offer.App, Product: offer.Product, BasePlan: offer.BasePlan, Region: region,
 		Period: VerifiedPeriod{Store: p.store, Environment: Sandbox, Binding: purchase.Binding, Subscription: lineage,
-			Transaction: purchase.Order, Interval: purchase.Interval, StartsAt: purchase.StartsAt, PaidThrough: purchase.PaidThrough, ObservedAt: now}}, nil
+			Transaction: purchase.Order, Interval: purchase.Interval, StartsAt: purchase.StartsAt, PaidThrough: purchase.PaidThrough, ObservedAt: now,
+			Renewal: &RenewalObservation{State: RenewalRenews, ObservedAt: now}}}, nil
 }
 
 func (p *FixtureProvider) VerifyExisting(ctx context.Context, token string) (ProviderProof, error) {

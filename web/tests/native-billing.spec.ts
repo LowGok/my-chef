@@ -226,7 +226,7 @@ for (const scenario of [
       await expect(
         page.getByText("Premium · Monthly", { exact: true }),
       ).toBeVisible();
-      await expect(page.getByText(/^Paid through /)).toBeVisible();
+      await expect(panel.getByText(/^Renews on /)).toBeVisible();
       await expect(
         page.getByRole("link", { name: scenario.manage }),
       ).toHaveAttribute("href", scenario.href);

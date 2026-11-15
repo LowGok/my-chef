@@ -16947,6 +16947,11 @@
               "paidThrough": {
                 "type": "string",
                 "format": "date-time"
+              },
+              "renewal": {
+                "type": "string",
+                "description": "The selling store's verified renewal state for the current paid period, if known.",
+                "enum": ["renews", "ends"]
               }
             },
             "required": [

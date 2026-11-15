@@ -701,6 +701,10 @@ export type NativeBillingStatus = {
         store: 'apple' | 'play';
         interval: 'monthly' | 'annual';
         paidThrough: string;
+        /**
+         * The selling store's verified renewal state for the current paid period, if known.
+         */
+        renewal?: 'renews' | 'ends';
     };
     management?: {
         store: 'apple' | 'play';

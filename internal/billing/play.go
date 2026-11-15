@@ -77,6 +77,7 @@ type playSubscription struct {
 		Expiry  string `json:"expiryTime"`
 		Order   string `json:"latestSuccessfulOrderId"`
 		Auto    *struct {
+			Enabled      *bool     `json:"autoRenewEnabled"`
 			Installments *struct{} `json:"installmentDetails"`
 		} `json:"autoRenewingPlan"`
 		Prepaid     *struct{} `json:"prepaidPlan"`
@@ -252,10 +253,21 @@ func (p *PlayProvider) verify(ctx context.Context, token string, initial bool, p
 	if expiry.Before(through) && !revoked || initial && !through.After(at) {
 		return ProviderProof{}, ErrUnresolved
 	}
+	var renewal *RenewalObservation
+	// A retry can extend Play's reported expiry without paying another
+	// period. Show the status only when it describes this funded period.
+	if line.Auto.Enabled != nil && expiry.Equal(through) && !from.After(at) && through.After(at) {
+		switch {
+		case sub.State == "SUBSCRIPTION_STATE_ACTIVE" && *line.Auto.Enabled:
+			renewal = &RenewalObservation{State: RenewalRenews, ObservedAt: at}
+		case sub.State == "SUBSCRIPTION_STATE_CANCELED" && !*line.Auto.Enabled:
+			renewal = &RenewalObservation{State: RenewalEnds, ObservedAt: at}
+		}
+	}
 	return ProviderProof{App: p.cfg.Package, Product: p.cfg.Product, BasePlan: line.Offer.BasePlan, Region: sub.Region,
 		Period: VerifiedPeriod{Store: Play, Environment: p.cfg.Environment, Binding: strings.ToLower(sub.Account.Binding),
 			Subscription: playTokenDigest(token), Transaction: line.Order, Interval: interval,
-			StartsAt: from, PaidThrough: through, ObservedAt: at, Revoked: revoked}}, nil
+			StartsAt: from, PaidThrough: through, ObservedAt: at, Revoked: revoked, Renewal: renewal}}, nil
 }
 
 func (p *PlayProvider) get(ctx context.Context, path, bearer string, dest any) error {

@@ -50,9 +50,13 @@ func TestKnownApplePollRefreshesAnOwnedLineageWithoutNotifications(t *testing.T)
 			data["revocationDate"] = now.UnixMilli()
 		}
 		proof := appleSignFixture(t, map[string]any{"alg": "ES256", "x5c": chain}, data, signer)
+		renewal := appleSignFixture(t, map[string]any{"alg": "ES256", "x5c": chain}, map[string]any{
+			"originalTransactionId": "123456", "productId": "premium-yearly", "appAccountToken": b, "environment": "Sandbox",
+			"autoRenewStatus": 1, "renewalDate": p.PaidThrough.Add(time.Hour).UnixMilli(), "signedDate": now.UnixMilli(),
+		}, signer)
 		response := map[string]any{"environment": "Sandbox", "bundleId": "com.example.preview", "data": []any{
 			map[string]any{"subscriptionGroupIdentifier": "group-1", "lastTransactions": []any{
-				map[string]any{"originalTransactionId": "123456", "status": status, "signedTransactionInfo": proof},
+				map[string]any{"originalTransactionId": "123456", "status": status, "signedTransactionInfo": proof, "signedRenewalInfo": renewal},
 				map[string]any{"originalTransactionId": "999999", "status": 1, "signedTransactionInfo": "unrelated"},
 			}},
 		}}
@@ -105,6 +109,10 @@ func TestKnownApplePollRefreshesAnOwnedLineageWithoutNotifications(t *testing.T)
 	status = 1
 	check(1)
 	assertTier(true)
+	overview, err := j.NativeOverview(ctx, owner, owner, Sandbox, Apple, now)
+	if err != nil || overview.Subscription == nil || overview.Subscription.Renewal != RenewalRenews {
+		t.Fatalf("signed Apple renewal info not shown for the confirmed period: %+v, %v", overview.Subscription, err)
+	}
 	check(0)
 	now = now.Add(15 * time.Minute)
 	status = 5

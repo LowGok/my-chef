@@ -1159,7 +1159,7 @@ async function billingJourneys() {
     await activate("Restore purchases");
     await expect(page.getByRole("status").filter({ hasText: "Purchase verified." })).toBeVisible();
     await expect(page.getByText("Premium · Monthly", { exact: true })).toBeVisible();
-    await expect(page.getByText(/^Paid through /)).toBeVisible();
+    await expect(page.getByText(/^Renews on /)).toBeVisible();
     await expect(page.getByRole("link", { name: "Open Google Play subscriptions", exact: true })).toBeVisible();
     await expect(button("Subscribe monthly")).toHaveCount(0);
   });
