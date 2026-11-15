@@ -3,26 +3,27 @@ package store
 import "github.com/LowGok/my-chef/internal/domain"
 
 type User struct {
-	IsNewsletterOnly bool    `gorm:"column:isNewsletterOnly"`
-	ID               int64   `gorm:"column:user_id;primaryKey;autoIncrement"`
-	FirstName        string  `gorm:"column:firstname"`
-	LastName         string  `gorm:"column:lastname"`
-	Sex              *string `gorm:"column:sex"`
-	Birthdate        *string `gorm:"column:birthdate"`
-	Email            string  `gorm:"column:email"`
-	EmailKey         string  `gorm:"column:email_key"`
-	EmailVerifiedAt  *int64  `gorm:"column:email_verified_at"`
-	EmailChangedAt   *int64  `gorm:"column:email_changed_at"`
-	Password         string  `gorm:"column:password"`
-	Username         string  `gorm:"column:username"`
-	Allergens        *string `gorm:"column:allergens"`
-	Diet             *string `gorm:"column:diet"`
-	Dislikes         *string `gorm:"column:dislikes"`
-	LastMeal         *string `gorm:"column:lastmeal"`
-	CookingEfforts   *string `gorm:"column:cooking_efforts"`
-	CookingTechnique *string `gorm:"column:cooking_technique"`
-	HasPref          *bool   `gorm:"column:haspref"`
-	PreferencesJSON  *string `gorm:"column:preferences_json"`
+	NewsletterMinimised bool    `gorm:"column:newsletter_minimised"`
+	IsNewsletterOnly    bool    `gorm:"column:isNewsletterOnly"`
+	ID                  int64   `gorm:"column:user_id;primaryKey;autoIncrement"`
+	FirstName           string  `gorm:"column:firstname"`
+	LastName            string  `gorm:"column:lastname"`
+	Sex                 *string `gorm:"column:sex"`
+	Birthdate           *string `gorm:"column:birthdate"`
+	Email               string  `gorm:"column:email"`
+	EmailKey            string  `gorm:"column:email_key"`
+	EmailVerifiedAt     *int64  `gorm:"column:email_verified_at"`
+	EmailChangedAt      *int64  `gorm:"column:email_changed_at"`
+	Password            string  `gorm:"column:password"`
+	Username            string  `gorm:"column:username"`
+	Allergens           *string `gorm:"column:allergens"`
+	Diet                *string `gorm:"column:diet"`
+	Dislikes            *string `gorm:"column:dislikes"`
+	LastMeal            *string `gorm:"column:lastmeal"`
+	CookingEfforts      *string `gorm:"column:cooking_efforts"`
+	CookingTechnique    *string `gorm:"column:cooking_technique"`
+	HasPref             *bool   `gorm:"column:haspref"`
+	PreferencesJSON     *string `gorm:"column:preferences_json"`
 }
 type MenuRecord struct {
 	ID          int64 `gorm:"primaryKey;autoIncrement"`
