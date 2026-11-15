@@ -1,6 +1,6 @@
 ---
-status: draft
-status_description: "Owner approved the reduced inactive-contact scope and prepared plan through the Hub. Concrete SQL/key/restore design passed R-2 independent review; technical-baseline acceptance is pending before task and claim publication."
+status: planned
+status_description: "Owner accepted R-2 technical baseline fa1881e. Prepare tasks; publish the claim after runtime PR 36 merges and its delivery passes, before code."
 issue: null
 goal: "Inactive newsletter contacts retain their userID and non-consenting state without unnecessary clear email or expired mail/proof history."
 covers:
@@ -150,7 +150,7 @@ None; concrete technical spec review precedes accepted implementation tasks and 
 
 ## Open Questions
 
-None for the product scope. The owner selected Q1 option A, protected matching and reduced inactive records, retaining stable IDs, opt-outs, the necessity-review points and verified erasure. Actual provider/key/host/backup/mailbox facts remain the private website rollout gates. This technical baseline still needs independent review before implementation tasks and a published claim.
+None for the product scope. The owner selected Q1 option A, protected matching and reduced inactive records, retaining stable IDs, opt-outs, the necessity-review points and verified erasure. Actual provider/key/host/backup/mailbox facts remain the private website rollout gates. R-2 independently reviewed the technical baseline and the owner accepted it; implementation still follows tasks and a published claim.
 
 ## Review Log
 
@@ -158,6 +158,7 @@ None for the product scope. The owner selected Q1 option A, protected matching a
 | --- | --- | --- | --- | --- | --- | --- |
 | 2026-11-15 | R-1 | spec | `f102c46ceb437e5f0123ea5bbaa053a9ff578a23` | unknown | procedural | Two blocking factual findings: active SQLite remnants and ownership after promotion/address change/deletion. Model identity not attested. |
 | 2026-11-15 | R-2 | spec | `fa1881e211a98565e05503832c48a58326282d5f` | unknown | procedural | No findings after the complete correction review. Technical-baseline acceptance pending; model identity not attested. |
+| 2026-11-15 | R-2 | spec | `fa1881e211a98565e05503832c48a58326282d5f` | n/a | n/a | accepted by owner |
 
 ### R-1
 
@@ -179,7 +180,6 @@ PROPOSAL: Specify active-match and journal transitions for promotion, subsequent
 
 ### R-2
 
-TARGET: fa1881e211a98565e05503832c48a58326282d5f
 NO FINDINGS
 
 ## Sources
