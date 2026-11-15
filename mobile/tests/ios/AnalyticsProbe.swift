@@ -135,6 +135,11 @@ final class AnalyticsProbe: XCTestCase {
         var previous = CGRect.null
         var unchanged = 0
         while Date() < end {
+            if !element.exists {
+                unchanged = 0
+                RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+                continue
+            }
             let frame = element.frame
             unchanged = element.exists && element.isHittable && frame == previous ? unchanged + 1 : 0
             if unchanged >= 3 { element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap(); return }
@@ -184,24 +189,43 @@ final class AnalyticsProbe: XCTestCase {
             XCUIElement.ElementType.link.rawValue, XCUIElement.ElementType.disclosureTriangle.rawValue)).firstMatch
         reveal(element); tapSettled(element)
     }
+    func pickerButton(_ label: String) -> XCUIElement? {
+        let predicate = NSPredicate(format: "label == %@", label)
+        let webFrames = app.webViews.buttons.matching(predicate).allElementsBoundByIndex.filter { $0.exists }.map { $0.frame }
+        let native = app.buttons.matching(predicate).allElementsBoundByIndex.filter {
+            $0.exists && $0.isHittable && !webFrames.contains($0.frame)
+        }
+        return native.count == 1 ? native[0] : nil
+    }
+    func waitPickerButton(_ label: String) -> XCUIElement? {
+        let end = Date().addingTimeInterval(30)
+        while Date() < end {
+            if let element = pickerButton(label) { return element }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+        }
+        screenState()
+        for name in ["Cancel", "Save", "Browse", "Locations", "On My iPhone", "Downloads"] {
+            let p = NSPredicate(format: "label == %@", name)
+            print("Analytics iOS picker control: " + name + " total=\(app.buttons.matching(p).count) web=\(app.webViews.buttons.matching(p).count)")
+        }
+        XCTFail("System picker control must exist outside WebKit")
+        return nil
+    }
     func pickerAction(save: Bool) {
-        // The HTML password dialog also has Cancel. Wait for the system
-        // navigation bar so the native picker owns this action.
-        let cancel = app.navigationBars.buttons["Cancel"].firstMatch
-        XCTAssertTrue(cancel.waitForExistence(timeout: 30), "System export picker must open")
+        // The HTML dialog also has Cancel. Require an actual system control
+        // outside every WebView, including remote file-provider presentations.
+        guard let cancel = waitPickerButton("Cancel") else { return }
         if !save { tapSettled(cancel); return }
         let local = app.staticTexts["On My iPhone"].firstMatch
         if !local.exists || !local.isHittable {
             for label in ["Browse", "Locations"] {
-                let back = app.navigationBars.buttons[label].firstMatch
-                if back.exists && back.isHittable { tapSettled(back); break }
+                if let back = pickerButton(label) { tapSettled(back); break }
             }
         }
         if local.waitForExistence(timeout: 5) && local.isHittable { tapSettled(local) }
         let downloads = app.staticTexts["Downloads"].firstMatch
         if downloads.exists && downloads.isHittable { tapSettled(downloads) }
-        let saveButton = app.navigationBars.buttons["Save"].firstMatch
-        XCTAssertTrue(saveButton.waitForExistence(timeout: 15), "System picker Save must exist")
+        guard let saveButton = waitPickerButton("Save") else { return }
         waitFor({ saveButton.isEnabled && saveButton.isHittable }, "System picker needs a writable local destination")
         tapSettled(saveButton)
     }
@@ -374,7 +398,12 @@ final class AnalyticsProbe: XCTestCase {
             XCTAssertTrue(keyboard.waitForExistence(timeout: 5), "Native keyboard must be present")
             XCTAssertLessThanOrEqual(input.frame.maxY, keyboard.frame.minY + 1, "Password remains above keyboard")
             mark("accessibility", "keyboardUnobstructed")
+            let before = try control("native-export")["attempts"] as? Int ?? -1
             tap("Download ZIP")
+            waitFor({
+                guard let value = try? self.control("native-export") else { return false }
+                return (value["attempts"] as? Int ?? 0) > before && (value["lastStatus"] as? Int) == 200
+            }, "Native export API must succeed before opening the picker")
             // These controls belong to UIDocumentPicker, reached by OS UI taps.
             pickerAction(save: save)
             let resultPrefix = save ? "Your download is ready" : "Download cancelled."

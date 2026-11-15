@@ -101,6 +101,11 @@ class Fixture:
             if self.speech is None or set(value) != {'operation', 'target'}:
                 raise ValueError('Speech observation unavailable')
             return self.speech.operate(op, value['target'])
+        if op == 'native-export':
+            if self.native_events is None:
+                raise ValueError('Native proxy observations unavailable')
+            attempts = [status for method, kind, status in self.native_events if method == 'POST' and kind == 'account-export']
+            return {'attempts': len(attempts), 'lastStatus': attempts[-1] if attempts else 0}
         if op == 'seed':
             if self.account is not None:
                 raise ValueError('Fixture actor already created')

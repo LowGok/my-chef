@@ -27,17 +27,19 @@ if (platform === "android") {
   env.PATH = env.JAVA_HOME + "/bin:" + env.PATH;
 } else env.DEVELOPER_DIR = "/Applications/Xcode_26.3.app/Contents/Developer";
 function run(args: string[], cwd = root) {
-  const p = Bun.spawnSync(args, { cwd, env, stdout: "pipe", stderr: "pipe" });
-  if (p.exitCode)
-    throw Error(
-      "Unsigned analytics verification build failed: " +
-        args[0] +
-        "\n" +
-        sanitizeCompilerLog(p.stdout.toString() + p.stderr.toString()).slice(
-          -4000,
-        ),
-    );
-  return p.stdout.toString().trim();
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const p = Bun.spawnSync(args, { cwd, env, stdout: "pipe", stderr: "pipe" });
+    if (p.exitCode === 0) return p.stdout.toString().trim();
+    const log = p.stdout.toString() + p.stderr.toString();
+    if (args[0] === "./gradlew" && attempt < 2 &&
+        /Received status code (429|502|503|504)|Read timed out|Connect timed out/i.test(log)) {
+      console.log("Transient public dependency download failure; bounded retry");
+      Bun.sleepSync(15_000 * (attempt + 1));
+      continue;
+    }
+    throw Error("Unsigned analytics verification build failed: " + args[0] + "\n" + sanitizeCompilerLog(log).slice(-4000));
+  }
+  throw Error("Unsigned analytics build retries exhausted");
 }
 if (
   run(["git", "rev-parse", "HEAD"]) !== process.env.GITHUB_SHA ||

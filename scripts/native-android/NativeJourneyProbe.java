@@ -441,6 +441,9 @@ public final class NativeJourneyProbe extends Instrumentation {
     }
 
     @Override public void onStart() {
+        // Establish this policy before instrumentation can create a default
+        // UiAutomation connection that suppresses the real screen reader.
+        getUiAutomation(UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES);
         File stop = new File(getTargetContext().getCacheDir(), "native-check-finish");
         File command = new File(getTargetContext().getCacheDir(), "native-check-command");
         File done = new File(getTargetContext().getCacheDir(), "native-check-done");

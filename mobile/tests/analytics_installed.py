@@ -131,7 +131,13 @@ def full_journeys(receipt, artifact):
             native.command('xcrun', 'simctl', 'ui', identifier, 'content_size', 'accessibility-medium')
             container = Path(native.command('xcrun', 'simctl', 'get_app_container', identifier, native.APP, 'data'))
             stop()
-            checks = analytics_ios.run(state, control, account, identifier, container)
+            try:
+                checks = analytics_ios.run(state, control, account, identifier, container)
+            except RuntimeError:
+                # Fixed route groups and HTTP statuses; no headers/bodies/IDs.
+                print('Native iOS API results: ' + ', '.join(method + '/' + kind + '/' + str(status)
+                    for method, kind, status in events[-16:]), flush=True)
+                raise
             scale = json.loads((container / 'tmp/analytics-text-result.json').read_text())
             if set(scale) != {'root', 'label', 'notice', 'fits', 'osTextEnlarged'} or not all(value is True for value in scale.values()):
                 raise RuntimeError('Installed iOS text scale did not propagate')
