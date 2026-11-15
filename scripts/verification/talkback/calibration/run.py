@@ -118,8 +118,17 @@ with tempfile.TemporaryDirectory(prefix="android-speaker-calibration-") as tmp, 
     for n in ("avd","pulse"):
         (state/n).mkdir(mode=0o700)
     socket=state/"pulse"/"native"
+    # A headless emulator build may omit PulseAudio. Keep the regular
+    # emulator on an isolated virtual display with no TCP listener instead.
     env=dict(os.environ,ANDROID_AVD_HOME=str(state/"avd"),XDG_RUNTIME_DIR=str(state/"pulse"),
-             PULSE_SERVER="unix:"+str(socket),PULSE_SINK=NAME,QEMU_AUDIO_DRV="pa")
+             PULSE_SERVER="unix:"+str(socket),PULSE_SINK=NAME,QEMU_AUDIO_DRV="pa",
+             QEMU_AUDIO_OUT_DRV="pa",QT_QPA_PLATFORM="xcb",DISPLAY=":91")
+    display_log=stack.enter_context((state/"display.log").open("w"))
+    display=subprocess.Popen(["Xvfb",":91","-screen","0","1280x800x24","-nolisten","tcp"],
+                             env=env,stdout=display_log,stderr=display_log)
+    stack.callback(stop,display)
+    until(lambda: Path("/tmp/.X11-unix/X91").is_socket() and display.poll() is None,10,
+          "local virtual display")
     def adb(*args,timeout=45):
         return call(ADB,"-s",SERIAL,*args,env=env,timeout=timeout)
     pulse_log=stack.enter_context((state/"pulse.log").open("w"))
@@ -141,7 +150,7 @@ with tempfile.TemporaryDirectory(prefix="android-speaker-calibration-") as tmp, 
     assert (state/"avd/audio_calibration.ini").is_file()
     boot_log=stack.enter_context((state/"emulator.log").open("w"))
     emulator=subprocess.Popen([str(SDK/"emulator/emulator"),"-avd","audio_calibration","-port","5554",
-                              "-no-window","-no-snapshot","-no-boot-anim","-gpu","software"],
+                              "-no-snapshot","-no-boot-anim","-gpu","software"],
                              env=env,stdout=boot_log,stderr=boot_log)
     stack.callback(stop,emulator)
     def provisioned():
@@ -157,6 +166,7 @@ with tempfile.TemporaryDirectory(prefix="android-speaker-calibration-") as tmp, 
     adb("shell","input","keyevent","KEYCODE_WAKEUP")
     adb("shell","wm","dismiss-keyguard")
     results={}
+    initial_inputs=call("pactl","list","short","sink-inputs",env=env)
     for mode, frequency in MODE.items():
         def perform():
             raw=adb("shell","am","instrument","-w","-e","mode",mode,"org.mychef.speakprobe/.SpeakerProbe")
@@ -164,6 +174,7 @@ with tempfile.TemporaryDirectory(prefix="android-speaker-calibration-") as tmp, 
             return status[1] if status else "instrumentation-unavailable"
         status, heard=capture(state,env,perform,frequency)
         results[mode]={"deviceStatus":status,"audioCaptured":heard}
-    proof={"api":33,"hostToneCaptured":host_pass,"checks":results,"scope":"Playback calibration only, no TalkBack or MyChef proof."}
+    proof={"api":33,"hostToneCaptured":host_pass,"virtualDisplay":True,
+           "pulseClientAfterBoot":bool(initial_inputs),"checks":results,"scope":"Playback calibration only, no TalkBack or MyChef proof."}
     Path(sys.argv[1]).write_text(json.dumps(proof,indent=2)+"\n")
     print(json.dumps(proof,indent=2))

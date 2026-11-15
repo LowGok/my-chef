@@ -20,7 +20,7 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y -qq --no-install-recommends ffmpeg pulseaudio pulseaudio-utils
+          sudo apt-get install -y -qq --no-install-recommends ffmpeg pulseaudio pulseaudio-utils xvfb
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install             platform-tools emulator 'platforms;android-33' 'build-tools;36.0.0' 'system-images;android-33;google_apis;x86_64'
           sudo chmod a+rw /dev/kvm
       - name: Compare host tone, Android media, accessibility stream and stock TTS
