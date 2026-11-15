@@ -261,3 +261,19 @@ func TestNewsletterIdentityJournalPromotionEpochAndNoDowngrade(t *testing.T) {
 		t.Fatal("known app account was downgraded to a contact")
 	}
 }
+
+func TestNewsletterIdentityJournalCannotAdoptOlderUnboundJournal(t *testing.T) {
+	_, j, key, record := newsletterIdentityJournalFixture(t)
+	commitNewsletterIdentityFixture(t, j, strings.Repeat("a", 32), record)
+	if err := j.CompleteNewsletterIdentityBootstrap(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	// Simulate an older same-binding journal before newsletter initialization.
+	// The current SQL namespace must still remember that authority was bound.
+	if err := j.store.DB.WithContext(t.Context()).Exec("DELETE FROM newsletter_identity_registry; DELETE FROM newsletter_identity_key").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := j.InitializeNewsletterIdentity(t.Context(), key); err == nil {
+		t.Fatal("an older unbound journal was adopted as fresh authority")
+	}
+}

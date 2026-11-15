@@ -51,6 +51,8 @@ type NewsletterIdentityMatch struct {
 func (NewsletterIdentityMatch) TableName() string { return "newsletter_identity_matches" }
 
 type NewsletterIdentityNamespace struct {
+	JournalCheckpoint      int64
+	JournalBound           bool
 	Singleton              int `gorm:"primaryKey"`
 	KeyVersion             int
 	KeyID                  string

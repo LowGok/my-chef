@@ -16,12 +16,13 @@ import (
 )
 
 type Store struct {
-	Analytics          *analytics.Service
-	AccountWork        sync.RWMutex
-	newsletterIdentity atomic.Pointer[NewsletterIdentityKey]
-	DB                 *gorm.DB
-	SQL                *sql.DB
-	Path               string
+	Analytics                 *analytics.Service
+	AccountWork               sync.RWMutex
+	newsletterIdentity        atomic.Pointer[NewsletterIdentityKey]
+	newsletterJournalRequired atomic.Bool
+	DB                        *gorm.DB
+	SQL                       *sql.DB
+	Path                      string
 }
 
 func Open(path string, create bool) (*Store, error) {

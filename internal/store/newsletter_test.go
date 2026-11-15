@@ -16,6 +16,7 @@ import (
 func withoutNewsletterColumn(schema string) string {
 	schema = strings.Replace(schema, ", isNewsletterOnly BOOLEAN NOT NULL DEFAULT 0 CHECK(isNewsletterOnly IN (0,1))", "", 1)
 	schema = strings.Replace(schema, ", newsletter_minimised INTEGER NOT NULL DEFAULT 0 CHECK(newsletter_minimised IN (0,1))", "", 1)
+	schema = strings.Replace(schema, ", newsletter_ownership_epoch TEXT CHECK(newsletter_ownership_epoch IS NULL OR (length(newsletter_ownership_epoch)=32 AND newsletter_ownership_epoch NOT GLOB '*[^0-9a-f]*' AND isNewsletterOnly=0 AND newsletter_minimised=0))", "", 1)
 	schema = strings.Replace(schema, "email TEXT UNIQUE", "email TEXT NOT NULL UNIQUE", 1)
 	return strings.Replace(schema, "username TEXT UNIQUE", "username TEXT NOT NULL UNIQUE", 1)
 }

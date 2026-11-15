@@ -93,3 +93,28 @@ WHEN NOT (
   AND EXISTS(SELECT 1 FROM account_incarnations WHERE user_id=NEW.user_id AND incarnation=NEW.identity_incarnation)))
 )
 BEGIN SELECT RAISE(ABORT,'invalid newsletter proof identity'); END;
+
+ALTER TABLE users ADD COLUMN newsletter_ownership_epoch TEXT CHECK(newsletter_ownership_epoch IS NULL OR (length(newsletter_ownership_epoch)=32 AND newsletter_ownership_epoch NOT GLOB '*[^0-9a-f]*' AND isNewsletterOnly=0 AND newsletter_minimised=0));
+ALTER TABLE newsletter_identity_namespace ADD COLUMN journal_checkpoint INTEGER NOT NULL DEFAULT 0 CHECK(journal_checkpoint>=0);
+CREATE TABLE newsletter_identity_commits (
+ operation TEXT PRIMARY KEY NOT NULL CHECK(length(operation)=32),
+ sequence INTEGER NOT NULL UNIQUE CHECK(sequence>0),
+ user_id INTEGER NOT NULL CHECK(user_id>0),
+ incarnation TEXT NOT NULL CHECK(length(incarnation)=32),
+ record_hash TEXT NOT NULL CHECK(length(record_hash)=64),
+ disposition TEXT NOT NULL DEFAULT 'committed' CHECK(disposition IN ('committed','cancelled'))
+) STRICT;
+CREATE TABLE newsletter_identity_creations (
+ user_id INTEGER PRIMARY KEY CHECK(user_id>0),
+ incarnation TEXT NOT NULL CHECK(length(incarnation)=32),
+ operation TEXT NOT NULL UNIQUE CHECK(length(operation)=32),
+ record_hash TEXT NOT NULL CHECK(length(record_hash)=64)
+) STRICT;
+DROP TRIGGER account_incarnation_insert;
+CREATE TRIGGER account_incarnation_insert AFTER INSERT ON users
+BEGIN
+ INSERT INTO account_incarnations VALUES(NEW.user_id,
+  COALESCE((SELECT incarnation FROM newsletter_identity_creations WHERE user_id=NEW.user_id),
+   (SELECT incarnation FROM newsletter_identity_matches WHERE user_id=NEW.user_id AND NEW.newsletter_minimised=1),lower(hex(randomblob(16)))));
+END;
+ALTER TABLE newsletter_identity_namespace ADD COLUMN journal_bound INTEGER NOT NULL DEFAULT 0 CHECK(journal_bound IN (0,1));

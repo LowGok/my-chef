@@ -137,6 +137,7 @@ func (s *Store) ConfigureNewsletterIdentity(ctx context.Context, key *Newsletter
 	}
 	copy := *key
 	s.newsletterIdentity.Store(&copy)
+	s.newsletterJournalRequired.Store(binding.JournalBound)
 	return nil
 }
 
