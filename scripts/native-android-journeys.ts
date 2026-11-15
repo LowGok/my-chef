@@ -1330,6 +1330,7 @@ async function analyticsJourneys() {
       expect(boundary.passed).toBe(true);
       remember("participation", "noClientAnalyticsIdentifiers");
       const normalWidth = await page.evaluate(() => innerWidth);
+      expect(normalWidth).toBeGreaterThanOrEqual(390);
       expect(
         await page.evaluate(
           () => document.documentElement.scrollWidth <= innerWidth + 1,
@@ -1353,7 +1354,10 @@ async function analyticsJourneys() {
           parseFloat(getComputedStyle(node.closest("label")!).fontSize),
         ),
       ).toBeGreaterThan(23);
-      expect(await page.evaluate(() => innerWidth)).toBeLessThan(normalWidth);
+      const smallWidth = await page.evaluate(() => innerWidth);
+      expect(smallWidth, "Measured Android small viewport").toBeLessThan(normalWidth);
+      expect(smallWidth).toBeGreaterThanOrEqual(319);
+      expect(smallWidth).toBeLessThanOrEqual(321);
       expect(
         await page.evaluate(
           () => document.documentElement.scrollWidth <= innerWidth + 1,

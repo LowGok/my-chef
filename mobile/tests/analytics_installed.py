@@ -79,6 +79,12 @@ def full_journeys(receipt, artifact):
         config_digest = hashlib.sha256((state / 'analytics-config.json').read_bytes()).hexdigest()
         if native.PLATFORM == 'android':
             metadata, launch, stop, diagnostic = native.android(state, stack, ca, artifact)
+            adb_path = str(Path(native.ENV['ANDROID_HOME']) / 'platform-tools/adb')
+            # Establish a measured normal viewport before the 320-CSS-pixel
+            # large-text case, independent of the runner's AVD defaults.
+            native.command(adb_path, '-s', 'emulator-5554', 'shell', 'wm', 'size', '1080x1920')
+            native.command(adb_path, '-s', 'emulator-5554', 'shell', 'wm', 'density', '432')
+            native.command(adb_path, '-s', 'emulator-5554', 'shell', 'settings', 'put', 'system', 'font_scale', '1.0')
         else:
             metadata, launch, stop, diagnostic = native.ios(state, stack, ca, artifact)
         native.verify_stage(lambda: ('POST', 'session', 201) in events and ('GET', 'session', 200) in events,

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
 	"time"
 
@@ -348,12 +349,38 @@ func TestCancelledReportOutputReleasesFence(t *testing.T) {
 	if err = <-finished; !errors.Is(err, context.Canceled) {
 		t.Fatal("cancelled output", err)
 	}
-	off, stop := context.WithTimeout(ctx, time.Second)
+	// Probe the released process fence directly, before timing any SQLite work.
+	lock, err := os.OpenFile(f.opts.PrivacyPath+".lock", os.O_RDWR, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Close()
+	if err = syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		t.Fatal("cancelled report retained process fence", err)
+	}
+	if err = syscall.Flock(int(lock.Fd()), syscall.LOCK_UN); err != nil {
+		t.Fatal(err)
+	}
+	// Preference also acquires the in-process fence, without doing erasure I/O.
+	probe, finish := context.WithTimeout(ctx, time.Second)
+	_, err = f.s.Preference(probe, f.user)
+	finish()
+	if err != nil {
+		t.Fatal("cancelled report retained service fence", err)
+	}
+	// Withdrawal and maintenance include durable SQLite writes. Their deadline
+	// bounds a stuck operation; it is not a one-second disk-speed requirement.
+	off, stop := context.WithTimeout(ctx, 10*time.Second)
 	defer stop()
 	if _, err = f.s.Update(off, f.user, analytics.PreferenceUpdate{NoticeVersion: "core-v1", ExpectedRevision: p.Revision}, "web"); err != nil {
 		t.Fatal(err)
 	}
-	if err = f.s.Maintain(off); err != nil {
+	// The one-second check above proves the cancelled reader released its fence.
+	// Give physical cleanup its own bounded context rather than the unused
+	// remainder of the preference update's deadline.
+	cleanup, finishCleanup := context.WithTimeout(ctx, 5*time.Second)
+	defer finishCleanup()
+	if err = f.s.Maintain(cleanup); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -93,7 +93,10 @@ final class AnalyticsProbe: XCTestCase {
     }
     func tap(_ label: String) {
         print("Analytics iOS control: " + label)
-        let element = app.buttons[label].firstMatch
+        let element = app.descendants(matching: .any).matching(NSPredicate(format:
+            "label == %@ AND (elementType == %d OR elementType == %d OR elementType == %d OR elementType == %d)", label,
+            XCUIElement.ElementType.button.rawValue, XCUIElement.ElementType.switch.rawValue,
+            XCUIElement.ElementType.link.rawValue, XCUIElement.ElementType.disclosureTriangle.rawValue)).firstMatch
         reveal(element); element.tap()
     }
     func fill(_ label: String, _ text: String, secure: Bool = false) {
