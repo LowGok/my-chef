@@ -1,6 +1,6 @@
 ---
-status: draft
-status_description: "Independent spec review R-2 returned no findings; owner technical-spec acceptance is pending."
+status: planned
+status_description: "Owner accepted reviewed spec R-2; tasks are next. PR 33 must merge before the implementation claim."
 issue: null
 goal: "A durable newsletter-only runtime can safely receive the public website's authenticated capture and proof requests without exposing app routes or recipe credentials."
 covers:
@@ -125,6 +125,7 @@ None for the technical scope. Controller, contact, retention-review criteria and
 | --- | --- | --- | --- | --- | --- | --- |
 | 2026-11-15 | R-1 | spec | `4c3722702a4a45f3b37350281f5fdf3bfbe2cc71` | unknown | procedural | Review stopped because required pinned container pages were absent from cache. Model identity not attested. |
 | 2026-11-15 | R-2 | spec | `8e5cdee68f34719d89dc4d905beb2bb0870b159f` | unknown | procedural | No findings after complete pinned-source review. Model identity not attested; owner acceptance pending. |
+| 2026-11-15 | R-2 | spec | `8e5cdee68f34719d89dc4d905beb2bb0870b159f` | n/a | n/a | accepted by owner |
 
 ### R-1
 
