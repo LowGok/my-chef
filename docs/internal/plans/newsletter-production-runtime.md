@@ -124,7 +124,8 @@ Rollback pauses site then backend capture, preserves proof routes, SQL, authorit
 
 ## Tasks
 
-- [ ] T1 `internal/config/newsletter_email_test.go` - add failing tests for a newsletter-only protected sender profile without fabricated webhook settings, missing/invalid mail keys, fake-mode limits and unchanged full-app parser requirements (AC-01, AC-03).
+- [x] T1 `internal/config/newsletter_email_test.go` - add failing tests for a newsletter-only protected sender profile without fabricated webhook settings, missing/invalid mail keys, fake-mode limits and unchanged full-app parser requirements (AC-01, AC-03).
+      Evidence: targeted Go config tests failed to compile with undefined LoadNewsletterEmail, establishing the absent role loader. Full-app validation, fake-mode limits and sender-only fields are asserted. Transcript: private staging evidence/role-t1-red.log; no real provider call.
 - [ ] T2 `internal/config/email.go` and `internal/config/newsletter_email.go` - implement the role-specific mail loader while preserving normal app validation; T1 and existing email tests pass (AC-01, AC-03).
 - [ ] T3 `cmd/mychef/newsletter_serve_test.go` and `internal/http/newsletter_only_test.go` - add failing CLI/mux/config/readiness/shutdown tests, including no recipe credentials, forbidden app/native/operator routes, paused check vectors and proof actions (AC-01, AC-02, AC-04).
 - [ ] T4 `cmd/mychef/newsletter.go`, `cmd/mychef/newsletter_serve.go` and `internal/http/newsletter.go` - implement the narrow role/mux and current-schema journal/worker wiring, explicit production capability and safe shutdown without normal app/reminder/analytics startup; T3 and full-app regressions pass (AC-01, AC-02, AC-04).
