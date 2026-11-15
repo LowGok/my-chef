@@ -300,15 +300,27 @@ public final class NativeJourneyProbe extends Instrumentation {
     }
 
     private void checkAccessibility(String group) {
-        String[] labels = group.equals("nav") ? new String[]{"Meals", "Shopping list", "Profile"}
-            : new String[]{"Cancel", "Download ZIP"};
+        boolean reminder = group.startsWith("reminder-");
+        if (reminder) {
+            boolean[] scaled = {false};
+            runOnMainSync(() -> scaled[0] = Math.abs(web.getResources().getConfiguration().fontScale - 1.5f) < 0.01f
+                && web.getSettings().getTextZoom() >= 140);
+            if (!scaled[0]) throw new IllegalStateException("accessibility-controls");
+        }
+        String[] labels = switch (group) {
+            case "nav" -> new String[]{"Meals", "Shopping list", "Profile"};
+            case "reminder-opt-in" -> new String[]{"Monday reminder"};
+            case "reminder-save" -> new String[]{"Save reminder preferences"};
+            default -> new String[]{"Cancel", "Download ZIP"};
+        };
         long end = SystemClock.uptimeMillis() + 25_000;
         while (SystemClock.uptimeMillis() < end) {
             AccessibilityNodeInfo root = getUiAutomation().getRootInActiveWindow();
             boolean ready = root != null && getTargetContext().getPackageName().equals(String.valueOf(root.getPackageName()));
             for (String label : labels) {
                 if (!ready) break;
-                ready = named(root, label, true, 0) != null;
+                AccessibilityNodeInfo node = named(root, label, true, 0);
+                ready = node != null && (!group.equals("reminder-opt-in") || node.isCheckable() && node.isChecked());
             }
             if (ready) return;
             SystemClock.sleep(500);
@@ -358,7 +370,7 @@ public final class NativeJourneyProbe extends Instrumentation {
                         String[] parts = value.split(":", 3);
                         selectSystemDocument(parts[2]);
                         Files.write(done.toPath(), parts[1].getBytes(StandardCharsets.UTF_8));
-                    } else if (value.matches("accessibility:[1-9][0-9]{0,3}:(nav|export-dialog)")) {
+                    } else if (value.matches("accessibility:[1-9][0-9]{0,3}:(nav|export-dialog|reminder-opt-in|reminder-save)")) {
                         String[] parts = value.split(":", 3);
                         checkAccessibility(parts[2]);
                         Files.write(done.toPath(), parts[1].getBytes(StandardCharsets.UTF_8));

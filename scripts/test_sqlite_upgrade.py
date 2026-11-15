@@ -184,7 +184,7 @@ def main():
                 original.backup(candidate)
             migrate(CACHE / "mychef-migrate", "up", "--db", upgraded)
             with sqlite3.connect(upgraded) as candidate:
-                assert candidate.execute("SELECT version,dirty FROM schema_migrations").fetchone() == (24, 0)
+                assert candidate.execute("SELECT version,dirty FROM schema_migrations").fetchone() == (26, 0)
                 assert candidate.execute("SELECT count(*) FROM users WHERE isNewsletterOnly <> 0").fetchone()[0] == 0
                 assert candidate.execute("SELECT COUNT(*) FROM entitlement_grants").fetchone()[0] == 0
                 for table in ("analytics_preferences", "analytics_receipts", "analytics_outbox", "analytics_signup", "analytics_generation", "analytics_gaps"):

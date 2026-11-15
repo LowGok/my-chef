@@ -305,3 +305,17 @@ internal/analyticsdataset/**
 !migrations/021_analytics_installation.sql
 !migrations/022_analytics_signup_source.sql
 !migrations/023_analytics_gaps.sql
+
+!internal/notifications/
+internal/notifications/**
+!internal/notifications/schedule.go
+!internal/store/notification_settings.go
+!migrations/025_weekly_reminders.sql
+!migrations/026_reminder_dispatch_expiry.sql
+!internal/http/notifications.go
+!internal/store/notification_dispatch.go
+!internal/notifications/dispatch.go
+!internal/notifications/provider.go
+!cmd/mychef/notifications.go
+!web/src/PlanningReminders.tsx
+!web/src/reminder-device.ts

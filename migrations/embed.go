@@ -73,3 +73,9 @@ var AnalyticsGaps string
 
 //go:embed 024_newsletter.sql
 var Newsletter string
+
+//go:embed 025_weekly_reminders.sql
+var WeeklyReminders string
+
+//go:embed 026_reminder_dispatch_expiry.sql
+var ReminderDispatchExpiry string

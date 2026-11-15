@@ -27,7 +27,7 @@ const xcode = {
 const stop = () => {
   throw new Error("Compile-only authorization or source identity is invalid.");
 };
-export function compileInputs(value: unknown, platform: string | undefined, approvedPR: string | undefined) {
+export function compileInputs(value: unknown, platform: string | undefined, nativePR: string | undefined, reminderPR?: string) {
   const event = value as {
     action?: string;
     number?: number;
@@ -41,25 +41,27 @@ export function compileInputs(value: unknown, platform: string | undefined, appr
   };
   const head = event?.pull_request?.head;
   const label = event?.label?.name;
+  const reminder = label === "native-reminder-fixture";
+  const approvedPR = reminder ? reminderPR : nativePR;
+  const allowed = reminder
+    ? platform === "android" || platform === "ios-simulator"
+    : label === "native-compile" ||
+      (label === "native-installed" && platform !== "ios-device") ||
+      (label === "native-installed-android" && platform === "android") ||
+      (label === "native-installed-ios-simulator" && platform === "ios-simulator");
   if (
     event?.action !== "labeled" ||
     !/^[1-9][0-9]*$/.test(approvedPR ?? "") ||
     String(event.number) !== approvedPR ||
     event.sender?.login !== "LowGok" ||
-    (label !== "native-compile" &&
-      !(label === "native-installed" && platform !== "ios-device") &&
-      !(label === "native-installed-android" && platform === "android") &&
-      !(
-        label === "native-installed-ios-simulator" &&
-        platform === "ios-simulator"
-      )) ||
+    !allowed ||
     event.repository?.full_name !== "LowGok/my-chef" ||
     event.repository.id !== 1454481532 ||
     event.repository.private !== false ||
     event.pull_request?.base?.ref !== "main" ||
     head?.repo?.full_name !== "LowGok/my-chef" ||
     head.repo.id !== 1454481532 ||
-    head.ref !== "feat/native-mobile" ||
+    head.ref !== (reminder ? "feat/weekly-reminders" : "feat/native-mobile") ||
     !/^[a-f0-9]{40}$/.test(head.sha ?? "") ||
     !["android", "ios-simulator", "ios-device"].includes(platform ?? "")
   )
@@ -68,7 +70,7 @@ export function compileInputs(value: unknown, platform: string | undefined, appr
     platform: platform as Platform,
     commit: head!.sha!,
     installed:
-      label === "native-installed" || label === `native-installed-${platform}`,
+      reminder || label === "native-installed" || label === `native-installed-${platform}`,
   };
 }
 export function compilePlan(
@@ -140,6 +142,7 @@ async function compile() {
     JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH!, "utf8")),
     process.env.NATIVE_PLATFORM,
     process.env.NATIVE_VERIFICATION_PR,
+    process.env.NATIVE_REMINDER_PR,
   );
   const root = resolve(import.meta.dir, ".."),
     mobile = join(root, "mobile"),
