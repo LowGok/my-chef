@@ -64,6 +64,25 @@ for (const scenario of [
         expiresAt: Date.now() + 10 * 60_000,
         loseResult: scenario.lostResult,
       });
+      let finishCalls = 0;
+      if (scenario.platform === "ios") {
+        await page.exposeFunction("recordFixtureStoreFinish", () => ++finishCalls);
+        await page.evaluate(() => {
+          type Args = [plugin: string, method: string, input: unknown];
+          const fixture = window as unknown as {
+            Capacitor: { nativePromise(...args: Args): Promise<unknown> };
+            recordFixtureStoreFinish(): Promise<number>;
+          };
+          const cap = fixture.Capacitor;
+          const original = cap.nativePromise.bind(cap);
+          cap.nativePromise = async (...args) => {
+            if (args[0] === "MyChefNative" && args[1] === "billingFinish" &&
+                await fixture.recordFixtureStoreFinish() === 1)
+              throw new Error("Simulated store finish reply lost");
+            return original(...args);
+          };
+        });
+      }
       await page.getByLabel("Email", { exact: true }).fill(account.email);
       await page.getByLabel("Password", { exact: true }).fill(account.password);
       await page
@@ -99,6 +118,17 @@ for (const scenario of [
         }),
       ).toBe(true);
       await subscribe.tap();
+      if (scenario.platform === "ios") {
+        await expect.poll(() => finishCalls).toBe(1);
+        // Store completion failed, but the real backend already committed
+        // the verified period. Restore must retry the same proof.
+        await expect(panel.getByText("Premium · Monthly", { exact: true })).toBeVisible();
+        await expect(subscribe).toHaveCount(0);
+        await expect(panel.getByRole("alert")).toHaveCount(0);
+        await expect(panel.getByRole("status").filter({ hasText: "Purchase verified." })).toHaveCount(0);
+        await panel.getByRole("button", { name: "Restore purchases", exact: true }).tap();
+        await expect.poll(() => finishCalls).toBe(2);
+      }
       if (scenario.lostResult) {
         await expect(
           page
