@@ -571,7 +571,7 @@ def ios_billing_journey(state, receipt, metadata, events, stop, start):
 
 
 @contextmanager
-def android_reminder_text(adb):
+def android_large_text(adb):
     """Use the disposable emulator's OS setting and restore it on every exit."""
     previous = adb("shell", "settings", "get", "system", "font_scale")
     if not re.fullmatch(r"(?:null|[0-9]{1,2}(?:\.[0-9]+)?)", previous):
@@ -637,7 +637,7 @@ def android_journeys(state, receipt, metadata, events, reminders=False, billing=
                        else seed(18137, ORIGIN, capability, "nativeandroid" + group.replace("-", "")))
             (state / "native-android-account.json").write_text(json.dumps(account))
             before = len(events)
-            with android_reminder_text(adb) if group == "reminder-text" else nullcontext():
+            with android_large_text(adb) if group in ("reminder-text", "billing") else nullcontext():
                 output = command("bun", "scripts/native-android-journeys.ts", str(state), group, timeout=270)
             if billing and [event for event in events[before:] if event[0] == "POST" and event[1].startswith("billing/")] != [
                     ("POST", "billing/checkouts", 201), ("POST", "billing/launch", 204), ("POST", "billing/restore", 200)]:

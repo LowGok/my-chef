@@ -11,7 +11,7 @@ COMPILED = {
 }
 SMOKE = ["install and launch", "native session over verified HTTPS", "refresh after process relaunch"]
 BILLING = {
-    "android": ["Play simulated purchase has accessible terms",
+    "android": ["Android large text and Play purchase controls are accessible",
                 "Play restores the lost simulated result before completion"],
     "ios-simulator": ["enlarged price controls", "verified simulated Apple purchase", "simulated Apple restore"],
 }

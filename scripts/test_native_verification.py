@@ -139,7 +139,7 @@ class NativeVerificationTest(unittest.TestCase):
         smoke_steps = ["install and launch", "native session over verified HTTPS", "refresh after process relaunch"]
         for platform, name, model, checks in (
             ("android", "mychef-compile.apk", {"api": "33", "privateNotes": "unused metadata"},
-             ["Play simulated purchase has accessible terms", "Play restores the lost simulated result before completion"]),
+             ["Android large text and Play purchase controls are accessible", "Play restores the lost simulated result before completion"]),
             ("ios-simulator", "mychef-compile-simulator.app.zip",
              {"runtime": "com.apple.CoreSimulator.SimRuntime.iOS-18-6", "model": "iPhone 16"},
              ["enlarged price controls", "verified simulated Apple purchase", "simulated Apple restore"]),
@@ -165,6 +165,13 @@ class NativeVerificationTest(unittest.TestCase):
                 self.assertEqual(value["billing"], checks)
                 self.assertNotIn("privateNotes", json.dumps(value))
                 self.assertNotIn("compiler information", json.dumps(value))
+                if platform == "android":
+                    old_checks = ["Play simulated purchase has accessible terms", checks[1]]
+                    (root / "installed-journeys.json").write_text(json.dumps({
+                        **journey, "passed": old_checks, "groups": {"billing": old_checks},
+                    }))
+                    with self.assertRaises(ValueError):
+                        evidence(root, platform, source)
                 for invalid in (
                     {**journey, "passed": checks[:-1]},
                     {**journey, "artifactSha256": "a" * 64},
@@ -209,7 +216,7 @@ class NativeVerificationTest(unittest.TestCase):
                     return ""
 
                 with self.assertRaisesRegex(RuntimeError, "synthetic journey failure"):
-                    with installed.android_reminder_text(adb):
+                    with installed.android_large_text(adb):
                         self.assertEqual(scale, "1.5")
                         raise RuntimeError("synthetic journey failure")
                 self.assertEqual(scale, initial)
@@ -218,6 +225,43 @@ class NativeVerificationTest(unittest.TestCase):
                     ("shell", "settings", "delete", "system", "font_scale") if initial == "null" else
                     ("shell", "settings", "put", "system", "font_scale", initial),
                 ])
+
+    def test_android_billing_journey_uses_and_restores_system_font_size(self):
+        events = []
+        scale = "1.15"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "fixture-inbox.json").write_text(json.dumps({"capability": "x" * 43}))
+
+            def command(*args, **kwargs):
+                nonlocal scale
+                if args[0] == "bun":
+                    self.assertEqual(args[-1], "billing")
+                    self.assertEqual(scale, "1.5")
+                    events.extend([("POST", "billing/checkouts", 201), ("POST", "billing/launch", 204),
+                                   ("POST", "billing/restore", 200)])
+                    (root / "native-android-journeys-billing.json").write_text(json.dumps({
+                        "group": "billing",
+                        "passed": ["Android large text and Play purchase controls are accessible",
+                                   "Play restores the lost simulated result before completion"],
+                    }))
+                elif args[-4:] == ("settings", "get", "system", "font_scale"):
+                    return scale
+                elif args[-5:-1] == ("settings", "put", "system", "font_scale"):
+                    scale = args[-1]
+                elif args[-3:-1] == ("pm", "clear"):
+                    return "Success"
+                return ""
+
+            receipt = {"candidate": {"sourceCommit": "a" * 40}, "artifactSha256": "b" * 64}
+            with patch.dict(installed.ENV, {"ANDROID_HOME": str(root)}), patch.object(installed, "command", command), \
+                    patch.object(probe, "build", return_value=root / "probe.apk"), \
+                    patch.object(native_fixture_account, "seed", return_value={}), redirect_stdout(io.StringIO()):
+                with patch.object(installed, "ARTIFACTS", root):
+                    installed.android_journeys(root, receipt, {"api": "33"}, events, billing=True)
+            self.assertEqual(scale, "1.15")
+            value = json.loads((root / "installed-journeys.json").read_text())
+            self.assertEqual(value["passed"][0], "Android large text and Play purchase controls are accessible")
 
     def test_android_groups_continue_on_failure_without_issuing_a_full_receipt(self):
         with tempfile.TemporaryDirectory() as temporary:

@@ -129,7 +129,7 @@ const button = (name: string) =>
 let controlSequence = 0;
 function probeCommand(value: string) {
   if (
-    !/^(pinch|activate:[1-9][0-9]{0,3}:[A-Za-z -]{1,50}|document:[1-9][0-9]{0,3}:(?:SAVE|native-(?:dish|page)\.png)|accessibility:[1-9][0-9]{0,3}:(?:nav|export-dialog|reminder-opt-in|reminder-save))$/.test(
+    !/^(pinch|activate:[1-9][0-9]{0,3}:[A-Za-z -]{1,50}|document:[1-9][0-9]{0,3}:(?:SAVE|native-(?:dish|page)\.png)|accessibility:[1-9][0-9]{0,3}:(?:nav|export-dialog|reminder-opt-in|reminder-save|billing-monthly|billing-annual|billing-restore))$/.test(
       value,
     )
   )
@@ -1125,7 +1125,7 @@ async function billingJourneys() {
   const fixture = JSON.parse(await readFile(join(state, "fixture-inbox.json"), "utf8"));
   const proofKey = billingFixtureKey(fixture.capability, "android");
   privateValues.push(fixture.capability, proofKey);
-  await check("Play simulated purchase has accessible terms", async () => {
+  await check("Android large text and Play purchase controls are accessible", async () => {
     await page.getByLabel("Email", { exact: true }).waitFor();
     await page.evaluate(installBillingStoreFixture, {
       platform: "android", proofKey, expiresAt: Date.parse(fixture.expires), loseResult: true,
@@ -1137,20 +1137,22 @@ async function billingJourneys() {
     const panel = page.locator("details").filter({ has: summary }).last();
     await expect(panel.getByText(/€6\.99 per month/)).toBeVisible();
     await expect(panel.getByText(/€69\.90 per year/)).toBeVisible();
-    const subscribe = button("Subscribe monthly");
-    await expect(subscribe).toBeEnabled();
-    expect(await subscribe.evaluate((node) => {
-      const root = document.documentElement;
-      const previous = root.style.fontSize;
-      const original = Number.parseFloat(getComputedStyle(node).fontSize);
-      try {
-        root.style.fontSize = "200%";
-        return Number.parseFloat(getComputedStyle(node).fontSize) > original &&
+    for (const [name, probe] of [
+      ["Subscribe monthly", "billing-monthly"],
+      ["Subscribe annually", "billing-annual"],
+      ["Restore purchases", "billing-restore"],
+    ]) {
+      const control = button(name);
+      await expect(control).toBeEnabled();
+      await control.scrollIntoViewIfNeeded();
+      await probeAction("accessibility", probe);
+      expect(await control.evaluate((node) => {
+        const bounds = node.getBoundingClientRect();
+        return bounds.left >= 0 && bounds.right <= window.innerWidth + 1 &&
           node.scrollWidth <= node.clientWidth + 1;
-      } finally {
-        root.style.fontSize = previous;
-      }
-    })).toBe(true);
+      })).toBe(true);
+    }
+    const subscribe = button("Subscribe monthly");
     await activate("Subscribe monthly");
     await expect(panel.getByRole("status")).toContainText("Your purchase is still being checked.");
     await expect(subscribe).toHaveCount(0);
