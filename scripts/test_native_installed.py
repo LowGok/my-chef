@@ -615,8 +615,13 @@ def ios(state, stack, ca, package, model="iPhone 16", fixture_name="MyChef fixtu
     sim("boot", identifier)
     # Activate the selected Xcode's simulator UI before the first app launch;
     # the same owned device must still finish boot, trust and real HTTPS.
-    command("/usr/bin/open", "-a", str(Path(ENV["DEVELOPER_DIR"]) / "Applications/Simulator.app"),
-            "--args", "-CurrentDeviceUDID", identifier, timeout=30)
+    simulator_ui = Path(ENV["DEVELOPER_DIR"]) / "Applications/Simulator.app"
+    if simulator_ui.is_dir():
+        command("/usr/bin/open", "-a", str(simulator_ui), "--args", "-CurrentDeviceUDID", identifier, timeout=30)
+    else:
+        # The newer hosted toolchain omits this optional GUI bundle. XCTest
+        # and real VoiceOver remain required on its actual booted simulator.
+        print("Simulator GUI unavailable; continuing with actual headless runtime checks", flush=True)
     try:
         sim("bootstatus", identifier, timeout=240)
     except subprocess.TimeoutExpired as error:
