@@ -57,8 +57,8 @@ final class AnalyticsProbe: XCTestCase {
             print("Analytics iOS screen state: " + name + " present=\(present)")
         }
     }
-    func waitFor(_ condition: @escaping () -> Bool, _ message: String) {
-        let end = Date().addingTimeInterval(35)
+    func waitFor(_ condition: @escaping () -> Bool, _ message: String, timeout: TimeInterval = 35) {
+        let end = Date().addingTimeInterval(timeout)
         while Date() < end {
             if condition() { return }
             RunLoop.current.run(until: Date().addingTimeInterval(0.2))
@@ -161,7 +161,10 @@ final class AnalyticsProbe: XCTestCase {
         }
         let exists = element.exists
         print("Analytics iOS tap state: type=\(element.elementType.rawValue) exists=\(exists) hittable=\(exists && element.isHittable) stable=\(unchanged)")
-        if exists { print("Analytics iOS tap rect: " + NSStringFromCGRect(element.frame)) }
+        if exists {
+            let frame = element.frame
+            print("Analytics iOS tap rect: \(frame.minX),\(frame.minY),\(frame.width),\(frame.height)")
+        }
         screenState()
         XCTFail("Native tap target must finish layout before input")
     }
@@ -355,6 +358,8 @@ final class AnalyticsProbe: XCTestCase {
     }
     func testAuthenticatedAnalytics() throws {
         app.launch()
+        waitFor({ self.text("Welcome back.") || self.app.buttons["Create an account"].firstMatch.exists },
+                "Native session bootstrap must finish before account controls", timeout: 90)
         if configuration["voiceOverOnly"] == "true" {
             #if compiler(>=6.4)
             if #available(iOS 27.0, *) {
@@ -580,8 +585,10 @@ final class AnalyticsProbe: XCTestCase {
         var checkboxIndex: Int?, statusIndex: Int?, refreshIndex: Int?
         for index in 0..<24 {
             let utterance = try voice.moveForward().utterance
-            if utterance.localizedCaseInsensitiveContains("Help improve MyChef"), checkboxIndex == nil { checkboxIndex = index }
-            if checkboxIndex != nil, utterance.lowercased().trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("off"), statusIndex == nil { statusIndex = index }
+            let role = utterance.range(of: "switch|check.?box|button", options: [.regularExpression, .caseInsensitive]) != nil
+            if utterance.localizedCaseInsensitiveContains("Help improve MyChef"), role, checkboxIndex == nil { checkboxIndex = index }
+            if let controlIndex = checkboxIndex, index > controlIndex,
+               utterance.lowercased().trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("off"), statusIndex == nil { statusIndex = index }
             if utterance.localizedCaseInsensitiveContains("Refresh analytics setting") { refreshIndex = index; break }
         }
         XCTAssertNotNil(checkboxIndex); XCTAssertNotNil(statusIndex); XCTAssertNotNil(refreshIndex)

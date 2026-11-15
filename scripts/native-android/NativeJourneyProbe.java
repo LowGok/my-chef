@@ -455,9 +455,14 @@ public final class NativeJourneyProbe extends Instrumentation {
             }
             if (web == null) throw new IllegalStateException("webview");
             boolean[] focused = {false};
-            for (int i = 0; i < 100 && !focused[0]; i++) {
+            for (int i = 0; i < 300 && !focused[0]; i++) {
                 runOnMainSync(() -> focused[0] = web.isShown() && web.hasWindowFocus());
-                if (!focused[0]) SystemClock.sleep(100);
+                if (!focused[0]) {
+                    // Bring only this fixture's activity forward after cold
+                    // system startup; never accept an unfocused app window.
+                    if (i > 0 && i % 50 == 0) runOnMainSync(() -> activity.startActivity(launch));
+                    SystemClock.sleep(100);
+                }
             }
             if (!focused[0]) throw new IllegalStateException("native-window-unfocused");
             boolean[] zoom = {false};

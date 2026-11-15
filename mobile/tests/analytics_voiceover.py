@@ -93,12 +93,12 @@ def main():
     with tempfile.TemporaryDirectory(prefix='mychef-installed-') as directory, ExitStack() as stack:
         state = Path(directory).resolve()
         controls = {}
-        ca, events, _ = native.fixture(state, stack, analytics='disabled', controls=controls)
+        ca, events, rejected = native.fixture(state, stack, analytics='disabled', controls=controls)
         fixture = Fixture(state, controls['restart'])
         fixture.native_events = events
         account = fixture.operate({'operation': 'seed'})
         control = fixture.serve(stack)
-        metadata, _, _, _ = native.ios(state, stack, ca, artifact,
+        metadata, launch, stop, diagnostic = native.ios(state, stack, ca, artifact,
             model='iPhone 17', fixture_name='MyChef analytics voice fixture')
         devices = json.loads(native.command('xcrun', 'simctl', 'list', 'devices', 'booted', '-j'))['devices']
         identifiers = [d['udid'] for group in devices.values() for d in group if d.get('name') == 'MyChef analytics voice fixture']
@@ -108,6 +108,9 @@ def main():
         native.command('xcrun', 'simctl', 'ui', identifier, 'content_size', 'accessibility-medium')
         metadata['contentSize'] = 'accessibility-medium'
         container = Path(native.command('xcrun', 'simctl', 'get_app_container', identifier, native.APP, 'data'))
+        native.verify_stage(lambda: ('POST', 'session', 201) in events and ('GET', 'session', 200) in events,
+                            'VoiceOver native session bootstrap', events, rejected, diagnostic, launch=launch)
+        stop()
         checks = analytics_ios.run(state, control, account, identifier, container, voiceover_only=True)
         if not all(('GET', kind, 200) in events for kind in ('analytics-notice-disabled', 'analytics-notice-assessed')):
             raise RuntimeError('VoiceOver requires both actual signup notice responses')
