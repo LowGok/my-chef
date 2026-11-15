@@ -126,6 +126,8 @@ export function Subscriptions({ onHelp }: { onHelp: () => void }) {
   if (!flow || (!status && !error)) return null;
   const subscription = status?.subscription;
   const manage = subscription && management[subscription.store];
+  const history = status?.management;
+  const pastStore = history && management[history.store];
   const reservation = status?.resume;
 
   return (
@@ -149,6 +151,19 @@ export function Subscriptions({ onHelp }: { onHelp: () => void }) {
           </p>
           <p>
             <a href={manage.href}>{manage.title}</a>
+          </p>
+        </>
+      )}
+      {!subscription && history && pastStore && (
+        <>
+          {history.state === "ended" && history.endedAt && (
+            <p>
+              Premium ended on {new Date(history.endedAt).toLocaleDateString()}.
+            </p>
+          )}
+          {history.state === "revoked" && <p>Premium access ended.</p>}
+          <p>
+            <a href={pastStore.href}>{pastStore.title}</a>
           </p>
         </>
       )}

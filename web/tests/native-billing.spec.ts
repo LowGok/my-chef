@@ -106,6 +106,8 @@ for (const scenario of [
             .filter({ hasText: "Your purchase is still being checked." }),
         ).toBeVisible();
         await expect(subscribe).toHaveCount(0);
+        await expect(panel.getByRole("link", { name: scenario.manage })).toHaveAttribute("href", scenario.href);
+        await expect(panel.getByText(/Premium ended on/)).toHaveCount(0);
         await expect(
           panel.getByText(
             "If the store shows a charge, restore purchases using the same store account.",

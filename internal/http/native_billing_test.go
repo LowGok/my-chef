@@ -319,3 +319,51 @@ func TestNativeBillingSandboxLimitsRoutesToSyntheticAccounts(t *testing.T) {
 		})
 	}
 }
+
+func TestNativeBillingRetainsSellingStoreAfterExpiryWithCheckoutOff(t *testing.T) {
+	a, _, _, _ := lifecycleHTTPFixture(t)
+	h := a.Handler(nil)
+	account := nativeFixtureLogin(t, a, h)
+	ctx := t.Context()
+	now := time.Now().UTC().Truncate(time.Second)
+	if err := a.Store.DB.Exec("UPDATE users SET email_verified_at=? WHERE email=?", now.Unix(), "native-http@example.test").Error; err != nil {
+		t.Fatal(err)
+	}
+	var owner string
+	if err := a.Store.SQL.QueryRowContext(ctx, `SELECT i.incarnation FROM account_incarnations i JOIN users u USING(user_id) WHERE u.email=?`,
+		"native-http@example.test").Scan(&owner); err != nil {
+		t.Fatal(err)
+	}
+	journal, err := a.Config.Lifecycle.Billing(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	start, end := now.Add(-2*time.Hour), now.Add(-time.Hour)
+	attempt, err := journal.Reserve(ctx, owner, billing.Sandbox, billing.Play, billing.Annual, start)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := journal.Launch(ctx, attempt, start); err != nil {
+		t.Fatal(err)
+	}
+	period := billing.VerifiedPeriod{Store: billing.Play, Environment: billing.Sandbox, Interval: billing.Annual,
+		Binding: attempt.Binding, Subscription: "disposable-expired-lineage", Transaction: "disposable-expired-transaction",
+		StartsAt: start, PaidThrough: end, ObservedAt: now}
+	if err := journal.Fulfil(ctx, period); err != nil {
+		t.Fatal(err)
+	}
+	a.Config.NativeBilling = &NativeBilling{Journal: journal, Environment: billing.Sandbox}
+	h = a.Handler(nil)
+	w := callNative(h, "GET", "/billing/status", "", account.AccessToken)
+	var status nativeBillingStatus
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &status) != nil || status.Store != billing.Apple || status.CheckoutEnabled ||
+		status.Subscription != nil || status.Management == nil || status.Management.Store != billing.Play || status.Management.State != "ended" ||
+		status.Management.EndedAt == nil || !status.Management.EndedAt.Equal(end) {
+		t.Fatalf("sales-off Apple client could not manage its expired Play subscription: status %d", w.Code)
+	}
+	for _, fact := range []string{attempt.Binding, period.Subscription, period.Transaction} {
+		if strings.Contains(w.Body.String(), fact) {
+			t.Fatal("management response leaked private purchase references")
+		}
+	}
+}

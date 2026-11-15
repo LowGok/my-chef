@@ -16869,6 +16869,16 @@
             ],
             "additionalProperties": false
           },
+          "management": {
+            "type": "object",
+            "properties": {
+              "store": { "type": "string", "enum": ["apple", "play"] },
+              "state": { "type": "string", "enum": ["pending_verification", "ended", "revoked"] },
+              "endedAt": { "type": "string", "format": "date-time" }
+            },
+            "required": ["store", "state"],
+            "additionalProperties": false
+          },
           "resume": {
             "type": "object",
             "properties": {

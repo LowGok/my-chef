@@ -185,6 +185,11 @@ func (j *Journal) reserve(ctx context.Context, owner, family string, env Environ
 		} else if pending {
 			return ErrUnresolved
 		}
+		if waiting, err := futurePaidPeriod(ctx, tx, owner, env, now); err != nil {
+			return err
+		} else if waiting {
+			return ErrUnresolved
+		}
 		if active, err := activePeriod(ctx, tx, owner, env, now, ""); err != nil {
 			return err
 		} else if active != nil {
@@ -426,6 +431,7 @@ func (j *Journal) Active(ctx context.Context, owner string, env Environment, at 
 type NativeOverview struct {
 	Pending      bool
 	Subscription *SubscriptionSummary
+	Management   *SubscriptionManagement
 	Resume       *PendingAttempt
 }
 
@@ -433,6 +439,49 @@ type SubscriptionSummary struct {
 	Store       Store     `json:"store"`
 	Interval    Interval  `json:"interval"`
 	PaidThrough time.Time `json:"paidThrough"`
+}
+
+// SubscriptionManagement describes a selling store without granting paid access.
+// An old end date is absent until this runtime has verified the period.
+type SubscriptionManagement struct {
+	Store   Store      `json:"store"`
+	State   string     `json:"state"`
+	EndedAt *time.Time `json:"endedAt,omitempty"`
+}
+
+func futurePaidPeriod(ctx context.Context, db reader, owner string, env Environment, at time.Time) (bool, error) {
+	var future bool
+	err := db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM billing_periods p
+ JOIN billing_subscriptions s USING(environment,store,subscription)
+ WHERE s.incarnation=? AND s.environment=? AND p.revoked=0 AND p.starts_ns>?)`, owner, env, timeNS(at)).Scan(&future)
+	return future, err
+}
+
+func (j *Journal) lastSubscriptionManagement(ctx context.Context, db reader, owner string, env Environment, at time.Time) (*SubscriptionManagement, error) {
+	info := SubscriptionManagement{State: "pending_verification"}
+	var end int64
+	var revoked, verified bool
+	err := db.QueryRowContext(ctx, `SELECT s.store,p.ends_ns,p.revoked,
+ (?='' OR EXISTS(SELECT 1 FROM billing_runtime_proofs f
+ WHERE f.environment=p.environment AND f.store=p.store AND f.proof=p.proof AND f.generation=?))
+ FROM billing_periods p JOIN billing_subscriptions s USING(environment,store,subscription)
+ WHERE s.incarnation=? AND s.environment=?
+ ORDER BY p.starts_ns DESC,p.ends_ns DESC,p.observed_ns DESC,p.store,p.proof LIMIT 1`,
+		j.generation, j.generation, owner, env).Scan(&info.Store, &end, &revoked, &verified)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if verified && revoked {
+		info.State = "revoked"
+	} else if verified && end <= timeNS(at) {
+		info.State = "ended"
+		endedAt := time.Unix(0, end).UTC()
+		info.EndedAt = &endedAt
+	}
+	return &info, nil
 }
 
 type PendingAttempt struct {
@@ -463,6 +512,12 @@ func (j *Journal) NativeOverview(ctx context.Context, owner, family string, env 
 	if err != nil {
 		return NativeOverview{}, err
 	}
+	if !result.Pending {
+		result.Pending, err = futurePaidPeriod(ctx, tx, owner, env, now)
+		if err != nil {
+			return NativeOverview{}, err
+		}
+	}
 	active, err := activePeriod(ctx, tx, owner, env, now, j.generation)
 	if err != nil {
 		return NativeOverview{}, err
@@ -479,12 +534,21 @@ func (j *Journal) NativeOverview(ctx context.Context, owner, family string, env 
 	switch {
 	case err == nil:
 		result.Pending = true
+		if active == nil && state == "launched" {
+			result.Management = &SubscriptionManagement{Store: savedStore, State: "pending_verification"}
+		}
 		if family == savedFamily && store == savedStore {
 			resume.Launched = state == "launched"
 			result.Resume = &resume
 		}
 	case !errors.Is(err, sql.ErrNoRows):
 		return NativeOverview{}, err
+	}
+	if active == nil && result.Management == nil {
+		result.Management, err = j.lastSubscriptionManagement(ctx, tx, owner, env, now)
+		if err != nil {
+			return NativeOverview{}, err
+		}
 	}
 	return result, tx.Commit()
 }

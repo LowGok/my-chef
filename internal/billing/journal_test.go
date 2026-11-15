@@ -152,3 +152,67 @@ func TestUnusedReservationCanExpireWithoutAllowingOldLaunch(t *testing.T) {
 		t.Fatalf("expired attempt was launched: %v", err)
 	}
 }
+
+func TestBillingManagementSurvivesExpiryAndDoesNotReuseUnverifiedDates(t *testing.T) {
+	db, j, now := fixture(t)
+	ctx := t.Context()
+	const family = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	const other = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	attempt, err := j.ReserveNative(ctx, owner, family, Sandbox, Play, Monthly, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := j.Launch(ctx, attempt, now); err != nil {
+		t.Fatal(err)
+	}
+	pending, err := j.NativeOverview(ctx, owner, family, Sandbox, Apple, now)
+	if err != nil || pending.Subscription != nil || pending.Resume != nil || pending.Management == nil || pending.Management.Store != Play ||
+		pending.Management.State != "pending_verification" || pending.Management.EndedAt != nil {
+		t.Fatalf("pending purchase must point to its own store without a date: %+v, %v", pending, err)
+	}
+	end := now.Add(time.Hour)
+	period := VerifiedPeriod{Store: Play, Environment: Sandbox, Binding: attempt.Binding, Subscription: "offline-lineage", Transaction: "offline-order",
+		Interval: Monthly, StartsAt: now, PaidThrough: end, ObservedAt: now}
+	if err := j.Fulfil(ctx, period); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := j.Reserve(ctx, owner, Sandbox, Apple, Annual, now.Add(-time.Second)); !errors.Is(err, ErrUnresolved) {
+		t.Fatalf("a verified future paid period allowed checkout before its start: %v", err)
+	}
+	upcoming, err := j.NativeOverview(ctx, owner, family, Sandbox, Apple, now.Add(-time.Second))
+	if err != nil || !upcoming.Pending || upcoming.Subscription != nil {
+		t.Fatalf("an upcoming paid period was presented as active or allowed checkout: %+v, %v", upcoming, err)
+	}
+	active, err := j.NativeOverview(ctx, owner, family, Sandbox, Apple, now)
+	if err != nil || active.Subscription == nil || active.Management != nil || active.Subscription.Store != Play {
+		t.Fatalf("active purchase did not retain its seller: %+v, %v", active, err)
+	}
+	ended, err := j.NativeOverview(ctx, owner, family, Sandbox, Apple, end)
+	if err != nil || ended.Subscription != nil || ended.Management == nil || ended.Management.Store != Play ||
+		ended.Management.State != "ended" || ended.Management.EndedAt == nil || !ended.Management.EndedAt.Equal(end) {
+		t.Fatalf("verified expiry lost the actual selling store and end date: %+v, %v", ended, err)
+	}
+	current, err := StartRuntime(ctx, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale, err := current.NativeOverview(ctx, owner, family, Sandbox, Apple, end)
+	if err != nil || stale.Subscription != nil || !stale.Pending || stale.Management == nil || stale.Management.Store != Play ||
+		stale.Management.State != "pending_verification" || stale.Management.EndedAt != nil {
+		t.Fatalf("restored runtime exposed an unverified end date or lost the store: %+v, %v", stale, err)
+	}
+	period.ObservedAt = end
+	period.Revoked = true
+	if err := current.Fulfil(ctx, period); err != nil {
+		t.Fatal(err)
+	}
+	revoked, err := current.NativeOverview(ctx, owner, family, Sandbox, Apple, end)
+	if err != nil || revoked.Subscription != nil || revoked.Management == nil || revoked.Management.Store != Play ||
+		revoked.Management.State != "revoked" || revoked.Management.EndedAt != nil {
+		t.Fatalf("revocation presented a scheduled end date: %+v, %v", revoked, err)
+	}
+	unrelated, err := current.NativeOverview(ctx, other, family, Sandbox, Apple, end)
+	if err != nil || unrelated.Management != nil || unrelated.Subscription != nil {
+		t.Fatalf("a different owner could read purchase management data: %+v, %v", unrelated, err)
+	}
+}

@@ -148,13 +148,14 @@ type nativeBillingPlan struct {
 }
 
 type nativeBillingStatus struct {
-	Store            billing.Store                `json:"store"`
-	Plans            []nativeBillingPlan          `json:"plans"`
-	CheckoutEnabled  bool                         `json:"checkoutEnabled"`
-	RestoreAvailable bool                         `json:"restoreAvailable"`
-	Pending          bool                         `json:"pending"`
-	Subscription     *billing.SubscriptionSummary `json:"subscription,omitempty"`
-	Resume           *billing.PendingAttempt      `json:"resume,omitempty"`
+	Store            billing.Store                   `json:"store"`
+	Plans            []nativeBillingPlan             `json:"plans"`
+	CheckoutEnabled  bool                            `json:"checkoutEnabled"`
+	RestoreAvailable bool                            `json:"restoreAvailable"`
+	Pending          bool                            `json:"pending"`
+	Subscription     *billing.SubscriptionSummary    `json:"subscription,omitempty"`
+	Management       *billing.SubscriptionManagement `json:"management,omitempty"`
+	Resume           *billing.PendingAttempt         `json:"resume,omitempty"`
 }
 
 func (a *API) billingStatus(w http.ResponseWriter, r *http.Request) {
@@ -188,7 +189,7 @@ func (a *API) billingStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	a.write(w, 200, nativeBillingStatus{
 		Store: s, CheckoutEnabled: len(plans) != 0, Plans: plans, RestoreAvailable: restore,
-		Pending: result.Pending, Subscription: result.Subscription, Resume: result.Resume,
+		Pending: result.Pending, Subscription: result.Subscription, Management: result.Management, Resume: result.Resume,
 	})
 }
 

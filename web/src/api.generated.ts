@@ -702,6 +702,11 @@ export type NativeBillingStatus = {
         interval: 'monthly' | 'annual';
         paidThrough: string;
     };
+    management?: {
+        store: 'apple' | 'play';
+        state: 'pending_verification' | 'ended' | 'revoked';
+        endedAt?: string;
+    };
     resume?: {
         id: string;
         interval: 'monthly' | 'annual';
