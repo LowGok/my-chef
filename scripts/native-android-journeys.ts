@@ -125,7 +125,7 @@ const button = (name: string) =>
 let controlSequence = 0;
 function probeCommand(value: string) {
   if (
-    !/^(pinch|activate:[1-9][0-9]{0,3}:[A-Za-z -]{1,50}|document:[1-9][0-9]{0,3}:(?:SAVE|native-(?:dish|page)\.png)|accessibility:[1-9][0-9]{0,3}:(?:nav|export-dialog))$/.test(
+    !/^(pinch|activate:[1-9][0-9]{0,3}:[A-Za-z -]{1,50}|document:[1-9][0-9]{0,3}:(?:SAVE|native-(?:dish|page)\.png)|accessibility:[1-9][0-9]{0,3}:(?:nav|export-dialog|reminder-opt-in|reminder-save))$/.test(
       value,
     )
   )
@@ -1090,6 +1090,21 @@ async function reminderJourney() {
     await button("Save reminder preferences").click();
     await expect(group.getByRole("status")).toHaveText("Reminder preferences saved.");
     await expect(button("Turn on for this device")).toBeEnabled();
+  });
+  await check("Android system large text and reminder accessibility nodes", async () => {
+    const optIn = group.getByRole("checkbox", { name: "Monday reminder", exact: true });
+    await expect(optIn).toBeChecked();
+    await optIn.scrollIntoViewIfNeeded();
+    await probeAction("accessibility", "reminder-opt-in");
+    const save = button("Save reminder preferences");
+    await save.scrollIntoViewIfNeeded();
+    await probeAction("accessibility", "reminder-save");
+    expect(await group.evaluate((element) => {
+      const canvas = document.documentElement;
+      const bounds = element.getBoundingClientRect();
+      return canvas.scrollWidth <= window.innerWidth + 1 && bounds.left >= 0 &&
+        bounds.right <= window.innerWidth + 1 && element.scrollWidth <= element.clientWidth + 1;
+    })).toBe(true);
   });
   await check("installed app registers only after notification permission and removes on opt out", async () => {
     await button("Turn on for this device").click();

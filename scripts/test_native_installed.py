@@ -1,5 +1,5 @@
 """Exercise the real native session bridge on disposable hosted devices."""
-from contextlib import ExitStack, closing
+from contextlib import ExitStack, closing, contextmanager, nullcontext
 import hashlib
 import http.client
 import http.server
@@ -510,6 +510,24 @@ def ios_reminder_inputs(state):
     return dict(account, reference=reference, target=target, mealTitle=meal_title)
 
 
+@contextmanager
+def android_reminder_text(adb):
+    """Use the disposable emulator's OS setting and restore it on every exit."""
+    previous = adb("shell", "settings", "get", "system", "font_scale")
+    if not re.fullmatch(r"(?:null|[0-9]{1,2}(?:\.[0-9]+)?)", previous):
+        raise RuntimeError("Android system font setting could not be read")
+    try:
+        adb("shell", "settings", "put", "system", "font_scale", "1.5")
+        if adb("shell", "settings", "get", "system", "font_scale") != "1.5":
+            raise RuntimeError("Android system font setting did not apply")
+        yield
+    finally:
+        if previous == "null":
+            adb("shell", "settings", "delete", "system", "font_scale")
+        else:
+            adb("shell", "settings", "put", "system", "font_scale", previous)
+
+
 def android_journeys(state, receipt, metadata, events, reminders=False):
     from native_android_probe import build
     from native_fixture_account import seed
@@ -535,7 +553,7 @@ def android_journeys(state, receipt, metadata, events, reminders=False):
                     if re.fullmatch(r"INSTRUMENTATION_(?:STATUS|RESULT): (?:probe=(?:ready|failed)|probeReason=(?:launch|webview|pinch-disabled|probe-timeout|instrumentation|native-control|native-window-(?:unfocused|bounds)|control-timeout|input-denied|picker-(?:window|target|activation|confirmation|return)|accessibility-controls))|INSTRUMENTATION_CODE: -?[0-9]+", line)]
             print("Disposable probe status: " + "; ".join(safe[-8:]), flush=True)
 
-    groups = (("reminders", 2),) if reminders else (("core", 7), ("media", 5), ("pages", 1), ("account", 4))
+    groups = (("reminders", 3),) if reminders else (("core", 7), ("media", 5), ("pages", 1), ("account", 4))
     passed = {}
     failed = []
     adb = lambda *args: command(adb_path, "-s", "emulator-5554", *args)
@@ -553,7 +571,8 @@ def android_journeys(state, receipt, metadata, events, reminders=False):
             account = seed(18137, ORIGIN, capability, "nativeandroid" + group)
             (state / "native-android-account.json").write_text(json.dumps(account))
             before = len(events)
-            output = command("bun", "scripts/native-android-journeys.ts", str(state), group, timeout=270)
+            with android_reminder_text(adb) if group == "reminders" else nullcontext():
+                output = command("bun", "scripts/native-android-journeys.ts", str(state), group, timeout=270)
             print(output, flush=True)
             if group == "reminders":
                 registration = [event for event in events[before:] if event[1] == "planning-reminders/installation"]
@@ -567,7 +586,8 @@ def android_journeys(state, receipt, metadata, events, reminders=False):
             if (not isinstance(result, dict) or result.get("group") != group
                     or not isinstance(checks, list) or len(checks) != count
                     or not all(isinstance(check, str) and re.fullmatch(r"[A-Za-z0-9 /-]{1,100}", check) for check in checks)
-                    or len(set(checks)) != count):
+                    or len(set(checks)) != count
+                    or (group == "reminders" and "Android system large text and reminder accessibility nodes" not in checks)):
                 raise RuntimeError("Installed Android group receipt is incomplete")
             passed[group] = checks
         except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
