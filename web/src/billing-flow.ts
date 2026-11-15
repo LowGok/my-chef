@@ -143,6 +143,28 @@ export function createBillingFlow(
     requireSession();
     return "verified";
   }
+  async function checkProofs(
+    receipts: readonly BillingReceipt[],
+    verify: CheckoutServer["restore"],
+    stopAtFirstVerified = false,
+  ): Promise<Result> {
+    let result: Result = "empty";
+    let failure: { cause: unknown } | undefined;
+    for (const proof of receipts) {
+      try {
+        const checked = await finish(proof, verify);
+        if (checked === "verified" && stopAtFirstVerified) return checked;
+        if (result !== "verified") result = checked;
+      } catch (cause) {
+        requireSession();
+        failure ??= { cause };
+      }
+    }
+    // One unavailable proof must not hide a recoverable purchase or make the
+    // store appear empty. Never start a new checkout from an incomplete scan.
+    if (result !== "verified" && failure) throw failure.cause;
+    return result;
+  }
   async function status() {
     requireSession();
     const value = await server.status();
@@ -216,16 +238,18 @@ export function createBillingFlow(
       if (!attempt.launched) return "pending";
       const receipts = await device.unfinished();
       requireSession();
-      for (const proof of receipts.slice(0, 10)) {
-        if (!proof.interval || proof.interval === attempt.interval) {
-          const result = await finish(proof, (value) =>
-            server.verify(attempt.id, value),
-          );
-          if (result === "verified") return result;
-        }
-      }
+      const matching = receipts
+        .slice(0, 10)
+        .filter(
+          (proof) => !proof.interval || proof.interval === attempt.interval,
+        );
+      const result = await checkProofs(
+        matching,
+        (value) => server.verify(attempt.id, value),
+        true,
+      );
       // Absence of evidence does not authorize a new store sheet.
-      return "pending";
+      return result === "verified" ? result : "pending";
     });
   }
   async function recover(
@@ -239,21 +263,7 @@ export function createBillingFlow(
       ? await device.restore()
       : await device.unfinished();
     requireSession();
-    let result: Result = "empty";
-    let failure: { cause: unknown } | undefined;
-    for (const proof of receipts.slice(0, 10)) {
-      try {
-        const checked = await finish(proof, server.restore);
-        if (result !== "verified") result = checked;
-      } catch (cause) {
-        requireSession();
-        failure ??= { cause };
-      }
-    }
-    // One unavailable proof must not hide a recoverable purchase or make the
-    // store appear empty. Never start a new checkout from an incomplete scan.
-    if (result !== "verified" && failure) throw failure.cause;
-    return result;
+    return checkProofs(receipts.slice(0, 10), server.restore);
   }
   function restore(): Promise<Result> {
     return run(() => recover(true));

@@ -60,8 +60,11 @@ function fixture() {
         expect(value).toBe(id);
         events.push("release unused");
       },
-      async verify(_, value) {
-        expect(value).toBe(proof.receipt);
+      async verify(attempt, value) {
+        expect(attempt).toBe(id);
+        expect(unfinished.some((receipt) => receipt.receipt === value)).toBe(
+          true,
+        );
         events.push("verify");
         return allowFinish();
       },
@@ -359,4 +362,38 @@ test("checkout stays closed when all unfinished proof checks fail", async () => 
     "Store verification unavailable",
   );
   expect(f.events).toEqual(["unfinished", "verify restore"]);
+});
+
+test("checking a launched attempt recovers later matching proof without opening another sheet", async () => {
+  const f = fixture();
+  const yearly = {
+    ...proof,
+    id: "fixture-annual",
+    receipt: "fixture-annual-proof",
+    interval: "annual" as const,
+  };
+  const recovered = {
+    ...proof,
+    id: "fixture-recoverable",
+    receipt: "fixture-recoverable-proof",
+  };
+  f.setStatus({
+    ...status,
+    pending: true,
+    resume: { id, interval: "monthly", launched: true },
+  });
+  f.setUnfinished(yearly, proof, recovered);
+  let checks = 0;
+  f.onVerify(async () => {
+    if (++checks === 1) throw new Error("Store verification unavailable");
+    return true;
+  });
+  const finished: string[] = [];
+  f.onFinish(async (value) => {
+    finished.push(value);
+  });
+  expect(await f.flow.resume()).toBe("verified");
+  expect(checks).toBe(2);
+  expect(finished).toEqual([recovered.id]);
+  expect(f.events).toEqual(["unfinished", "verify", "verify", "finish"]);
 });
