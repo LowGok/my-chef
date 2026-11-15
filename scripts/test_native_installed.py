@@ -453,6 +453,8 @@ def ios(state, stack, ca, package, reminder_inputs=None):
         launches += 1
         if launches != 2 or reminder_inputs is None:
             return sim("launch", identifier, APP)
+        # The app must read the simulator's real OS setting on its cold launch.
+        sim("ui", identifier, "content_size", "accessibility-medium")
         container = Path(sim("get_app_container", identifier, APP, "data"))
         temporary = container / "tmp"
         if not temporary.is_dir() or not temporary.resolve().is_relative_to(container.resolve()):
@@ -475,8 +477,8 @@ def ios_reminder_ui_passed(path):
         value = json.loads(path.read_text())
     except (OSError, ValueError):
         return False
-    return (isinstance(value, dict) and value.keys() == {"weekAndMeal", "scaledControls"}
-            and value["weekAndMeal"] is True and value["scaledControls"] is True)
+    required = {"weekAndMeal", "scaledControls", "systemTextSize"}
+    return isinstance(value, dict) and value.keys() == required and all(value[key] is True for key in required)
 
 
 def ios_reminder_inputs(state):
@@ -655,7 +657,8 @@ def main():
                 "signed-out cold reminder handoff and open after login",
                 "target week and saved meal rendered after reminder open",
                 "reminder labels and controls scale at 200 percent in iOS WebView",
-            ], limitations="Synthetic tap and WebView text scaling; no production APNs, lock-screen, OS text setting or VoiceOver verification.")
+                "reminder controls fit at the simulator OS accessibility text size",
+            ], limitations="Synthetic tap and simulator text scaling; no production APNs, physical lock-screen or VoiceOver verification.")
             (ARTIFACTS / "installed-journeys.json").write_text(json.dumps(result, indent=2) + "\n")
         if journeys:
             android_journeys(state, receipt, metadata, events, reminders)

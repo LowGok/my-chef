@@ -50,6 +50,10 @@ class NativeVerificationTest(unittest.TestCase):
                 result.write_text(json.dumps(value))
                 self.assertFalse(installed.ios_reminder_ui_passed(result))
             result.write_text('{"weekAndMeal":true,"scaledControls":true}')
+            self.assertFalse(installed.ios_reminder_ui_passed(result))
+            result.write_text('{"weekAndMeal":true,"scaledControls":true,"systemTextSize":false}')
+            self.assertFalse(installed.ios_reminder_ui_passed(result))
+            result.write_text('{"weekAndMeal":true,"scaledControls":true,"systemTextSize":true}')
             self.assertTrue(installed.ios_reminder_ui_passed(result))
 
     def test_android_reminder_text_restores_the_emulator_setting_on_failure(self):

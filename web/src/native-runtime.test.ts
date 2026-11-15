@@ -97,3 +97,27 @@ test("runtime sanitizes bridge failures and suppresses replies after shutdown", 
   await broken.wake();
   expect(events).toEqual([{ type: "unavailable" }]);
 });
+
+test("native text size follows legitimate changes without forwarding invalid preferences", async () => {
+  let textScale: number | undefined = 1;
+  const events: unknown[] = [];
+  const runtime = createNativeRuntime(
+    {
+      async readRuntime() {
+        return { active: true, online: true, back: false, textScale };
+      },
+    },
+    origin,
+    (event) => events.push(event),
+  );
+  for (const value of [1, 1.529, 1.529, NaN, 400, undefined, 1]) {
+    textScale = value;
+    await runtime.wake();
+  }
+  expect(events).toEqual([
+    { type: "connection", active: true, online: true },
+    { type: "text-size", percent: 100 },
+    { type: "text-size", percent: 153 },
+    { type: "text-size", percent: 100 },
+  ]);
+});
