@@ -324,6 +324,14 @@ export type ShoppingList = {
     meals: Array<ShoppingMeal>;
     items: Array<ShoppingItem>;
     /**
+     * Free accounts see every dinner in the household week and can change only item check state.
+     */
+    readonly customizationLocked?: boolean;
+    /**
+     * Paid-only changes the server did not apply. Valid check-offs may have been saved.
+     */
+    readonly blockedChanges?: Array<'extras' | 'meals' | 'order'>;
+    /**
      * Computed from planned imported snapshots, including unselected meals. Keep the list and pending edits in memory rather than persistent browser storage when true.
      */
     readonly privateImports?: boolean;
@@ -677,6 +685,64 @@ export type AnalyticsPreferenceConflict = {
         existingId?: string;
     };
     current: AnalyticsPreference;
+};
+
+export type NativeBillingStatus = {
+    store: 'apple' | 'play';
+    checkoutEnabled: boolean;
+    restoreAvailable: boolean;
+    pending: boolean;
+    plans: Array<{
+        interval: 'monthly' | 'annual';
+        product: string;
+        basePlan: string;
+    }>;
+    subscription?: {
+        store: 'apple' | 'play';
+        interval: 'monthly' | 'annual';
+        paidThrough: string;
+    };
+    resume?: {
+        id: string;
+        interval: 'monthly' | 'annual';
+        launched: boolean;
+    };
+};
+
+export type PlanningStatus = {
+    /**
+     * Confirmed household IANA time zone, or empty until confirmation.
+     */
+    zone: string;
+    premium: boolean;
+    today?: string;
+    firstWeek?: string;
+    lastWeek?: string;
+};
+
+export type NativeCheckoutRequest = {
+    interval: 'monthly' | 'annual';
+};
+
+export type NativeCheckout = {
+    id: string;
+    binding: string;
+    store: 'apple' | 'play';
+    product: string;
+    basePlan: string;
+    interval: 'monthly' | 'annual';
+};
+
+export type NativeCheckoutProof = {
+    receipt: string;
+};
+
+export type NativeCheckoutResult = {
+    completeStoreTransaction: true;
+};
+
+export type AccountDeletionAdvice = {
+    stores: Array<'apple' | 'play'>;
 };
 
 export type ImportEmptyInputWritable = {
@@ -7196,6 +7262,577 @@ export type NativeUpdateAnalyticsPreferenceResponses = {
 
 export type NativeUpdateAnalyticsPreferenceResponse = NativeUpdateAnalyticsPreferenceResponses[keyof NativeUpdateAnalyticsPreferenceResponses];
 
+export type NativeBillingStatusData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/native/v1/billing/status';
+};
+
+export type NativeBillingStatusErrors = {
+    /**
+     * Request unavailable
+     */
+    400: Error;
+    /**
+     * Request unavailable
+     */
+    401: Error;
+    /**
+     * Request unavailable
+     */
+    403: Error;
+    /**
+     * Request unavailable
+     */
+    404: Error;
+    /**
+     * Request unavailable
+     */
+    503: Error;
+};
+
+export type NativeBillingStatusError = NativeBillingStatusErrors[keyof NativeBillingStatusErrors];
+
+export type NativeBillingStatusResponses = {
+    /**
+     * Account-visible verified subscription status and the current installation’s resumable checkout, if any.
+     */
+    200: NativeBillingStatus;
+};
+
+export type NativeBillingStatusResponse = NativeBillingStatusResponses[keyof NativeBillingStatusResponses];
+
+export type ReserveNativeCheckoutData = {
+    body: NativeCheckoutRequest;
+    path?: never;
+    query?: never;
+    url: '/api/native/v1/billing/checkouts';
+};
+
+export type ReserveNativeCheckoutErrors = {
+    /**
+     * Malformed input
+     */
+    400: Error;
+    /**
+     * Native sign-in required
+     */
+    401: Error;
+    /**
+     * Verified email required
+     */
+    403: Error;
+    /**
+     * Unavailable checkout or offer
+     */
+    404: Error;
+    /**
+     * Existing purchase or unresolved checkout
+     */
+    409: Error;
+    /**
+     * Verification or storage is temporarily unavailable
+     */
+    503: Error;
+};
+
+export type ReserveNativeCheckoutError = ReserveNativeCheckoutErrors[keyof ReserveNativeCheckoutErrors];
+
+export type ReserveNativeCheckoutResponses = {
+    /**
+     * Checkout reserved
+     */
+    201: NativeCheckout;
+};
+
+export type ReserveNativeCheckoutResponse = ReserveNativeCheckoutResponses[keyof ReserveNativeCheckoutResponses];
+
+export type LaunchNativeCheckoutData = {
+    body?: never;
+    path: {
+        checkout: string;
+    };
+    query?: never;
+    url: '/api/native/v1/billing/checkouts/{checkout}/launch';
+};
+
+export type LaunchNativeCheckoutErrors = {
+    /**
+     * Malformed input
+     */
+    400: Error;
+    /**
+     * Native sign-in required
+     */
+    401: Error;
+    /**
+     * Verified email required
+     */
+    403: Error;
+    /**
+     * Unavailable checkout or offer
+     */
+    404: Error;
+    /**
+     * Existing purchase or unresolved checkout
+     */
+    409: Error;
+    /**
+     * Verification or storage is temporarily unavailable
+     */
+    503: Error;
+};
+
+export type LaunchNativeCheckoutError = LaunchNativeCheckoutErrors[keyof LaunchNativeCheckoutErrors];
+
+export type LaunchNativeCheckoutResponses = {
+    /**
+     * Checkout may be launched
+     */
+    204: void;
+};
+
+export type LaunchNativeCheckoutResponse = LaunchNativeCheckoutResponses[keyof LaunchNativeCheckoutResponses];
+
+export type RestoreNativePurchaseData = {
+    body: NativeCheckoutProof;
+    path?: never;
+    query?: never;
+    url: '/api/native/v1/billing/restore';
+};
+
+export type RestoreNativePurchaseErrors = {
+    /**
+     * Malformed input
+     */
+    400: Error;
+    /**
+     * Native sign-in required
+     */
+    401: Error;
+    /**
+     * Verified email required
+     */
+    403: Error;
+    /**
+     * Unavailable purchase or owner binding
+     */
+    404: Error;
+    /**
+     * Existing purchase or unresolved checkout
+     */
+    409: Error;
+    /**
+     * Wait before the next verification attempt
+     */
+    429: Error;
+    /**
+     * Verification or storage is temporarily unavailable
+     */
+    503: Error;
+};
+
+export type RestoreNativePurchaseError = RestoreNativePurchaseErrors[keyof RestoreNativePurchaseErrors];
+
+export type RestoreNativePurchaseResponses = {
+    /**
+     * Verified fulfilment committed
+     */
+    200: NativeCheckoutResult;
+};
+
+export type RestoreNativePurchaseResponse = RestoreNativePurchaseResponses[keyof RestoreNativePurchaseResponses];
+
+export type VerifyNativeCheckoutData = {
+    body: NativeCheckoutProof;
+    path: {
+        checkout: string;
+    };
+    query?: never;
+    url: '/api/native/v1/billing/checkouts/{checkout}/verify';
+};
+
+export type VerifyNativeCheckoutErrors = {
+    /**
+     * Malformed input
+     */
+    400: Error;
+    /**
+     * Native sign-in required
+     */
+    401: Error;
+    /**
+     * Verified email required
+     */
+    403: Error;
+    /**
+     * Unavailable checkout or offer
+     */
+    404: Error;
+    /**
+     * Existing purchase or unresolved checkout
+     */
+    409: Error;
+    /**
+     * Wait before the next verification attempt
+     */
+    429: Error;
+    /**
+     * Verification or storage is temporarily unavailable
+     */
+    503: Error;
+};
+
+export type VerifyNativeCheckoutError = VerifyNativeCheckoutErrors[keyof VerifyNativeCheckoutErrors];
+
+export type VerifyNativeCheckoutResponses = {
+    /**
+     * Verified fulfilment committed
+     */
+    200: NativeCheckoutResult;
+};
+
+export type VerifyNativeCheckoutResponse = VerifyNativeCheckoutResponses[keyof VerifyNativeCheckoutResponses];
+
+export type AccountDeletionAdviceData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/account/deletion-advice';
+};
+
+export type AccountDeletionAdviceErrors = {
+    /**
+     * Sign-in required
+     */
+    401: unknown;
+    /**
+     * Billing information unavailable
+     */
+    503: unknown;
+};
+
+export type AccountDeletionAdviceResponses = {
+    /**
+     * Selling store choices
+     */
+    200: AccountDeletionAdvice;
+};
+
+export type AccountDeletionAdviceResponse = AccountDeletionAdviceResponses[keyof AccountDeletionAdviceResponses];
+
+export type PlanningStatusData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/planning';
+};
+
+export type PlanningStatusErrors = {
+    /**
+     * Sign-in required
+     */
+    401: Error;
+    /**
+     * Email verification required
+     */
+    403: Error;
+    /**
+     * Planning calendar is disabled
+     */
+    404: Error;
+    /**
+     * Planning is unavailable
+     */
+    503: Error;
+};
+
+export type PlanningStatusError = PlanningStatusErrors[keyof PlanningStatusErrors];
+
+export type PlanningStatusResponses = {
+    /**
+     * Response
+     */
+    200: PlanningStatus;
+};
+
+export type PlanningStatusResponse = PlanningStatusResponses[keyof PlanningStatusResponses];
+
+export type ConfirmPlanningZoneData = {
+    body: {
+        zone: string;
+    };
+    headers: {
+        'X-CSRF-Token': string;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/planning/zone';
+};
+
+export type ConfirmPlanningZoneErrors = {
+    /**
+     * Invalid time zone
+     */
+    400: Error;
+    /**
+     * Sign-in required
+     */
+    401: Error;
+    /**
+     * Email verification required
+     */
+    403: Error;
+    /**
+     * Planning calendar is disabled
+     */
+    404: Error;
+    /**
+     * Too many confirmation requests
+     */
+    429: Error;
+    /**
+     * Planning is unavailable
+     */
+    503: Error;
+};
+
+export type ConfirmPlanningZoneError = ConfirmPlanningZoneErrors[keyof ConfirmPlanningZoneErrors];
+
+export type ConfirmPlanningZoneResponses = {
+    /**
+     * Response
+     */
+    200: PlanningStatus;
+};
+
+export type ConfirmPlanningZoneResponse = ConfirmPlanningZoneResponses[keyof ConfirmPlanningZoneResponses];
+
+export type CorrectRecipeData = {
+    body: {
+        [key: string]: never;
+    };
+    headers: {
+        'X-CSRF-Token': string;
+        'Idempotency-Key': string;
+    };
+    path: {
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/recipes/{id}/correction';
+};
+
+export type CorrectRecipeErrors = {
+    /**
+     * Response
+     */
+    400: Error;
+    /**
+     * Response
+     */
+    401: Error;
+    /**
+     * Response
+     */
+    403: Error;
+    /**
+     * Response
+     */
+    404: Error;
+    /**
+     * Response
+     */
+    409: Error;
+    /**
+     * Response
+     */
+    429: Error;
+    /**
+     * Response
+     */
+    503: Error;
+};
+
+export type CorrectRecipeError = CorrectRecipeErrors[keyof CorrectRecipeErrors];
+
+export type CorrectRecipeResponses = {
+    /**
+     * Response
+     */
+    202: Generation;
+};
+
+export type CorrectRecipeResponse = CorrectRecipeResponses[keyof CorrectRecipeResponses];
+
+export type NativeAccountDeletionAdviceData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/native/v1/account/deletion-advice';
+};
+
+export type NativeAccountDeletionAdviceErrors = {
+    /**
+     * Sign-in required
+     */
+    401: unknown;
+    /**
+     * Billing information unavailable
+     */
+    503: unknown;
+};
+
+export type NativeAccountDeletionAdviceResponses = {
+    /**
+     * Selling store choices
+     */
+    200: AccountDeletionAdvice;
+};
+
+export type NativeAccountDeletionAdviceResponse = NativeAccountDeletionAdviceResponses[keyof NativeAccountDeletionAdviceResponses];
+
+export type NativePlanningStatusData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/native/v1/planning';
+};
+
+export type NativePlanningStatusErrors = {
+    /**
+     * Sign-in required
+     */
+    401: Error;
+    /**
+     * Email verification required
+     */
+    403: Error;
+    /**
+     * Planning calendar is disabled
+     */
+    404: Error;
+    /**
+     * Planning is unavailable
+     */
+    503: Error;
+};
+
+export type NativePlanningStatusError = NativePlanningStatusErrors[keyof NativePlanningStatusErrors];
+
+export type NativePlanningStatusResponses = {
+    /**
+     * Response
+     */
+    200: PlanningStatus;
+};
+
+export type NativePlanningStatusResponse = NativePlanningStatusResponses[keyof NativePlanningStatusResponses];
+
+export type NativeConfirmPlanningZoneData = {
+    body: {
+        zone: string;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/native/v1/planning/zone';
+};
+
+export type NativeConfirmPlanningZoneErrors = {
+    /**
+     * Invalid time zone
+     */
+    400: Error;
+    /**
+     * Sign-in required
+     */
+    401: Error;
+    /**
+     * Email verification required
+     */
+    403: Error;
+    /**
+     * Planning calendar is disabled
+     */
+    404: Error;
+    /**
+     * Too many confirmation requests
+     */
+    429: Error;
+    /**
+     * Planning is unavailable
+     */
+    503: Error;
+};
+
+export type NativeConfirmPlanningZoneError = NativeConfirmPlanningZoneErrors[keyof NativeConfirmPlanningZoneErrors];
+
+export type NativeConfirmPlanningZoneResponses = {
+    /**
+     * Response
+     */
+    200: PlanningStatus;
+};
+
+export type NativeConfirmPlanningZoneResponse = NativeConfirmPlanningZoneResponses[keyof NativeConfirmPlanningZoneResponses];
+
+export type NativeCorrectRecipeData = {
+    body: {
+        [key: string]: never;
+    };
+    headers: {
+        'Idempotency-Key': string;
+    };
+    path: {
+        id: string;
+    };
+    query?: never;
+    url: '/api/native/v1/recipes/{id}/correction';
+};
+
+export type NativeCorrectRecipeErrors = {
+    /**
+     * Response
+     */
+    400: Error;
+    /**
+     * Response
+     */
+    401: Error;
+    /**
+     * Account verification or permissions required.
+     */
+    403: Error;
+    /**
+     * Response
+     */
+    404: Error;
+    /**
+     * Response
+     */
+    409: Error;
+    /**
+     * Response
+     */
+    429: Error;
+    /**
+     * Response
+     */
+    503: Error;
+};
+
+export type NativeCorrectRecipeError = NativeCorrectRecipeErrors[keyof NativeCorrectRecipeErrors];
+
+export type NativeCorrectRecipeResponses = {
+    /**
+     * Response
+     */
+    202: Generation;
+};
+
+export type NativeCorrectRecipeResponse = NativeCorrectRecipeResponses[keyof NativeCorrectRecipeResponses];
+
 export interface components {
   schemas: {
     "PersonalImportSaveInput": PersonalImportSaveInput;
@@ -7286,5 +7923,12 @@ export interface components {
     "AnalyticsPreferenceUpdate": AnalyticsPreferenceUpdate;
     "AnalyticsNotice": AnalyticsNotice;
     "AnalyticsPreferenceConflict": AnalyticsPreferenceConflict;
+    "NativeBillingStatus": NativeBillingStatus;
+    "PlanningStatus": PlanningStatus;
+    "NativeCheckoutRequest": NativeCheckoutRequest;
+    "NativeCheckout": NativeCheckout;
+    "NativeCheckoutProof": NativeCheckoutProof;
+    "NativeCheckoutResult": NativeCheckoutResult;
+    "AccountDeletionAdvice": AccountDeletionAdvice;
   };
 }

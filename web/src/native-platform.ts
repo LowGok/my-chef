@@ -6,6 +6,10 @@ import {
 } from "@capacitor/core";
 import { NativeTransport, setPlatformTransport } from "./platform";
 import { encodeNativeBytes, decodeNativeBytes } from "./native-bytes";
+import {
+  setNativeBillingStore,
+  type NativeBillingBridge,
+} from "./native-billing-client";
 import { isolateNativeBridge, type RawNativeBridge } from "./native-bridge";
 import {
   installNativeRuntime,
@@ -235,7 +239,8 @@ export async function initializeNativePlatform() {
       NativeShoppingBridge &
       NativeMediaBridge &
       NativeRuntimeBridge &
-      NativeReminderBridge
+      NativeReminderBridge &
+      NativeBillingBridge
   >(raw);
   const transport = await runNativeStartupStep("configuration", () =>
     createNativeTransport(bridge, platform),
@@ -256,6 +261,7 @@ export async function initializeNativePlatform() {
     setShoppingStorage(await openNativeShoppingStorage(bridge));
   });
   setPlatformTransport(transport);
+  setNativeBillingStore(platform, bridge);
   setMediaPlatform(createNativeMedia(bridge));
   setReminderBridge(bridge);
   await runNativeStartupStep("device", async () =>

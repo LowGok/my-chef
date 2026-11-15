@@ -11,6 +11,7 @@ import {
 import { join } from "node:path";
 import { readFile, unlink, writeFile } from "node:fs/promises";
 import { safeJourneyError } from "./native-android-report";
+import { billingFixtureKey, installBillingStoreFixture } from "./native-billing-webview";
 import { addDays, monday } from "../web/src/dates";
 import {
   fillPersonalDraft,
@@ -31,7 +32,7 @@ if (
   (group !== "core" &&
     group !== "media" &&
     group !== "pages" &&
-    group !== "account" && group !== "reminders") ||
+    group !== "account" && group !== "reminders" && group !== "billing") ||
   !state ||
   !/^\/.*mychef-installed-[A-Za-z0-9_-]+$/.test(state)
 )
@@ -1115,6 +1116,51 @@ async function reminderJourney() {
   });
 }
 
+async function billingJourneys() {
+  const fixture = JSON.parse(await readFile(join(state, "fixture-inbox.json"), "utf8"));
+  const proofKey = billingFixtureKey(fixture.capability, "android");
+  privateValues.push(fixture.capability, proofKey);
+  await check("Play simulated purchase has accessible terms", async () => {
+    await page.getByLabel("Email", { exact: true }).waitFor();
+    await page.evaluate(installBillingStoreFixture, {
+      platform: "android", proofKey, expiresAt: Date.parse(fixture.expires), loseResult: true,
+    });
+    await login();
+    await profile();
+    const summary = page.locator("summary").filter({ hasText: /^Subscription$/ });
+    await summary.click();
+    const panel = page.locator("details").filter({ has: summary }).last();
+    await expect(panel.getByText(/€6\.99 per month/)).toBeVisible();
+    await expect(panel.getByText(/€69\.90 per year/)).toBeVisible();
+    const subscribe = button("Subscribe monthly");
+    await expect(subscribe).toBeEnabled();
+    expect(await subscribe.evaluate((node) => {
+      const root = document.documentElement;
+      const previous = root.style.fontSize;
+      const original = Number.parseFloat(getComputedStyle(node).fontSize);
+      try {
+        root.style.fontSize = "200%";
+        return Number.parseFloat(getComputedStyle(node).fontSize) > original &&
+          node.scrollWidth <= node.clientWidth + 1;
+      } finally {
+        root.style.fontSize = previous;
+      }
+    })).toBe(true);
+    await activate("Subscribe monthly");
+    await expect(panel.getByRole("status")).toContainText("Your purchase is still being checked.");
+    await expect(subscribe).toHaveCount(0);
+  });
+  await check("Play restores the lost simulated result before completion", async () => {
+    await activate("Restore purchases");
+    await expect(page.getByRole("status").filter({ hasText: "Purchase verified." })).toBeVisible();
+    await expect(page.getByText("Premium · Monthly", { exact: true })).toBeVisible();
+    await expect(page.getByText(/^Paid through /)).toBeVisible();
+    await expect(page.getByRole("link", { name: "Open Google Play subscriptions", exact: true })).toBeVisible();
+    await expect(button("Subscribe monthly")).toHaveCount(0);
+  });
+}
+
+
 try {
   await connect();
   await {
@@ -1123,6 +1169,7 @@ try {
     pages: pageImportJourney,
     account: accountJourneys,
     reminders: reminderJourney,
+    billing: billingJourneys,
   }[group]();
   await writeFile(
     join(state, `native-android-journeys-${group}.json`),

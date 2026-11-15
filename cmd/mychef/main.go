@@ -15,6 +15,7 @@ import (
 
 	"github.com/LowGok/my-chef/internal/analytics"
 	"github.com/LowGok/my-chef/internal/auth"
+	"github.com/LowGok/my-chef/internal/billing"
 	"github.com/LowGok/my-chef/internal/config"
 	"github.com/LowGok/my-chef/internal/email"
 	"github.com/LowGok/my-chef/internal/email/mailqueue"
@@ -98,6 +99,16 @@ func main() {
 		logger.Error("invalid fixture inbox configuration")
 		os.Exit(1)
 	}
+	billingMode, err := loadBillingFixtureMode(cfg, inboxSettings)
+	if err != nil {
+		logger.Error("invalid billing fixture configuration")
+		os.Exit(1)
+	}
+	appleBilling, err := loadAppleBillingSandbox(cfg, inboxSettings)
+	if err != nil || appleBilling != nil && billingMode != nil {
+		logger.Error("invalid private Apple billing sandbox configuration")
+		os.Exit(1)
+	}
 	fixturePhotoDirectory, err := config.LoadFixturePhotoDirectory(cfg, inboxSettings)
 	if err != nil {
 		logger.Error("invalid fixture photo configuration")
@@ -125,18 +136,24 @@ func main() {
 		logger.Error("fake email delivery requires a loopback listener")
 		os.Exit(1)
 	}
+	unlock, err := store.LockApplication(cfg.Database)
+	if err != nil {
+		logger.Error("another application or migration holds the database")
+		os.Exit(1)
+	}
+	defer unlock()
+	unlockJournal, err := store.LockApplication(cfg.LifecycleDatabase)
+	if err != nil {
+		logger.Error("another application holds the lifecycle journal")
+		os.Exit(1)
+	}
+	defer unlockJournal()
 	s, err := store.Open(cfg.Database, false)
 	if err != nil {
 		logger.Error("database unavailable; run the explicit migration first")
 		os.Exit(1)
 	}
 	defer func() { _ = s.Close() }()
-	unlock, err := store.LockApplication(s.Path)
-	if err != nil {
-		logger.Error("another application or migration holds the database")
-		os.Exit(1)
-	}
-	defer unlock()
 	if err = s.CheckSchema(context.Background()); err != nil {
 		logger.Error("database schema is not ready")
 		os.Exit(1)
@@ -149,12 +166,6 @@ func main() {
 		os.Exit(1)
 	}
 	defer func() { _ = journal.Close() }()
-	unlockJournal, err := store.LockApplication(journal.Path)
-	if err != nil {
-		logger.Error("another application holds the lifecycle journal")
-		os.Exit(1)
-	}
-	defer unlockJournal()
 	accountManager := auth.New(s)
 	accountManager.RecoveryRateKey = proofSettings.RateKey
 	deletion := store.AccountDeletionOptions{Cleanup: func(tx *gorm.DB, u store.User) error {
@@ -223,6 +234,22 @@ func main() {
 		fixture := httpapi.NewPersonalFixture(s, *inboxSettings, nil)
 		personalReader, personalFixture = fixture.ReadEntitlement, fixture
 	}
+	nativeBilling, err := billingMode.start(ctx, journal)
+	if err != nil {
+		logger.Error("billing fixture unavailable")
+		os.Exit(1)
+	}
+	var appleWorker *billing.AppleWorker
+	if appleBilling != nil {
+		nativeBilling, appleWorker, err = appleBilling.start(ctx, journal, nil, func(health billing.AppleWorkerHealth) {
+			logger.Info("Apple sandbox billing health", "stage", health.Stage, "degraded", health.Degraded, "outstanding", health.Outstanding)
+		})
+		if err != nil {
+			logger.Error("Apple sandbox billing unavailable")
+			os.Exit(1)
+		}
+	}
+	personalReader = billingEntitlements(nativeBilling, personalReader)
 	executable, err := os.Executable()
 	if err != nil {
 		logger.Error("photo normalizer unavailable")
@@ -270,8 +297,12 @@ func main() {
 		}
 		defer recipeImports.Close()
 	}
+	var planning *store.PlanningPolicy
+	if cfg.PlanningTiers {
+		planning = &store.PlanningPolicy{HouseholdZone: store.ConfirmedPlanningZone, Entitlements: personalReader}
+	}
 	personalRecipes := menus.NewPersonalRecipes(s, journal, personalReader, providers.NewPersonalPhotoNormalizer(executable), personalPhotos)
-	service, err := menus.New(s, generator, images, menus.Options{Logger: logger, Model: model, Lifecycle: journal, AssetProvider: assetBinding, TraceDir: os.Getenv("MYCHEF_TRACE_DIR"), PersonalEntitlements: personalReader})
+	service, err := menus.New(s, generator, images, menus.Options{Logger: logger, Model: model, Lifecycle: journal, AssetProvider: assetBinding, TraceDir: os.Getenv("MYCHEF_TRACE_DIR"), PersonalEntitlements: personalReader, Planning: planning})
 	if err != nil {
 		logger.Error("generation service unavailable")
 		os.Exit(1)
@@ -376,6 +407,13 @@ func main() {
 			})
 		}
 	}
+	if appleWorker != nil {
+		recoveryWorkers.Go(func() {
+			billingCtx, stop := context.WithDeadline(emailCtx, appleBilling.expires)
+			defer stop()
+			appleWorker.Run(billingCtx)
+		})
+	}
 	defer func() {
 		cancelEmail()
 		<-emailDone
@@ -412,7 +450,7 @@ func main() {
 		EmailChange:     &auth.EmailChange{SignUp: signUp},
 		Recovery:        recovery,
 		FeedbackTo:      config.LoadFeedbackRecipient(),
-		PersonalFixture: personalFixture, PersonalEntitlements: personalReader, Reminders: reminders,
+		PersonalFixture: personalFixture, PersonalEntitlements: personalReader, Reminders: reminders, Planning: planning, NativeBilling: nativeBilling,
 		PersonalRecipes: personalRecipes, PersonalPhotos: personalPhotos, RecipeImports: recipeImports,
 	}, logger)
 	srv := &http.Server{Addr: cfg.Addr, Handler: api.Handler(webui.Handler()), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second, BaseContext: func(net.Listener) context.Context { return ctx }}

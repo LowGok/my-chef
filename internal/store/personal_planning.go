@@ -16,6 +16,7 @@ type PersonalPlanning struct {
 	Actor        PersonalActor
 	Entitlements PersonalEntitlementReader
 	Now          time.Time
+	Tier         *PlanningPolicy
 }
 
 func planningOption(options []PersonalPlanning) PersonalPlanning {
@@ -133,6 +134,9 @@ func pendingRecipeCount(tx *gorm.DB, user int64, week string) (int, error) {
 }
 
 func loadFavoriteWeek(tx *gorm.DB, user int64, week string, options ...PersonalPlanning) (domain.FavoriteWeek, error) {
+	if err := checkShoppingPlan(tx.Statement.Context, tx, user, week, planningOption(options).Tier); err != nil {
+		return domain.FavoriteWeek{}, err
+	}
 	out, err := loadGeneratedFavoriteWeek(tx, user, week)
 	if err != nil {
 		return out, err
@@ -241,7 +245,7 @@ func personalAssignmentKeyAvailable(tx *gorm.DB, actor PersonalActor, incarnatio
 	return nil
 }
 
-func (s *Store) QueuePersonalRecipe(ctx context.Context, actor PersonalActor, reader PersonalEntitlementReader, id, version, week, key string, now time.Time) (domain.FavoriteWeek, error) {
+func (s *Store) QueuePersonalRecipe(ctx context.Context, actor PersonalActor, reader PersonalEntitlementReader, id, version, week, key string, now time.Time, tiers ...*PlanningPolicy) (domain.FavoriteWeek, error) {
 	if !validPersonalID(id) || !validPersonalID(version) || !validPersonalID(key) {
 		return domain.FavoriteWeek{}, ErrPersonalInput
 	}
@@ -249,7 +253,7 @@ func (s *Store) QueuePersonalRecipe(ctx context.Context, actor PersonalActor, re
 		return domain.FavoriteWeek{}, ErrPersonalInput
 	}
 	hash, _ := personalRequestHash([]string{"queue", id, version, week})
-	p := PersonalPlanning{Actor: actor, Entitlements: reader, Now: now}
+	p := PersonalPlanning{Actor: actor, Entitlements: reader, Now: now, Tier: firstPlanningTier(tiers)}
 	var out domain.FavoriteWeek
 	err := s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		incarnation, err := personalAuthority(tx, actor, now)
@@ -273,6 +277,9 @@ func (s *Store) QueuePersonalRecipe(ctx context.Context, actor PersonalActor, re
 		}
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return ErrPersonalStorage
+		}
+		if err := checkFutureAssignment(ctx, tx, actor.UserID, week, p.Tier); err != nil {
+			return err
 		}
 		if err := personalAssignmentKeyAvailable(tx, actor, incarnation, key); err != nil {
 			return err
@@ -302,11 +309,15 @@ func (s *Store) QueuePersonalRecipe(ctx context.Context, actor PersonalActor, re
 	return out, err
 }
 
-func (s *Store) RemovePersonalQueuedRecipe(ctx context.Context, actor PersonalActor, id, key string, now time.Time) (domain.FavoriteWeek, error) {
+func (s *Store) RemovePersonalQueuedRecipe(ctx context.Context, actor PersonalActor, id, key string, now time.Time, tiers ...*PlanningPolicy) (domain.FavoriteWeek, error) {
 	if !validPersonalID(id) || !validPersonalID(key) {
 		return domain.FavoriteWeek{}, ErrPersonalInput
 	}
 	hash, _ := personalRequestHash([]string{"remove", id})
+	p := PersonalPlanning{Actor: actor, Now: now, Tier: firstPlanningTier(tiers)}
+	if p.Tier != nil {
+		p.Entitlements = p.Tier.Entitlements
+	}
 	var out domain.FavoriteWeek
 	err := s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		incarnation, err := personalAuthority(tx, actor, now)
@@ -319,7 +330,7 @@ func (s *Store) RemovePersonalQueuedRecipe(ctx context.Context, actor PersonalAc
 			if prior.Action != "remove" || prior.RequestHash != hash {
 				return ErrPersonalKeyConflict
 			}
-			out, err = loadFavoriteWeek(tx, actor.UserID, prior.Week, PersonalPlanning{Actor: actor, Now: now})
+			out, err = loadFavoriteWeek(tx, actor.UserID, prior.Week, p)
 			return err
 		}
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
@@ -332,6 +343,9 @@ func (s *Store) RemovePersonalQueuedRecipe(ctx context.Context, actor PersonalAc
 		if err := tx.Where("user_id=? AND incarnation=? AND id=? AND consumed_operation IS NULL", actor.UserID, incarnation, id).Take(&row).Error; err != nil {
 			return ErrPersonalNotFound
 		}
+		if err := checkShoppingPlan(ctx, tx, actor.UserID, row.Week, p.Tier); err != nil {
+			return err
+		}
 		if err := tx.Where("id=? AND user_id=?", id, actor.UserID).Delete(&personalRecipeQueue{}).Error; err != nil {
 			return ErrPersonalStorage
 		}
@@ -341,13 +355,13 @@ func (s *Store) RemovePersonalQueuedRecipe(ctx context.Context, actor PersonalAc
 		if err := tx.Create(&personalQueueReceipt{UserID: actor.UserID, Incarnation: incarnation, RequestKey: key, RequestHash: hash, Action: "remove", QueueID: id, RecipeID: row.RecipeID, VersionID: row.VersionID, Week: row.Week, State: "removed"}).Error; err != nil {
 			return ErrPersonalStorage
 		}
-		out, err = loadFavoriteWeek(tx, actor.UserID, row.Week, PersonalPlanning{Actor: actor, Now: now})
+		out, err = loadFavoriteWeek(tx, actor.UserID, row.Week, p)
 		return err
 	})
 	return out, err
 }
 
-func (s *Store) SwapPersonalRecipe(ctx context.Context, actor PersonalActor, reader PersonalEntitlementReader, id, version string, input domain.FavoriteSwap, now time.Time) (domain.Recipe, error) {
+func (s *Store) SwapPersonalRecipe(ctx context.Context, actor PersonalActor, reader PersonalEntitlementReader, id, version string, input domain.FavoriteSwap, now time.Time, policy ...*PlanningPolicy) (domain.Recipe, error) {
 	if !validPersonalID(id) || !validPersonalID(version) || !validPersonalID(input.RequestKey) {
 		return domain.Recipe{}, ErrPersonalInput
 	}
@@ -356,6 +370,9 @@ func (s *Store) SwapPersonalRecipe(ctx context.Context, actor PersonalActor, rea
 		Input                     domain.FavoriteSwap
 	}{"personal", id, version, input})
 	p := PersonalPlanning{Actor: actor, Entitlements: reader, Now: now}
+	if len(policy) > 0 {
+		p.Tier = policy[0]
+	}
 	return s.swapSavedRecipe(ctx, actor.UserID, input, hash, func(tx *gorm.DB) (domain.Recipe, error) {
 		incarnation, err := personalAuthority(tx, actor, now)
 		if err != nil {

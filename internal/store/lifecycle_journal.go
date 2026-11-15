@@ -10,6 +10,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/LowGok/my-chef/internal/billing"
+
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -23,14 +25,16 @@ var (
 // LifecycleJournal is independent of application snapshots. Startup opens an
 // existing binding; only an explicit migration may initialize it.
 type LifecycleJournal struct {
-	identity  os.FileInfo
-	binding   string
-	cleanupMu sync.Mutex
-	workMu    sync.Mutex
-	active    map[string]map[string]context.CancelFunc
-	store     *Store
-	app       *Store
-	Path      string
+	identity       os.FileInfo
+	binding        string
+	cleanupMu      sync.Mutex
+	workMu         sync.Mutex
+	billingMu      sync.Mutex
+	billingRuntime *billing.Journal
+	active         map[string]map[string]context.CancelFunc
+	store          *Store
+	app            *Store
+	Path           string
 }
 
 type lifecycleDeletion struct {
@@ -204,6 +208,9 @@ func (s *Store) lifecycleJournal(ctx context.Context, path string, initialize, r
 		if err = migratePersonalPhotoJournal(ctx, external); err != nil {
 			return nil, ErrLifecycleJournal
 		}
+		if err = billing.Migrate(ctx, external.SQL); err != nil {
+			return nil, ErrLifecycleJournal
+		}
 	}
 	if err = validateLifecycleJournal(ctx, external, binding, false); err != nil {
 		return nil, err
@@ -247,6 +254,82 @@ func (j *LifecycleJournal) CheckAvailable(ctx context.Context) error {
 	}
 	return nil
 }
+
+// Billing uses the bound external journal, not the application snapshot.
+func (j *LifecycleJournal) Billing(ctx context.Context) (*billing.Journal, error) {
+	j.billingMu.Lock()
+	defer j.billingMu.Unlock()
+	if err := j.CheckServing(ctx); err != nil {
+		return nil, err
+	}
+	if j.billingRuntime != nil {
+		return j.billingRuntime, nil
+	}
+	rows, err := j.store.SQL.QueryContext(ctx, `SELECT a.id,s.binding,p.proof
+FROM billing_attempts a LEFT JOIN billing_subscriptions s ON s.binding=a.binding
+LEFT JOIN billing_periods p USING(environment,store,subscription) LIMIT 0`)
+	if err != nil {
+		return nil, ErrLifecycleJournal
+	}
+	if err := rows.Close(); err != nil {
+		return nil, ErrLifecycleJournal
+	}
+	runtime, err := billing.StartRuntime(ctx, j.store.SQL)
+	if err != nil {
+		return nil, ErrLifecycleJournal
+	}
+	j.billingRuntime = runtime
+	return runtime, nil
+}
+
+// WithLiveBillingOwner binds a provider response to the same app file,
+// runtime and verified account. An orphaned purchase stays in the journal.
+func (j *LifecycleJournal) WithLiveBillingOwner(ctx context.Context, inc string, commit func() error) error {
+	return j.withLiveBillingOwner(ctx, inc, commit, false)
+}
+
+// WithLiveSandboxBillingOwner limits the same durable owner fence to test accounts.
+func (j *LifecycleJournal) WithLiveSandboxBillingOwner(ctx context.Context, inc string, commit func() error) error {
+	return j.withLiveBillingOwner(ctx, inc, commit, true)
+}
+
+func (j *LifecycleJournal) withLiveBillingOwner(ctx context.Context, inc string, commit func() error, syntheticOnly bool) error {
+	if !opaqueLifecycleID(inc) || commit == nil {
+		return billing.ErrPurchaseBinding
+	}
+	j.app.AccountWork.RLock()
+	defer j.app.AccountWork.RUnlock()
+	if err := j.CheckServing(ctx); err != nil {
+		return err
+	}
+	current, err := os.Stat(j.app.Path)
+	if err != nil {
+		return ErrLifecycleUncertain
+	}
+	if _, _, err := j.app.originalFile(current); err != nil {
+		return err
+	}
+	j.billingMu.Lock()
+	runtime := j.billingRuntime
+	j.billingMu.Unlock()
+	if runtime == nil {
+		return ErrLifecycleJournal
+	}
+	if err := runtime.CurrentRuntime(ctx); err != nil {
+		return err
+	}
+	var email string
+	err = j.app.SQL.QueryRowContext(ctx, `SELECT u.email FROM account_incarnations a JOIN users u ON a.user_id=u.user_id
+ WHERE a.incarnation=? AND u.email_verified_at>0`, inc).Scan(&email)
+	if errors.Is(err, sql.ErrNoRows) || err == nil && syntheticOnly && !IsSyntheticFixtureEmail(email) {
+		return billing.ErrPurchaseBinding
+	}
+	if err != nil {
+		return ErrLifecycleJournal
+	}
+	return commit()
+}
+
 func (j *LifecycleJournal) Close() error {
 	j.workMu.Lock()
 	var cancellations []context.CancelFunc
@@ -279,27 +362,70 @@ func (j *LifecycleJournal) CheckReady(ctx context.Context) error {
 }
 
 func (j *LifecycleJournal) PrepareDeletion(ctx context.Context, operation, incarnation string) error {
+	if !opaqueLifecycleID(operation) || !opaqueLifecycleID(incarnation) {
+		return ErrLifecycleConflict
+	}
+	j.app.AccountWork.Lock()
+	defer j.app.AccountWork.Unlock()
+	var row lifecycleDeletion
+	err := j.store.DB.WithContext(ctx).Where("operation=?", operation).Take(&row).Error
+	if err == nil {
+		if row.Incarnation != incarnation || row.State == "cancelled" {
+			return ErrLifecycleConflict
+		}
+		if row.State == "committed" {
+			return nil
+		}
+		return j.deletionOriginMatches(ctx, operation)
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return ErrLifecycleJournal
+	}
+	return j.app.DB.WithContext(ctx).Connection(func(conn *gorm.DB) error {
+		origin, err := j.checkpointDeletionOrigin(ctx, conn, operation, incarnation)
+		if err != nil {
+			return err
+		}
+		return j.prepareDeletion(ctx, operation, incarnation, origin)
+	})
+}
+
+func (j *LifecycleJournal) prepareDeletion(ctx context.Context, operation, incarnation string, origin deletionOrigin) error {
 	if err := j.CheckAvailable(ctx); err != nil {
 		return err
+	}
+	if err := billing.CheckDeletionStorage(ctx, j.store.SQL); err != nil {
+		return ErrLifecycleJournal
 	}
 	if !opaqueLifecycleID(operation) || !opaqueLifecycleID(incarnation) {
 		return ErrLifecycleConflict
 	}
 	return j.store.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var old lifecycleDeletion
-		err := tx.Where("operation = ?", operation).Take(&old).Error
-		if err == nil {
-			if old.Incarnation != incarnation || old.State == "cancelled" {
-				return ErrLifecycleConflict
-			}
-			return nil
+		var pending bool
+		if err := tx.Raw("SELECT EXISTS(SELECT 1 FROM lifecycle_deletions WHERE state='prepared')").Row().Scan(&pending); err != nil {
+			return ErrLifecycleJournal
 		}
-		if !errors.Is(err, gorm.ErrRecordNotFound) {
+		if pending {
+			return ErrLifecycleUncertain
+		}
+		generation, err := randomLifecycleID()
+		if err != nil {
+			return err
+		}
+		if err := tx.Exec(`INSERT INTO billing_app_origins(device,inode,lifecycle_binding,path_scope,generation) VALUES(?,?,?,?,?)
+ ON CONFLICT(device,inode,lifecycle_binding,path_scope) DO NOTHING`, origin.device, origin.inode, j.binding, origin.pathScope, generation).Error; err != nil {
+			return ErrLifecycleJournal
+		}
+		if err := tx.Raw(`SELECT generation FROM billing_app_origins WHERE device=? AND inode=? AND lifecycle_binding=? AND path_scope=?`,
+			origin.device, origin.inode, j.binding, origin.pathScope).Row().Scan(&generation); err != nil {
 			return ErrLifecycleJournal
 		}
 		row := lifecycleDeletion{Operation: operation, Incarnation: incarnation, State: "prepared", CreatedNS: time.Now().UnixNano()}
 		if err = tx.Create(&row).Error; err != nil {
 			return ErrLifecycleConflict
+		}
+		if err := tx.Exec(`INSERT INTO billing_deletion_origins(operation,generation,baseline) VALUES(?,?,?)`, operation, generation, origin.baseline).Error; err != nil {
+			return ErrLifecycleJournal
 		}
 		return nil
 	})
@@ -330,6 +456,9 @@ func (j *LifecycleJournal) finishDeletion(ctx context.Context, operation, state 
 	if row.State != "prepared" {
 		return ErrLifecycleConflict
 	}
+	if err := j.deletionOriginMatches(ctx, operation); err != nil {
+		return err
+	}
 	proof, err := j.deletionProof(ctx, operation, row.Incarnation)
 	if err != nil {
 		return err
@@ -337,19 +466,39 @@ func (j *LifecycleJournal) finishDeletion(ctx context.Context, operation, state 
 	if state == "committed" && !proof || state == "cancelled" && proof {
 		return ErrLifecycleUncertain
 	}
-	result := j.store.DB.WithContext(ctx).Model(&lifecycleDeletion{}).Where("operation = ? AND state = 'prepared'", operation).Update("state", state)
-	if result.Error != nil {
+	tx, err := j.store.SQL.BeginTx(ctx, nil)
+	if err != nil {
 		return ErrLifecycleJournal
 	}
-	if result.RowsAffected != 1 {
+	defer func() { _ = tx.Rollback() }()
+	if state == "committed" {
+		if err := billing.PurgeForDeletion(ctx, tx, operation, row.Incarnation); err != nil {
+			return ErrLifecycleJournal
+		}
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE lifecycle_deletions SET state=? WHERE operation=? AND state='prepared'`, state, operation)
+	if err != nil {
+		return ErrLifecycleJournal
+	}
+	n, err := result.RowsAffected()
+	if err != nil || n != 1 {
 		return ErrLifecycleConflict
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM billing_deletion_origins WHERE operation=?`, operation); err != nil {
+		return ErrLifecycleJournal
+	}
+	if err := tx.Commit(); err != nil {
+		return ErrLifecycleJournal
 	}
 	return nil
 }
 func (j *LifecycleJournal) CommitDeletion(ctx context.Context, operation string) error {
 	return j.finishDeletion(ctx, operation, "committed")
 }
-func (j *LifecycleJournal) CancelDeletion(ctx context.Context, operation string) error {
+
+// cancelRolledBackDeletion is only used after this process successfully rolls
+// back the original open app transaction. Startup never infers cancellation.
+func (j *LifecycleJournal) cancelRolledBackDeletion(ctx context.Context, operation string) error {
 	return j.finishDeletion(ctx, operation, "cancelled")
 }
 func (j *LifecycleJournal) ReconcileIntents(ctx context.Context) error {

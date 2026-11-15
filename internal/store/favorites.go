@@ -62,15 +62,26 @@ func (s *Store) SetFavorite(ctx context.Context, user, id int64, save bool, opti
 		if err := nativePlanningAuthority(tx, user, options); err != nil {
 			return err
 		}
+		window, err := planningOption(options).Tier.Window(ctx, tx, user)
+		if err != nil {
+			return err
+		}
 		var meal Meal
-		err := tx.Where("creator_id=? AND meal_id=?", user, id).Preload("Ingredients").First(&meal).Error
+		err = window.meals(tx.Where("creator_id=? AND meal_id=?", user, id)).Preload("Ingredients").First(&meal).Error
 		if err == nil {
 			out = meal.Recipe()
 		} else if errors.Is(err, gorm.ErrRecordNotFound) {
 			var prior favoriteRecord
-			err = tx.Where("user_id=? AND recipe_id=?", user, id).First(&prior).Error
+			query := tx.Where("user_id=? AND recipe_id=?", user, id)
+			if window.Enabled() {
+				query = query.Where("saved=?", true)
+			}
+			err = query.First(&prior).Error
 			if err == nil {
 				err = json.Unmarshal([]byte(prior.Body), &out)
+				if window.Enabled() {
+					out.MenuID = nil
+				}
 			}
 		}
 		if err != nil {
@@ -188,6 +199,9 @@ func (s *Store) QueueFavorite(ctx context.Context, user, id int64, week string, 
 			return err
 		}
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+		if err := checkFutureAssignment(ctx, tx, user, week, planningOption(options).Tier); err != nil {
 			return err
 		}
 		r, err := favoriteRecipe(tx, user, id)
@@ -356,6 +370,9 @@ func (s *Store) swapSavedRecipe(ctx context.Context, user int64, input domain.Fa
 		if err := nativePlanningAuthority(tx, user, options); err != nil {
 			return err
 		}
+		if err := checkShoppingPlan(ctx, tx, user, input.Week, planningOption(options).Tier); err != nil {
+			return err
+		}
 		var prior favoriteSwapRecord
 		err := tx.Where("user_id=? AND request_key=?", user, input.RequestKey).First(&prior).Error
 		if err == nil {
@@ -400,6 +417,10 @@ func (s *Store) swapSavedRecipe(ctx context.Context, user int64, input domain.Fa
 		if err = tx.Where("creator_id=? AND meal_id=? AND creationdate>=? AND creationdate<?", user, target, input.Week, addWeek(input.Week)).First(&old).Error; err != nil {
 			return ErrFavoriteConflict
 		}
+		allocation, err := planningOption(options).Tier.reserveFavoriteReplacement(ctx, tx, user, old)
+		if err != nil {
+			return err
+		}
 		var operations []Generation
 		if err = tx.Where("user_id=? AND status IN ?", user, []string{"queued", "running"}).Find(&operations).Error; err != nil {
 			return err
@@ -423,7 +444,12 @@ func (s *Store) swapSavedRecipe(ctx context.Context, user int64, input domain.Fa
 			return err
 		}
 		out = copy.Recipe()
-		body, err := json.Marshal(out)
+		// Store the settled allowance in the same transaction as the swap.
+		// The replay response and export decode only the recipe fields.
+		body, err := json.Marshal(struct {
+			domain.Recipe
+			Allocation *PlanningAllocation `json:"allocation,omitempty"`
+		}{Recipe: out, Allocation: allocation})
 		if err != nil {
 			return err
 		}

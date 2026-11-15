@@ -52,6 +52,41 @@ class NativeVerificationTest(unittest.TestCase):
             result.write_text('{"weekAndMeal":true,"scaledControls":true}')
             self.assertTrue(installed.ios_reminder_ui_passed(result))
 
+    def test_subscription_install_authorization_requires_public_pr_and_exact_artifact(self):
+        source = "b" * 40
+        repo = {"id": 1454481532, "full_name": "LowGok/my-chef", "private": False}
+        event = {
+            "action": "labeled", "number": 41, "repository": repo, "sender": {"login": "LowGok"},
+            "label": {"name": "native-subscription-fixture"},
+            "pull_request": {"number": 41, "base": {"ref": "main"},
+                             "head": {"ref": "feat/subscription-billing", "repo": repo, "sha": source}},
+        }
+        self.assertTrue(installed.subscription_authorized(event, "41", "ios-simulator", source))
+        self.assertTrue(installed.subscription_authorized(event, "41", "android", source))
+        self.assertFalse(installed.subscription_authorized(event, "41", "ios-device", source))
+        self.assertFalse(installed.subscription_authorized(event, "41", "android", "a" * 40))
+        self.assertFalse(installed.subscription_authorized(event, "", "android", source))
+        self.assertFalse(installed.subscription_authorized(event, "42", "android", source))
+        for changed in [
+            {**event, "repository": {**repo, "private": True}},
+            {**event, "sender": {"login": "another-owner"}},
+            {**event, "label": {"name": "native-reminder-fixture"}},
+            {**event, "pull_request": {**event["pull_request"], "number": 42}},
+            {**event, "pull_request": {**event["pull_request"], "head": {**event["pull_request"]["head"], "repo": {**repo, "id": 1}}}},
+        ]:
+            self.assertFalse(installed.subscription_authorized(changed, "41", "android", source))
+
+    def test_ios_billing_receipt_is_exact_and_never_accepts_proofs(self):
+        routes = [("POST", "billing/checkouts", 201), ("POST", "billing/launch", 204),
+                  ("POST", "billing/verify", 200), ("POST", "billing/restore", 200)]
+        accepted = {"terms": True, "checkout": True, "restore": True}
+        self.assertTrue(installed.ios_billing_verified(accepted, routes))
+        self.assertFalse(installed.ios_billing_verified({**accepted, "receipt": "synthetic"}, routes))
+        self.assertFalse(installed.ios_billing_verified({**accepted, "terms": False}, routes))
+        self.assertFalse(installed.ios_billing_verified({**accepted, "terms": 1}, routes))
+        self.assertFalse(installed.ios_billing_verified(accepted, routes[:-1]))
+        self.assertFalse(installed.ios_billing_verified(accepted, [routes[0], routes[2], routes[1], routes[3]]))
+
     def test_android_groups_continue_on_failure_without_issuing_a_full_receipt(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -275,7 +310,7 @@ class NativeFixtureProxyTest(unittest.TestCase):
                     server=http.server,
                     client=types.SimpleNamespace(HTTPConnection=Client)),
                 re=re, state=Path(scratch), closing=closing, events=[], PLATFORM="android",
-                journeys=False, json=json, shopping_lock=threading.Lock(),
+                journeys=False, billing=False, json=json, shopping_lock=threading.Lock(),
                 shopping_sync={})
             exec(compile(ast.Module(body=[proxy], type_ignores=[]),
                          'actual-installed-fixture-proxy', 'exec'), namespace)
@@ -341,6 +376,15 @@ class NativeFixtureProxyTest(unittest.TestCase):
             self.assertEqual(json.loads(upstream[-2][2])['items'][0]['name'], 'Native remote salt')
             self.assertEqual(upstream[-1][2], b'{}')
             self.assertEqual(sent, [409])
+
+            namespace['billing'] = True
+            Response.status = 200
+            handler.path = '/api/native/v1/billing/checkouts/' + 'd' * 36 + '/verify'
+            handler.command = 'POST'
+            handler.rfile = io.BytesIO(b'{}')
+            handler.forward()
+            self.assertEqual(namespace['events'][-1], ('POST', 'billing/verify', 200))
+            self.assertNotIn('d' * 36, repr(namespace['events']))
 
 
 class NativeSystemPickerTest(unittest.TestCase):

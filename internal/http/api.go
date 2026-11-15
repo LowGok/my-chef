@@ -35,6 +35,8 @@ type Config struct {
 	Newsletter           *newsletter.Service
 	NewsletterSettings   config.Newsletter
 	NewsletterReady      func(context.Context) bool
+	NativeBilling        *NativeBilling
+	Planning             *store.PlanningPolicy
 	RecipeImports        *RecipeImportService
 	PersonalRecipes      PersonalRecipeSaver
 	PersonalPhotos       PersonalPhotoReader
@@ -144,8 +146,10 @@ func (a *API) Handler(frontend http.Handler) http.Handler {
 	mux.HandleFunc("POST /api/v1/account/export", a.guard(true, a.exportAccount))
 	mux.HandleFunc("POST /api/v1/account/deletion", a.guard(true, a.deleteAccount))
 	a.analyticsRoutes(mux)
+	mux.HandleFunc("GET /api/v1/account/deletion-advice", a.guard(true, a.accountDeletionAdvice))
 	a.feedbackRoutes(mux)
 	a.personalRoutes(mux)
+	a.billingRoutes(mux)
 	a.recipeImportRoutes(mux)
 	a.reminderRoutes(mux)
 	mux.HandleFunc("GET /api/v1/profile", a.guardVerified(a.profile))
@@ -156,6 +160,9 @@ func (a *API) Handler(frontend http.Handler) http.Handler {
 	mux.HandleFunc("GET /api/v1/menus", a.guardVerified(a.history))
 	mux.HandleFunc("GET /api/v1/menus/{id}", a.guardVerified(a.menu))
 	mux.HandleFunc("GET /api/v1/recipes/{id}", a.guardVerified(a.recipe))
+	mux.HandleFunc("GET /api/v1/planning", a.guardVerified(a.readPlanning))
+	mux.HandleFunc("PUT /api/v1/planning/zone", a.guardVerified(a.confirmPlanningZone))
+	mux.HandleFunc("POST /api/v1/recipes/{id}/correction", a.guardVerified(a.correctRecipe))
 	mux.HandleFunc("GET /api/v1/favorites", a.guardVerified(a.favorites))
 	mux.HandleFunc("PUT /api/v1/recipes/{id}/favorite", a.guardVerified(a.favorite))
 	mux.HandleFunc("DELETE /api/v1/recipes/{id}/favorite", a.guardVerified(a.favorite))
@@ -223,7 +230,7 @@ func (a *API) Handler(frontend http.Handler) http.Handler {
 
 		// These services own their fence, including exclusive contact retirement.
 		selfFenced := r.URL.Path == "/api/v1/account/export" || r.URL.Path == "/api/v1/account/deletion" || r.URL.Path == "/api/v1/signup/complete" || r.URL.Path == "/api/v1/email/change/decision" || r.URL.Path == "/api/v1/newsletter/confirm" || r.URL.Path == "/api/v1/newsletter/unsubscribe"
-		if a.Config.Lifecycle != nil && len(r.URL.Path) >= 5 && r.URL.Path[:5] == "/api/" && !selfFenced && !strings.HasPrefix(r.URL.Path, "/api/v1/personal-") && !strings.HasPrefix(r.URL.Path, "/api/v1/recipe-imports") {
+		if a.Config.Lifecycle != nil && len(r.URL.Path) >= 5 && r.URL.Path[:5] == "/api/" && !selfFenced && !strings.HasPrefix(r.URL.Path, "/api/v1/billing/") && !strings.HasPrefix(r.URL.Path, "/api/v1/personal-") && !strings.HasPrefix(r.URL.Path, "/api/v1/recipe-imports") {
 			a.Store.AccountWork.RLock()
 			defer a.Store.AccountWork.RUnlock()
 		}
@@ -247,6 +254,12 @@ func (a *API) fail(w http.ResponseWriter, r *http.Request, status int, code, mes
 }
 func (a *API) err(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
+	case errors.Is(err, store.ErrPlanningTimezone):
+		a.fail(w, r, 409, "planning_timezone_required", "Confirm your household time zone to plan meals.")
+	case errors.Is(err, store.ErrPlanningCorrection):
+		a.fail(w, r, 409, "correction_unavailable", providers.PublicMessage("correction_unavailable"))
+	case errors.Is(err, store.ErrPlanningTier):
+		a.fail(w, r, 409, "planning_limit", providers.PublicMessage("planning_limit"))
 	case errors.Is(err, gorm.ErrRecordNotFound):
 		a.fail(w, r, 404, "not_found", "That resource was not found.")
 	case errors.Is(err, auth.ErrSession), errors.Is(err, store.ErrAccountAccess):
@@ -522,6 +535,46 @@ func (a *API) updateProfile(w http.ResponseWriter, r *http.Request) {
 	}
 	a.write(w, 200, u)
 }
+func (a *API) readPlanning(w http.ResponseWriter, r *http.Request) {
+	if a.Config.Planning == nil {
+		a.err(w, r, gorm.ErrRecordNotFound)
+		return
+	}
+	status, err := a.Store.PlanningStatus(r.Context(), *info(r).Session.UserID, a.Config.Planning)
+	if err != nil {
+		a.err(w, r, err)
+		return
+	}
+	a.write(w, 200, status)
+}
+
+func (a *API) confirmPlanningZone(w http.ResponseWriter, r *http.Request) {
+	if a.Config.Planning == nil {
+		a.err(w, r, gorm.ErrRecordNotFound)
+		return
+	}
+	actor := info(r)
+	if !a.throttle(w, r, "planning-zone:"+strconv.FormatInt(*actor.Session.UserID, 10), 5) {
+		return
+	}
+	var input struct {
+		Zone string `json:"zone"`
+	}
+	if !a.decode(w, r, &input) {
+		return
+	}
+	status, err := a.Store.ConfirmPlanningZone(r.Context(), *actor.Session.UserID, auth.Hash(actor.Token), input.Zone, a.Config.Planning)
+	if errors.Is(err, store.ErrPlanningTimezone) {
+		a.fail(w, r, 400, "invalid_planning_zone", "Choose a valid time zone, such as Europe/Brussels.")
+		return
+	}
+	if err != nil {
+		a.err(w, r, err)
+		return
+	}
+	a.write(w, 200, status)
+}
+
 func (a *API) ready(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
@@ -548,7 +601,7 @@ func (a *API) menu(w http.ResponseWriter, r *http.Request) {
 		a.err(w, r, err)
 		return
 	}
-	v, err := a.Store.GetMenu(r.Context(), *info(r).Session.UserID, id)
+	v, err := a.Store.GetMenu(r.Context(), *info(r).Session.UserID, id, a.Config.Planning)
 	if err != nil {
 		a.err(w, r, err)
 		return
@@ -561,7 +614,7 @@ func (a *API) recipe(w http.ResponseWriter, r *http.Request) {
 		a.err(w, r, err)
 		return
 	}
-	v, err := a.Store.GetRecipe(r.Context(), *info(r).Session.UserID, id)
+	v, err := a.Store.GetRecipe(r.Context(), *info(r).Session.UserID, id, a.Config.Planning)
 	if err != nil {
 		a.err(w, r, err)
 		return
@@ -595,13 +648,53 @@ func (a *API) history(w http.ResponseWriter, r *http.Request) {
 		a.err(w, r, auth.ErrInput)
 		return
 	}
-	page, err := a.Store.History(r.Context(), *info(r).Session.UserID, from.Format(time.DateOnly), to.Format(time.DateOnly), limit, offset)
+	page, err := a.Store.History(r.Context(), *info(r).Session.UserID, from.Format(time.DateOnly), to.Format(time.DateOnly), limit, offset, a.Config.Planning)
 	if err != nil {
 		a.err(w, r, err)
 		return
 	}
 	a.write(w, 200, page)
 }
+
+// A correction names only the saved meal. The server derives the reason
+// and replacement input from the stored recipe and household settings.
+func (a *API) correctRecipe(w http.ResponseWriter, r *http.Request) {
+	if a.Config.Planning == nil {
+		a.err(w, r, gorm.ErrRecordNotFound)
+		return
+	}
+	generator, supported := a.Generator.(interface {
+		StartCorrection(context.Context, int64, string, int64) (domain.Operation, error)
+	})
+	if !supported {
+		a.fail(w, r, 503, "provider_unavailable", "Generation is not ready.")
+		return
+	}
+	user := *info(r).Session.UserID
+	if !a.throttle(w, r, "generate:"+strconv.FormatInt(user, 10), 5) {
+		return
+	}
+	id, err := identifier(r)
+	if err != nil {
+		a.err(w, r, err)
+		return
+	}
+	var input *struct{}
+	if !a.decode(w, r, &input) {
+		return
+	}
+	if input == nil {
+		a.fail(w, r, 400, "invalid_input", "Send an empty JSON object.")
+		return
+	}
+	op, err := generator.StartCorrection(r.Context(), user, r.Header.Get("Idempotency-Key"), id)
+	if err != nil {
+		a.generationError(w, r, err)
+		return
+	}
+	a.write(w, 202, op)
+}
+
 func (a *API) generate(w http.ResponseWriter, r *http.Request) {
 	if a.Generator == nil {
 		a.fail(w, r, 503, "provider_unavailable", "Generation is not ready.")
@@ -628,7 +721,7 @@ func (a *API) generate(w http.ResponseWriter, r *http.Request) {
 	a.write(w, 202, op)
 }
 func (a *API) generation(w http.ResponseWriter, r *http.Request) {
-	if a.Generator == nil {
+	if a.Generator == nil && a.Config.Planning == nil {
 		a.fail(w, r, 503, "provider_unavailable", "Generation is not ready.")
 		return
 	}
@@ -637,7 +730,12 @@ func (a *API) generation(w http.ResponseWriter, r *http.Request) {
 		a.err(w, r, err)
 		return
 	}
-	op, err := a.Generator.Status(r.Context(), *info(r).Session.UserID, id)
+	var op domain.Operation
+	if a.Config.Planning != nil {
+		op, err = a.Store.PlanningOperation(r.Context(), *info(r).Session.UserID, id, a.Config.Planning)
+	} else {
+		op, err = a.Generator.Status(r.Context(), *info(r).Session.UserID, id)
+	}
 	if err != nil {
 		a.generationError(w, r, err)
 		return

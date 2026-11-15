@@ -1,5 +1,7 @@
 """Exercise the real native session bridge on disposable hosted devices."""
 from contextlib import ExitStack, closing
+from datetime import datetime
+import base64
 import hashlib
 import http.client
 import http.server
@@ -83,7 +85,7 @@ def android_request_diagnostics(adb_path):
     print(f"Disposable Android bridge stages: {stages[-24:]}", flush=True)
 
 
-def fixture(state, stack, journeys=False):
+def fixture(state, stack, journeys=False, billing=False):
     print("Building disposable Go fixture", flush=True)
     flags = []
     if sys.platform == "darwin":
@@ -97,12 +99,15 @@ def fixture(state, stack, journeys=False):
         overlay.write_text(json.dumps({"Replace": {str(ROOT / "internal/imports/worker_socket.go"): str(stub)}}))
         flags = ["-overlay", str(overlay)]
     for binary in ("mychef", "mychef-migrate"):
-        command("go", "build", *flags, "-trimpath", "-o", str(state / binary), "./cmd/" + binary, timeout=450)
+        tags = ["-tags", "mychef_billing_fixture"] if billing and binary == "mychef" else []
+        command("go", "build", *flags, *tags, "-trimpath", "-o", str(state / binary), "./cmd/" + binary, timeout=450)
     email, _ = fixture_email(state)
     db = str(state / "app.db")
     app_env = dict(ENV, **email, MYCHEF_ADDR="127.0.0.1:18137", MYCHEF_ORIGIN=ORIGIN,
                    MYCHEF_DB=db, MYCHEF_LIFECYCLE_DB=db + ".lifecycle", MYCHEF_DEV="1",
                    MYCHEF_PROVIDER="fixture", MYCHEF_E2E="1", MYCHEF_PUSH_FIXTURE="1", MYCHEF_FEEDBACK_TO="operator@example.test")
+    if billing:
+        app_env.update(MYCHEF_BILLING_FIXTURE="1", MYCHEF_BILLING_FIXTURE_ROOT=str(state))
     if journeys:
         app_env.update(stack.enter_context(fixture_imports(ROOT, state, app_env)))
     subprocess.run([str(state / "mychef-migrate"), "up", "--db", db], env=app_env, check=True, timeout=60)
@@ -214,6 +219,11 @@ def fixture(state, stack, journeys=False):
                 event_kind = route if route in ("session", "refresh", "login", "profile", "menus", "generations", "personal-recipes", "feedback", "planning-reminders/installation", "planning-reminders/open") else "feature"
                 if re.fullmatch(r"favorite-weeks/\d{4}-\d{2}-\d{2}", route):
                     event_kind = "favorite-week"
+                if billing:
+                    if route in ("billing/checkouts", "billing/restore", "billing/status"):
+                        event_kind = route
+                    elif re.fullmatch(r"billing/checkouts/[a-f0-9-]+/(?:launch|verify)", route):
+                        event_kind = "billing/" + route.rsplit("/", 1)[-1]
                 events.append((self.command, event_kind, response.status))
                 if journeys and self.command == "PUT" and response.status == 200 and re.fullmatch(r"/api/native/v1/shopping/\d{4}-\d{2}-\d{2}", self.path):
                     value = json.loads(request_body)
@@ -370,7 +380,7 @@ def android(state, stack, ca, apk):
     return metadata, launch, stop, diagnostics
 
 
-def ios(state, stack, ca, package, reminder_inputs=None):
+def ios(state, stack, ca, package, reminder_inputs=None, billing=False):
     # Verify the archive before booting the simulator. The host Mach-O tools
     # do not need CoreSimulator, and can otherwise contend with its first boot.
     command("/usr/bin/ditto", "-x", "-k", str(package), str(state))
@@ -378,6 +388,8 @@ def ios(state, stack, ca, package, reminder_inputs=None):
     info = plistlib.loads((app / "Info.plist").read_bytes())
     if info.get("CFBundleIdentifier") != APP or info.get("CFBundleSupportedPlatforms") != ["iPhoneSimulator"]:
         raise RuntimeError("Unexpected simulator app identity")
+    if (app / "public/app/mychef-ios-billing-fixture.js").is_file() != billing:
+        raise RuntimeError("Unexpected simulator billing fixture asset")
     access_group = "MYCHEF0000." + APP
     binary = app / "App"
     sections = command("otool", "-l", str(binary))
@@ -465,9 +477,23 @@ def ios(state, stack, ca, package, reminder_inputs=None):
     def reminder_ui_passed():
         return reminder_result is not None and ios_reminder_ui_passed(reminder_result)
 
+    def start_billing(inputs):
+        if not billing:
+            raise RuntimeError("Simulator billing fixtures are not enabled")
+        container = Path(sim("get_app_container", identifier, APP, "data")).resolve()
+        if identifier not in container.parts or not (container / "tmp").is_dir():
+            raise RuntimeError("Disposable simulator data container could not be verified")
+        scratch = container / "tmp"
+        result = scratch / "mychef-ios-billing-result.json"
+        result.unlink(missing_ok=True)
+        with (scratch / "mychef-ios-billing-input.json").open("x") as file:
+            json.dump(inputs, file)
+        sim("launch", identifier, APP, "--mychef-billing-fixture")
+        return result
+
     return ({"runtime": runtime, "model": device["name"], "hostArchitecture": os.uname().machine,
              "signing": "simulator linker entitlements only", "keychainIdentity": access_group},
-            launch, lambda: sim("terminate", identifier, APP), diagnostics, reminder_ui_passed)
+            launch, lambda: sim("terminate", identifier, APP), diagnostics, reminder_ui_passed, start_billing)
 
 
 def ios_reminder_ui_passed(path):
@@ -510,7 +536,43 @@ def ios_reminder_inputs(state):
     return dict(account, reference=reference, target=target, mealTitle=meal_title)
 
 
-def android_journeys(state, receipt, metadata, events, reminders=False):
+
+
+
+
+def ios_billing_verified(result, events):
+    return (isinstance(result, dict)
+            and set(result) == {"terms", "checkout", "restore"}
+            and all(value is True for value in result.values())
+            and [event for event in events if event[0] == "POST" and event[1].startswith("billing/")] == [
+                ("POST", "billing/checkouts", 201), ("POST", "billing/launch", 204),
+                ("POST", "billing/verify", 200), ("POST", "billing/restore", 200)])
+
+
+def ios_billing_journey(state, receipt, metadata, events, stop, start):
+    from native_fixture_account import fixture_billing_key, seed
+
+    lease = json.loads((state / "fixture-inbox.json").read_text())
+    account = seed(18137, ORIGIN, lease["capability"], "nativeiosbilling", premium=False)
+    key = fixture_billing_key(lease["capability"], "apple")
+    stop()
+    first = len(events)
+    result = start({
+        **account,
+        "proofKey": base64.urlsafe_b64encode(key).rstrip(b"=").decode(),
+        "expiresAt": int(datetime.fromisoformat(lease["expires"]).timestamp() * 1000),
+    })
+    wait_for(result.is_file, "iOS simulator subscription journey", seconds=100)
+    if result.stat().st_size > 256 or not ios_billing_verified(json.loads(result.read_text()), events[first:]):
+        raise RuntimeError("Unexpected iOS simulator billing result")
+    checks = ["enlarged price controls", "verified simulated Apple purchase", "simulated Apple restore"]
+    output = dict(source=receipt["candidate"], artifactSha256=receipt["artifactSha256"], device=metadata,
+                  groups={"billing": checks}, passed=checks,
+                  limitations="Installed iOS simulator WebView with simulated store responses; no TestFlight, real StoreKit purchase or VoiceOver.")
+    (ARTIFACTS / "installed-journeys.json").write_text(json.dumps(output, indent=2) + "\n")
+
+
+def android_journeys(state, receipt, metadata, events, reminders=False, billing=False):
     from native_android_probe import build
     from native_fixture_account import seed
 
@@ -535,7 +597,7 @@ def android_journeys(state, receipt, metadata, events, reminders=False):
                     if re.fullmatch(r"INSTRUMENTATION_(?:STATUS|RESULT): (?:probe=(?:ready|failed)|probeReason=(?:launch|webview|pinch-disabled|probe-timeout|instrumentation|native-control|native-window-(?:unfocused|bounds)|control-timeout|input-denied|picker-(?:window|target|activation|confirmation|return)|accessibility-controls))|INSTRUMENTATION_CODE: -?[0-9]+", line)]
             print("Disposable probe status: " + "; ".join(safe[-8:]), flush=True)
 
-    groups = (("reminders", 2),) if reminders else (("core", 7), ("media", 5), ("pages", 1), ("account", 4))
+    groups = (("billing", 2),) if billing else (("reminders", 2),) if reminders else (("core", 7), ("media", 5), ("pages", 1), ("account", 4))
     passed = {}
     failed = []
     adb = lambda *args: command(adb_path, "-s", "emulator-5554", *args)
@@ -550,10 +612,14 @@ def android_journeys(state, receipt, metadata, events, reminders=False):
                 adb("shell", "am", "force-stop", APP)
                 if adb("shell", "pm", "clear", APP) != "Success":
                     raise RuntimeError("Disposable Android app state could not be cleared")
-            account = seed(18137, ORIGIN, capability, "nativeandroid" + group)
+            account = (seed(18137, ORIGIN, capability, "nativeandroidbilling", premium=False) if billing
+                       else seed(18137, ORIGIN, capability, "nativeandroid" + group))
             (state / "native-android-account.json").write_text(json.dumps(account))
             before = len(events)
             output = command("bun", "scripts/native-android-journeys.ts", str(state), group, timeout=270)
+            if billing and [event for event in events[before:] if event[0] == "POST" and event[1].startswith("billing/")] != [
+                    ("POST", "billing/checkouts", 201), ("POST", "billing/launch", 204), ("POST", "billing/restore", 200)]:
+                raise RuntimeError("Unexpected installed Play billing sequence")
             print(output, flush=True)
             if group == "reminders":
                 registration = [event for event in events[before:] if event[1] == "planning-reminders/installation"]
@@ -580,8 +646,31 @@ def android_journeys(state, receipt, metadata, events, reminders=False):
         raise RuntimeError("Installed Android groups failed: " + ", ".join(failed))
     result = dict(source=receipt["candidate"], artifactSha256=receipt["artifactSha256"], device=metadata,
                   groups=passed, passed=[name for names in passed.values() for name in names],
-                  limitations="Disposable API 33 emulator; no physical Android device or audible TalkBack validation.")
+                  limitations=("Simulated store responses in the installed API 33 WebView; no licensed Play purchase or TalkBack."
+                               if billing else "Disposable API 33 emulator; no physical Android device or audible TalkBack validation."))
     (ARTIFACTS / "installed-journeys.json").write_text(json.dumps(result, indent=2) + "\n")
+
+
+def subscription_authorized(event, approved_pr, platform, source):
+    if platform not in ("android", "ios-simulator") or not re.fullmatch(r"[1-9][0-9]*", approved_pr):
+        return False
+    if not isinstance(source, str) or not re.fullmatch(r"[a-f0-9]{40}", source):
+        return False
+    repo = event.get("repository", {})
+    pr = event.get("pull_request", {})
+    head = pr.get("head", {})
+    head_repo = head.get("repo", {})
+    return (
+        event.get("action") == "labeled"
+        and event.get("label", {}).get("name") == "native-subscription-fixture"
+        and str(event.get("number")) == str(pr.get("number")) == approved_pr
+        and event.get("sender", {}).get("login") == "LowGok"
+        and repo.get("private") is False
+        and repo.get("id") == head_repo.get("id") == 1454481532
+        and repo.get("full_name") == head_repo.get("full_name") == "LowGok/my-chef"
+        and pr.get("base", {}).get("ref") == "main"
+        and head.get("ref") == "feat/subscription-billing" and head.get("sha") == source
+    )
 
 
 def main():
@@ -590,25 +679,35 @@ def main():
         raise SystemExit("This check requires the public hosted native verification workflow.")
     event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
     receipt = json.loads((ARTIFACTS / "compilation.json").read_text())
-    package = ARTIFACTS / receipt["artifact"]
     label = event.get("label", {}).get("name")
+    subscription = label == "native-subscription-fixture"
     reminders = label == "native-reminder-fixture"
-    if (label not in ("native-installed", f"native-installed-{PLATFORM}", "native-reminder-fixture")
-            or (reminders and (event["pull_request"]["head"].get("ref") != "feat/weekly-reminders"
-                              or str(event.get("number")) != os.environ.get("NATIVE_REMINDER_PR")))
-            or event.get("sender", {}).get("login") != "LowGok"
-            or receipt["platform"] != PLATFORM or receipt["candidate"]["sourceCommit"] != event["pull_request"]["head"]["sha"]
-            or hashlib.sha256(package.read_bytes()).hexdigest() != receipt["artifactSha256"]):
+    authorized = label in ("native-installed", f"native-installed-{PLATFORM}")
+    if reminders:
+        authorized = (event["pull_request"]["head"].get("ref") == "feat/weekly-reminders"
+                      and str(event.get("number")) == os.environ.get("NATIVE_REMINDER_PR"))
+    if subscription:
+        authorized = (os.environ.get("GITHUB_EVENT_NAME") == "pull_request"
+                      and subscription_authorized(event, os.environ.get("NATIVE_SUBSCRIPTION_PR", ""), PLATFORM,
+                                                  receipt["candidate"]["sourceCommit"])
+                      and command("git", "rev-parse", "HEAD") == receipt["candidate"]["sourceCommit"])
+    expected_package = "mychef-compile.apk" if PLATFORM == "android" else "mychef-compile-simulator.app.zip"
+    if (not authorized or event.get("sender", {}).get("login") != "LowGok"
+            or receipt["platform"] != PLATFORM or receipt["artifact"] != expected_package
+            or receipt["candidate"]["sourceCommit"] != event["pull_request"]["head"]["sha"]):
         raise SystemExit("Installed verification source or artifact did not match the authorized run.")
-    journeys = PLATFORM == "android" and os.environ.get("NATIVE_ANDROID_JOURNEYS") == "1"
+    package = ARTIFACTS / expected_package
+    if hashlib.sha256(package.read_bytes()).hexdigest() != receipt["artifactSha256"]:
+        raise SystemExit("Installed verification source or artifact did not match the authorized run.")
+    journeys = not subscription and PLATFORM == "android" and os.environ.get("NATIVE_ANDROID_JOURNEYS") == "1"
     with tempfile.TemporaryDirectory(prefix="mychef-installed-") as directory, ExitStack() as stack:
         state = Path(directory).resolve()
-        ca, events, rejected_tls = fixture(state, stack, journeys=journeys and not reminders)
+        ca, events, rejected_tls = fixture(state, stack, journeys=journeys and not reminders, billing=subscription)
         if PLATFORM == "android":
             metadata, launch, stop, diagnostics = android(state, stack, ca, package)
         else:
-            metadata, launch, stop, diagnostics, reminder_ui_passed = ios(
-                state, stack, ca, package, ios_reminder_inputs(state) if reminders else None)
+            metadata, launch, stop, diagnostics, reminder_ui_passed, ios_billing = ios(
+                state, stack, ca, package, ios_reminder_inputs(state) if reminders else None, billing=subscription)
         verify_stage(lambda: ("POST", "session", 201) in events and ("GET", "session", 200) in events,
                      "native HTTPS session", events, rejected_tls, diagnostics, launch=launch)
         print("Installed app opened a native HTTPS session", flush=True)

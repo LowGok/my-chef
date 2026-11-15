@@ -70,6 +70,7 @@ import {
   queueShoppingEdit,
   replayShopping,
   ShoppingConflict,
+  stageFreeShopping,
 } from "./shopping-state";
 
 test("offline edits rebase on refreshed meals without losing extras or duplicating acknowledged saves", () => {
@@ -175,4 +176,85 @@ test("reviewed retries resolve superseded meal choices and changed manual extras
   expect(
     replayShopping(remote, [added], true).items.find((i) => i.id === "soap"),
   ).toMatchObject({ name: "Dish soap", quantity: "1", unit: "bottle" });
+});
+
+test("Free reconnect saves independent check-offs and keeps changed items for review", () => {
+  const full: ShoppingList = {
+    ...list,
+    customizationLocked: true,
+    items: [
+      { ...list.items[0], quantity: "600" },
+      { ...list.items[0], id: "rice", name: "rice", quantity: "250" },
+      { ...list.items[0], id: "soap", name: "Soap", manual: true },
+    ],
+  };
+  const previous = {
+    ...full,
+    items: [
+      { ...full.items[0], quantity: "450" },
+      full.items[1],
+      full.items[2],
+    ],
+  };
+  const unresolved = queueShoppingEdit(previous, {
+    kind: "state",
+    id: "carrot",
+    state: "basket",
+  });
+  const rice = queueShoppingEdit(previous, {
+    kind: "state",
+    id: "rice",
+    state: "home",
+  });
+  const soap = queueShoppingEdit(previous, {
+    kind: "state",
+    id: "soap",
+    state: "basket",
+  });
+  const choose = queueShoppingEdit(previous, {
+    kind: "meal",
+    id: list.meals[0].position,
+    selected: false,
+  });
+  const created = {
+    kind: "extra",
+    id: "coffee",
+    name: "Coffee",
+    quantity: "1",
+    unit: "pack",
+  } as const;
+  const create = queueShoppingEdit(previous, created);
+  const checkCoffee = queueShoppingEdit(editShopping(previous, created), {
+    kind: "state",
+    id: "coffee",
+    state: "basket",
+  });
+
+  const staged = stageFreeShopping(full, [
+    unresolved,
+    rice,
+    choose,
+    soap,
+    create,
+    checkCoffee,
+  ]);
+  expect(staged.desired.meals[0].selected).toBe(true);
+  expect(staged.desired.items.map(({ state }) => state)).toEqual([
+    "buy",
+    "home",
+    "basket",
+  ]);
+  expect(staged.review).toEqual([unresolved]);
+  expect(staged.blocked).toEqual(["meals", "extras"]);
+  expect(staged.applied).toEqual(2);
+  const reviewed = stageFreeShopping(full, staged.review, true);
+  expect(reviewed.review).toEqual([]);
+  expect(reviewed.desired.items[0]).toMatchObject({
+    quantity: "600",
+    state: "basket",
+  });
+
+  const removed = stageFreeShopping({ ...full, items: [] }, [rice], true);
+  expect(removed.desired.items).toEqual([]);
+  expect(removed.blocked).toEqual(["unavailable"]);
 });

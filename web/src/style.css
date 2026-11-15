@@ -3153,3 +3153,39 @@ html[data-native="true"] :is(input, select, textarea) {
   font-size: 0.875rem;
   white-space: normal;
 }
+
+.planning-slots {
+  display: grid;
+  gap: 0.5rem;
+  margin: 1rem 0;
+}
+.planning-slots > .button {
+  justify-self: start;
+}
+.planning-slot {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  min-height: 44px;
+  cursor: pointer;
+}
+.planning-slot input {
+  width: 1.125rem;
+  height: 1.125rem;
+  flex: none;
+}
+
+.shopping-layout.shopping-layout-locked {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.subscription-details {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.subscription-details .button {
+  min-height: 44px;
+  max-width: 100%;
+  font-size: .875rem;
+  white-space: normal;
+}

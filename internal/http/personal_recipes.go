@@ -54,7 +54,7 @@ func personalActor(r *http.Request) store.PersonalActor {
 	return store.PersonalActor{UserID: *current.Session.UserID, SessionHash: auth.Hash(current.Token), Native: current.Native}
 }
 func (a *API) personalPlanning(r *http.Request) store.PersonalPlanning {
-	return store.PersonalPlanning{Actor: personalActor(r), Entitlements: a.Config.PersonalEntitlements, Now: time.Now()}
+	return store.PersonalPlanning{Actor: personalActor(r), Entitlements: a.Config.PersonalEntitlements, Now: time.Now(), Tier: a.Config.Planning}
 }
 
 func (a *API) guardPersonal(next http.HandlerFunc) http.HandlerFunc {
@@ -403,11 +403,11 @@ func (a *API) queuePersonal(w http.ResponseWriter, r *http.Request) {
 	if !a.decodePersonal(w, r, &input, 2048) {
 		return
 	}
-	if !validFavoriteWeek(input.Today, input.Week, true) {
+	if a.Config.Planning == nil && !validFavoriteWeek(input.Today, input.Week, true) {
 		a.personalError(w, r, store.ErrPersonalInput)
 		return
 	}
-	out, err := a.Store.QueuePersonalRecipe(r.Context(), personalActor(r), a.Config.PersonalEntitlements, r.PathValue("id"), input.VersionID, input.Week, input.RequestKey, time.Now())
+	out, err := a.Store.QueuePersonalRecipe(r.Context(), personalActor(r), a.Config.PersonalEntitlements, r.PathValue("id"), input.VersionID, input.Week, input.RequestKey, time.Now(), a.Config.Planning)
 	if err != nil {
 		a.personalError(w, r, err)
 		return
@@ -428,11 +428,11 @@ func (a *API) swapPersonal(w http.ResponseWriter, r *http.Request) {
 	if !a.decodePersonal(w, r, &input, 2048) {
 		return
 	}
-	if !validFavoriteWeek(input.Today, input.Week, false) {
+	if a.Config.Planning == nil && !validFavoriteWeek(input.Today, input.Week, false) {
 		a.personalError(w, r, store.ErrPersonalInput)
 		return
 	}
-	out, err := a.Store.SwapPersonalRecipe(r.Context(), personalActor(r), a.Config.PersonalEntitlements, r.PathValue("id"), input.VersionID, domain.FavoriteSwap{Week: input.Week, Today: input.Today, TargetID: input.TargetID, RequestKey: input.RequestKey}, time.Now())
+	out, err := a.Store.SwapPersonalRecipe(r.Context(), personalActor(r), a.Config.PersonalEntitlements, r.PathValue("id"), input.VersionID, domain.FavoriteSwap{Week: input.Week, Today: input.Today, TargetID: input.TargetID, RequestKey: input.RequestKey}, time.Now(), a.Config.Planning)
 	if err != nil {
 		a.personalError(w, r, err)
 		return
@@ -449,7 +449,7 @@ func (a *API) removePersonalQueue(w http.ResponseWriter, r *http.Request) {
 	if !a.decodePersonal(w, r, &input, 2048) {
 		return
 	}
-	out, err := a.Store.RemovePersonalQueuedRecipe(r.Context(), personalActor(r), r.PathValue("id"), input.RequestKey, time.Now())
+	out, err := a.Store.RemovePersonalQueuedRecipe(r.Context(), personalActor(r), r.PathValue("id"), input.RequestKey, time.Now(), a.Config.Planning)
 	if err != nil {
 		a.personalError(w, r, err)
 		return

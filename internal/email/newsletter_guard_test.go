@@ -3,7 +3,6 @@ package email
 import (
 	"bytes"
 	"errors"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -14,7 +13,7 @@ import (
 )
 
 func TestNewsletterDispatchWaitsForJournalReconciliation(t *testing.T) {
-	for _, phase := range []string{"prepared", "marker-commit", "failed-cancellation"} {
+	for _, phase := range []string{"prepared", "marker-commit", "missing-rollback-proof"} {
 		t.Run(phase, func(t *testing.T) {
 			db, req, now, keys := protectedFixture(t)
 			j, err := db.InitializeLifecycleJournal(t.Context(), db.Path+".lifecycle")
@@ -27,7 +26,7 @@ func TestNewsletterDispatchWaitsForJournalReconciliation(t *testing.T) {
 			req.Fields = map[string]string{"confirm": "https://mychef.dev/newsletter/confirm/#N1ngJYuGtWdZT7czVq0pcc7bcLSeTog-L9VQq9YR73Q", "unsubscribe": "https://mychef.dev/newsletter/unsubscribe/#N1ngJYuGtWdZT7czVq0pcc7bcLSeTog-L9VQq9YR73Q"}
 			if phase != "prepared" {
 				req.Template = mailqueue.NewsletterWithdrawalFRTemplate
-				if phase == "failed-cancellation" {
+				if phase == "missing-rollback-proof" {
 					req.Template = mailqueue.NewsletterWithdrawalNLTemplate
 				}
 				delete(req.Fields, "confirm")
@@ -45,17 +44,8 @@ func TestNewsletterDispatchWaitsForJournalReconciliation(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			if phase == "failed-cancellation" {
-				if err := os.Rename(j.Path, j.Path+".held"); err != nil {
-					t.Fatal(err)
-				}
-				cancelErr := j.CancelDeletion(t.Context(), operation)
-				if err := os.Rename(j.Path+".held", j.Path); err != nil {
-					t.Fatal(err)
-				}
-				if cancelErr == nil {
-					t.Fatal("fault did not prevent cancellation")
-				}
+			if phase == "missing-rollback-proof" && !errors.Is(j.ReconcileIntents(t.Context()), store.ErrLifecycleUncertain) {
+				t.Fatal("missing app receipt incorrectly cleared the prepared deletion")
 			}
 			if !errors.Is(j.CheckReady(t.Context()), store.ErrLifecycleUncertain) {
 				t.Fatal("fixture is not unsettled")
@@ -74,12 +64,13 @@ func TestNewsletterDispatchWaitsForJournalReconciliation(t *testing.T) {
 			if service.Ready(t.Context()) {
 				t.Fatal("mail readiness ignored unsettled journal")
 			}
-			if phase == "marker-commit" {
-				err = j.ReconcileIntents(t.Context())
-			} else {
-				err = j.CancelDeletion(t.Context(), operation)
+			if phase != "marker-commit" {
+				if err := db.DB.Exec("INSERT INTO lifecycle_operations(operation,incarnation,created_ns) VALUES(?,?,?)",
+					operation, incarnation, now.UnixNano()).Error; err != nil {
+					t.Fatal(err)
+				}
 			}
-			if err != nil {
+			if err := j.ReconcileIntents(t.Context()); err != nil {
 				t.Fatal(err)
 			}
 			if worked, err := worker.Step(t.Context()); !worked || err != nil || len(provider.bodies) != 1 {

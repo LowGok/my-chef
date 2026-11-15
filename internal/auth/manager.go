@@ -273,7 +273,7 @@ func (m *Manager) Update(ctx context.Context, id int64, p ProfileUpdate, tokens 
 		if len(tokens) == 1 {
 			query = query.Where("EXISTS (SELECT 1 FROM sessions s WHERE s.user_id=users.user_id AND s.hash=? AND s.expires_unix>unixepoch())", Hash(tokens[0]))
 		}
-		result := query.Updates(map[string]any{"firstname": p.FirstName, "lastname": p.LastName, "username": p.Username, "birthdate": p.Birthdate, "sex": p.Sex, "preferences_json": string(prefs), "haspref": true})
+		result := query.Updates(map[string]any{"firstname": p.FirstName, "lastname": p.LastName, "username": p.Username, "birthdate": p.Birthdate, "sex": p.Sex, "preferences_json": gorm.Expr(`json_patch(CASE WHEN json_type(CASE WHEN json_valid(preferences_json) THEN preferences_json END)='object' THEN preferences_json ELSE '{}' END,?)`, string(prefs)), "haspref": true})
 		if errors.Is(result.Error, sqlite3.CONSTRAINT_UNIQUE) {
 			return ErrConflict
 		}

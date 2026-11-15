@@ -28,6 +28,7 @@ import {
 } from "./platform-media";
 
 export type AnalyticsPreference = components["schemas"]["AnalyticsPreference"];
+export type PlanningStatus = components["schemas"]["PlanningStatus"];
 export type Profile = components["schemas"]["Profile"];
 export type Session = components["schemas"]["Session"];
 export type Recipe = components["schemas"]["Recipe"];
@@ -601,6 +602,16 @@ export async function saveAccountDownload(
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
   return true;
+}
+
+export type BillingStore =
+  components["schemas"]["AccountDeletionAdvice"]["stores"][number];
+
+export function accountDeletionAdvice(signal: AbortSignal) {
+  return api<components["schemas"]["AccountDeletionAdvice"]>(
+    "/account/deletion-advice",
+    { signal },
+  );
 }
 
 export function deleteOwnAccount(

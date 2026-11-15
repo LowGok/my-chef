@@ -21,6 +21,11 @@ const methods = [
   "saveExport",
   "openExternal",
   "cancelMedia",
+  "billingQuotes",
+  "billingPurchase",
+  "billingUnfinished",
+  "billingRestore",
+  "billingFinish",
 ];
 
 // Capacitor callback numbers restart on page load. A cryptographic nonce also

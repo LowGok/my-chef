@@ -28,18 +28,23 @@ jobs:
        (github.event.pull_request.head.ref == 'feat/weekly-reminders' &&
         vars.NATIVE_REMINDER_PR != '' &&
         github.event.pull_request.number == fromJSON(vars.NATIVE_REMINDER_PR) &&
-        github.event.label.name == 'native-reminder-fixture'))
+        github.event.label.name == 'native-reminder-fixture') ||
+       (github.event.pull_request.head.ref == 'feat/subscription-billing' &&
+        vars.NATIVE_SUBSCRIPTION_PR != '' &&
+        github.event.pull_request.number == fromJSON(vars.NATIVE_SUBSCRIPTION_PR) &&
+        github.event.label.name == 'native-subscription-fixture'))
     strategy:
       fail-fast: false
-      max-parallel: ${{ contains(fromJSON('["native-installed","native-reminder-fixture"]'), github.event.label.name) && 2 || 1 }}
+      max-parallel: ${{ contains(fromJSON('["native-installed","native-reminder-fixture","native-subscription-fixture"]'), github.event.label.name) && 2 || 1 }}
       matrix:
-        platform: ${{ fromJSON(contains(fromJSON('["native-installed","native-reminder-fixture"]'), github.event.label.name) && '["android","ios-simulator"]' || github.event.label.name == 'native-installed-android' && '["android"]' || github.event.label.name == 'native-installed-ios-simulator' && '["ios-simulator"]' || '["android","ios-simulator","ios-device"]') }}
+        platform: ${{ fromJSON(contains(fromJSON('["native-installed","native-reminder-fixture","native-subscription-fixture"]'), github.event.label.name) && '["android","ios-simulator"]' || github.event.label.name == 'native-installed-android' && '["android"]' || github.event.label.name == 'native-installed-ios-simulator' && '["ios-simulator"]' || '["android","ios-simulator","ios-device"]') }}
     runs-on: ${{ matrix.platform == 'android' && 'ubuntu-24.04' || matrix.platform == 'ios-simulator' && 'macos-15' || 'macos-26' }}
     timeout-minutes: 25
     env:
       CI: "1"
       NATIVE_VERIFICATION_PR: ${{ vars.NATIVE_VERIFICATION_PR }}
       NATIVE_REMINDER_PR: ${{ vars.NATIVE_REMINDER_PR }}
+      NATIVE_SUBSCRIPTION_PR: ${{ vars.NATIVE_SUBSCRIPTION_PR }}
       NATIVE_PLATFORM: ${{ matrix.platform }}
       NATIVE_ANDROID_JOURNEYS: "1"
     steps:
@@ -55,7 +60,7 @@ jobs:
       - name: Compile without tests or distribution
         run: bun scripts/mobile-compile.ts
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        if: startsWith(github.event.label.name, 'native-installed') || github.event.label.name == 'native-reminder-fixture'
+        if: startsWith(github.event.label.name, 'native-installed') || github.event.label.name == 'native-reminder-fixture' || github.event.label.name == 'native-subscription-fixture'
         with:
           go-version-file: go.mod
           cache: false
@@ -63,7 +68,7 @@ jobs:
         if: matrix.platform == 'android' && (startsWith(github.event.label.name, 'native-installed') || github.event.label.name == 'native-reminder-fixture')
         run: python3 scripts/rewrite.py bootstrap
       - name: Verify installed native session and relaunch
-        if: startsWith(github.event.label.name, 'native-installed') || github.event.label.name == 'native-reminder-fixture'
+        if: startsWith(github.event.label.name, 'native-installed') || github.event.label.name == 'native-reminder-fixture' || github.event.label.name == 'native-subscription-fixture'
         run: python3 scripts/test_native_installed.py
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()

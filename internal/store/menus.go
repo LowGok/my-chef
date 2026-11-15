@@ -64,6 +64,14 @@ func (g Generation) Operation() domain.Operation {
 }
 
 func (s *Store) SaveMenu(ctx context.Context, userID, operationID int64, input domain.MenuInput, recipes []domain.RecipeContent, readers ...PersonalEntitlementReader) (domain.Menu, error) {
+	var reader PersonalEntitlementReader
+	if len(readers) > 0 {
+		reader = readers[0]
+	}
+	return s.SaveMenuForPlan(ctx, userID, operationID, input, recipes, reader, nil)
+}
+
+func (s *Store) SaveMenuForPlan(ctx context.Context, userID, operationID int64, input domain.MenuInput, recipes []domain.RecipeContent, reader PersonalEntitlementReader, policy *PlanningPolicy) (domain.Menu, error) {
 	if err := input.Validate(); err != nil {
 		return domain.Menu{}, err
 	}
@@ -82,9 +90,12 @@ func (s *Store) SaveMenu(ctx context.Context, userID, operationID int64, input d
 		if err := tx.Where("id = ? AND user_id = ? AND status = ?", operationID, userID, "running").First(&op).Error; err != nil {
 			return err
 		}
-		var captured domain.GenerationRequest
+		var captured GenerationSnapshot
 		if err := json.Unmarshal([]byte(op.RequestJSON), &captured); err != nil {
 			return err
+		}
+		if policy == nil && captured.Allocation != nil && captured.Allocation.CorrectionMealID != 0 {
+			return ErrPlanningTier
 		}
 		if len(recipes)+len(captured.Favorites) != len(input.Dates) {
 			return errors.New("recipe count does not match dates")
@@ -95,22 +106,63 @@ func (s *Store) SaveMenu(ctx context.Context, userID, operationID int64, input d
 		}
 		for _, f := range captured.Favorites {
 			if f.Recipe.Source != nil {
-				var reader PersonalEntitlementReader
-				if len(readers) > 0 {
-					reader = readers[0]
-				}
 				if err := requirePlanEntitlement(ctx, tx, userID, reader); err != nil {
 					return err
 				}
 				break
 			}
 		}
-		if err := CheckMenuReplacement(tx, userID, input); err != nil {
-			return err
-		}
-		if input.ReplaceExisting {
-			if err := weekMeals(tx, userID, input).Delete(&Meal{}).Error; err != nil {
+		if policy != nil {
+			if captured.Allocation == nil || input.ReplaceExisting != captured.ReplaceExisting {
+				return ErrPlanningTier
+			}
+			allocated := captured.Allocation
+			if allocated.CorrectionMealID == 0 {
+				var err error
+				allocated, err = policy.generationAllocation(ctx, tx, userID, operationID, input, allocated)
+				if err != nil {
+					return err
+				}
+			} else {
+				var owner User
+				if err := tx.First(&owner, userID).Error; err != nil {
+					return err
+				}
+				meal, _, err := policy.checkCorrection(ctx, tx, owner, allocated.CorrectionMealID)
+				if err != nil {
+					if errors.Is(err, gorm.ErrRecordNotFound) {
+						return ErrPlanningTier
+					}
+					return err
+				}
+				if allocated.FreeReplacement || len(allocated.Weeks) != 1 || len(allocated.Slots) != 1 ||
+					len(input.Dates) != 1 || input.Dates[0] != meal.CreationDate ||
+					allocated.Slots[0] != (PlanningSlot{Date: meal.CreationDate, MealID: meal.ID}) ||
+					!input.ReplaceExisting || len(captured.Favorites) != 0 || len(recipes) != 1 {
+					return ErrPlanningTier
+				}
+				if recipes[0].CheckExclusions(owner.Preferences()) != nil {
+					return ErrPlanningCorrection
+				}
+			}
+			captured.Allocation = allocated
+			if targets := allocated.targets(); len(targets) > 0 {
+				deleted := tx.Where("creator_id=? AND meal_id IN ?", userID, targets).Delete(&Meal{})
+				if deleted.Error != nil {
+					return deleted.Error
+				}
+				if deleted.RowsAffected != int64(len(targets)) {
+					return domain.ErrMenuExists
+				}
+			}
+		} else {
+			if err := CheckMenuReplacement(tx, userID, input); err != nil {
 				return err
+			}
+			if input.ReplaceExisting {
+				if err := weekMeals(tx, userID, input).Delete(&Meal{}).Error; err != nil {
+					return err
+				}
 			}
 		}
 		if err := tx.Create(&menu).Error; err != nil {
@@ -160,7 +212,15 @@ func (s *Store) SaveMenu(ctx context.Context, userID, operationID int64, input d
 		if err := tx.Model(&User{}).Where("user_id = ?", userID).Update("lastmeal", time.Now().UTC().Format(time.DateOnly)).Error; err != nil {
 			return err
 		}
-		result := tx.Model(&Generation{}).Where("id = ? AND user_id = ? AND status = ?", operationID, userID, "running").Updates(map[string]any{"status": "succeeded", "stage": "finished", "menu_id": menu.ID})
+		changes := map[string]any{"status": "succeeded", "stage": "finished", "menu_id": menu.ID}
+		if policy != nil {
+			b, err := json.Marshal(captured)
+			if err != nil {
+				return err
+			}
+			changes["request_json"] = string(b)
+		}
+		result := tx.Model(&Generation{}).Where("id = ? AND user_id = ? AND status = ?", operationID, userID, "running").Updates(changes)
 		if result.Error != nil {
 			return result.Error
 		}
@@ -201,47 +261,60 @@ func weekMeals(tx *gorm.DB, userID int64, input domain.MenuInput) *gorm.DB {
 	return tx.Where("creator_id = ?", userID).Where("("+strings.Join(clauses, " OR ")+")", args...)
 }
 
-func (s *Store) GetMenu(ctx context.Context, userID, id int64) (domain.Menu, error) {
-	var menu MenuRecord
-	if err := s.DB.WithContext(ctx).Where("id = ? AND user_id = ?", id, userID).First(&menu).Error; err != nil {
-		return domain.Menu{}, err
-	}
-	var rows []Meal
-	err := s.DB.WithContext(ctx).Where("menu_id = ? AND creator_id = ?", id, userID).Order("creationdate ASC, meal_id ASC").Preload("Ingredients", func(db *gorm.DB) *gorm.DB { return db.Order("pk_ingredients") }).Find(&rows).Error
-	out := domain.Menu{ID: strconv.FormatInt(id, 10), Recipes: []domain.Recipe{}}
-	for _, row := range rows {
-		out.Recipes = append(out.Recipes, row.Recipe())
-	}
-	return out, err
-}
-func (s *Store) GetRecipe(ctx context.Context, userID, id int64) (domain.Recipe, error) {
-	var row Meal
-	err := s.DB.WithContext(ctx).Where("meal_id = ? AND creator_id = ?", id, userID).Preload("Ingredients", func(db *gorm.DB) *gorm.DB { return db.Order("pk_ingredients") }).First(&row).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return favoriteRecipe(s.DB.WithContext(ctx), userID, id)
-	}
-	out := row.Recipe()
-	if err == nil {
-		var count int64
-		if e := s.DB.WithContext(ctx).Model(&favoriteRecord{}).Where("user_id=? AND recipe_id=? AND saved=?", userID, id, true).Count(&count).Error; e != nil {
-			return out, e
+func (s *Store) GetMenu(ctx context.Context, userID, id int64, policy ...*PlanningPolicy) (domain.Menu, error) {
+	return planningRead(ctx, s, userID, policy, func(tx *gorm.DB, w PlanningWindow) (domain.Menu, error) {
+		var menu MenuRecord
+		if err := tx.Where("id = ? AND user_id = ?", id, userID).First(&menu).Error; err != nil {
+			return domain.Menu{}, err
 		}
-		out.IsFavorite = count > 0
-	}
-	return out, err
+		var rows []Meal
+		err := w.meals(tx.Where("menu_id = ? AND creator_id = ?", id, userID)).Order("creationdate ASC, meal_id ASC").Preload("Ingredients", func(db *gorm.DB) *gorm.DB { return db.Order("pk_ingredients") }).Find(&rows).Error
+		if err == nil && w.Enabled() && len(rows) == 0 {
+			return domain.Menu{}, gorm.ErrRecordNotFound
+		}
+		out := domain.Menu{ID: strconv.FormatInt(id, 10), Recipes: []domain.Recipe{}}
+		for _, row := range rows {
+			out.Recipes = append(out.Recipes, row.Recipe())
+		}
+		return out, err
+	})
 }
-func (s *Store) History(ctx context.Context, userID int64, from, to string, limit, offset int) (domain.RecipePage, error) {
-	var rows []Meal
-	err := s.DB.WithContext(ctx).Where("creator_id = ? AND creationdate >= ? AND creationdate < ?", userID, from, to).Order("creationdate ASC, meal_id ASC").Limit(limit+1).Offset(offset).Preload("Ingredients", func(db *gorm.DB) *gorm.DB { return db.Order("pk_ingredients") }).Find(&rows).Error
-	out := domain.RecipePage{Recipes: []domain.Recipe{}}
-	if len(rows) > limit {
-		rows = rows[:limit]
-		out.NextOffset = Ptr(offset + limit)
-	}
-	for _, row := range rows {
-		out.Recipes = append(out.Recipes, row.Recipe())
-	}
-	return out, err
+func (s *Store) GetRecipe(ctx context.Context, userID, id int64, policy ...*PlanningPolicy) (domain.Recipe, error) {
+	return planningRead(ctx, s, userID, policy, func(tx *gorm.DB, w PlanningWindow) (domain.Recipe, error) {
+		var row Meal
+		err := w.meals(tx.Where("meal_id = ? AND creator_id = ?", id, userID)).Preload("Ingredients", func(db *gorm.DB) *gorm.DB { return db.Order("pk_ingredients") }).First(&row).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			saved, err := favoriteRecipe(tx, userID, id)
+			if w.Enabled() {
+				saved.MenuID = nil
+			}
+			return saved, err
+		}
+		out := row.Recipe()
+		if err == nil {
+			var count int64
+			if e := tx.Model(&favoriteRecord{}).Where("user_id=? AND recipe_id=? AND saved=?", userID, id, true).Count(&count).Error; e != nil {
+				return out, e
+			}
+			out.IsFavorite = count > 0
+		}
+		return out, err
+	})
+}
+func (s *Store) History(ctx context.Context, userID int64, from, to string, limit, offset int, policy ...*PlanningPolicy) (domain.RecipePage, error) {
+	return planningRead(ctx, s, userID, policy, func(tx *gorm.DB, w PlanningWindow) (domain.RecipePage, error) {
+		var rows []Meal
+		err := w.meals(tx.Where("creator_id = ? AND creationdate >= ? AND creationdate < ?", userID, from, to)).Order("creationdate ASC, meal_id ASC").Limit(limit+1).Offset(offset).Preload("Ingredients", func(db *gorm.DB) *gorm.DB { return db.Order("pk_ingredients") }).Find(&rows).Error
+		out := domain.RecipePage{Recipes: []domain.Recipe{}}
+		if len(rows) > limit {
+			rows = rows[:limit]
+			out.NextOffset = Ptr(offset + limit)
+		}
+		for _, row := range rows {
+			out.Recipes = append(out.Recipes, row.Recipe())
+		}
+		return out, err
+	})
 }
 
 func (u User) Preferences() domain.Preferences {

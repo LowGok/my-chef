@@ -10,7 +10,9 @@ import { personalPhoto } from "./personal-photo";
 export async function fakeNative(
   context: BrowserContext,
   server: APIRequestContext,
+  options: { platform?: "ios" | "android"; billingFixture?: boolean } = {},
 ) {
+  const platform = options.platform ?? "android";
   let refresh: string | null = null,
     value: NativeShoppingSnapshot | null = null;
   let generation = crypto.randomUUID(),
@@ -62,14 +64,17 @@ export async function fakeNative(
         back: false,
         link: undefined,
         invalidLink: undefined,
+        billingChanged: undefined,
       };
       return result;
     }
     if (method === "removeListener") return;
     if (method === "configuration")
       return {
-        platform: "android",
-        apiOrigin: "https://fixture-node.tailtest.ts.net:8977",
+        platform,
+        apiOrigin: options.billingFixture
+          ? "https://localhost:8977"
+          : "https://fixture-node.tailtest.ts.net:8977",
       };
     if (method === "readRefresh") return { value: refresh };
     if (method === "writeRefresh") {
@@ -145,51 +150,62 @@ export async function fakeNative(
       _callNonce: input._callNonce,
     }),
   );
-  await context.addInitScript(() => {
-    const win = window as any;
-    win.CapacitorCustomPlatform = { name: "android" };
-    const methods = [
-      "configuration",
-      "readRuntime",
-      "removeListener",
-      "readRefresh",
-      "writeRefresh",
-      "readShopping",
-      "writeShopping",
-      "clearShopping",
-      "request",
-      "cancelRequest",
-      "cancelMedia",
-      "pickPhotos",
-      "saveExport",
-      "openExternal",
-      "publicImage",
-    ];
-    win.Capacitor = {
-      PluginHeaders: [
-        {
-          name: "MyChefNative",
-          methods: [
-            ...methods.map((name) => ({ name, rtype: "promise" })),
-            { name: "addListener", rtype: "callback" },
-          ],
+  await context.addInitScript(
+    ({ platform, hasBilling }) => {
+      const win = window as any;
+      win.CapacitorCustomPlatform = { name: platform };
+      const methods = [
+        "configuration",
+        "readRuntime",
+        "removeListener",
+        "readRefresh",
+        "writeRefresh",
+        "readShopping",
+        "writeShopping",
+        "clearShopping",
+        "request",
+        "cancelRequest",
+        "cancelMedia",
+        "pickPhotos",
+        "saveExport",
+        "openExternal",
+        "publicImage",
+      ];
+      if (hasBilling)
+        methods.push(
+          "billingQuotes",
+          "billingPurchase",
+          "billingUnfinished",
+          "billingRestore",
+          "billingFinish",
+        );
+      win.Capacitor = {
+        PluginHeaders: [
+          {
+            name: "MyChefNative",
+            methods: [
+              ...methods.map((name) => ({ name, rtype: "promise" })),
+              { name: "addListener", rtype: "callback" },
+            ],
+          },
+        ],
+        nativeCallback: (
+          _plugin: string,
+          method: string,
+          _input: unknown,
+          callback: () => void,
+        ) => {
+          if (method === "addListener") {
+            win.__mychefRuntimeWake = callback;
+            return "fixture-runtime";
+          }
         },
-      ],
-      nativeCallback: (
-        _plugin: string,
-        method: string,
-        _input: unknown,
-        callback: () => void,
-      ) => {
-        if (method === "addListener") {
-          win.__mychefRuntimeWake = callback;
-          return "fixture-runtime";
-        }
-      },
-      nativePromise: (_plugin: string, method: string, input: unknown) =>
-        win.__mychefNative(method, input),
-    };
-  });
+        nativePromise: (_plugin: string, method: string, input: unknown) =>
+          win.__mychefNative(method, input),
+      };
+    },
+    { platform, hasBilling: !!options.billingFixture },
+  );
   return {
     runtime: async (value: Partial<RuntimeSnapshot>) => {
       runtime = { ...runtime, ...value };

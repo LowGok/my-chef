@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		A10300000000000000000001 /* NativeMedia.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10300000000000000000002 /* NativeMedia.swift */; };
+		A10B00000000000000000001 /* NativeSubscriptions.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10B00000000000000000002 /* NativeSubscriptions.swift */; };
 		A10400000000000000000001 /* NativeRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10400000000000000000002 /* NativeRuntime.swift */; };
 		A10200000000000000000001 /* ProtectedShopping.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10200000000000000000002 /* ProtectedShopping.swift */; };
 		A10100000000000000000001 /* MyChefNativePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10100000000000000000002 /* MyChefNativePlugin.swift */; };
@@ -24,6 +25,7 @@
 
 /* Begin PBXFileReference section */
 		A10300000000000000000002 /* NativeMedia.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeMedia.swift; sourceTree = "<group>"; };
+		A10B00000000000000000002 /* NativeSubscriptions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSubscriptions.swift; sourceTree = "<group>"; };
 		A10400000000000000000002 /* NativeRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeRuntime.swift; sourceTree = "<group>"; };
 		A10200000000000000000002 /* ProtectedShopping.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProtectedShopping.swift; sourceTree = "<group>"; };
 		A10100000000000000000002 /* MyChefNativePlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyChefNativePlugin.swift; sourceTree = "<group>"; };
@@ -73,6 +75,7 @@
 			isa = PBXGroup;
 			children = (
 				A10300000000000000000002 /* NativeMedia.swift */,
+				A10B00000000000000000002 /* NativeSubscriptions.swift */,
 				A10400000000000000000002 /* NativeRuntime.swift */,
 				A10200000000000000000002 /* ProtectedShopping.swift */,
 				A10100000000000000000002 /* MyChefNativePlugin.swift */,
@@ -171,6 +174,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A10300000000000000000001 /* NativeMedia.swift in Sources */,
+				A10B00000000000000000001 /* NativeSubscriptions.swift in Sources */,
 				A10400000000000000000001 /* NativeRuntime.swift in Sources */,
 				A10200000000000000000001 /* ProtectedShopping.swift in Sources */,
 				A10100000000000000000001 /* MyChefNativePlugin.swift in Sources */,

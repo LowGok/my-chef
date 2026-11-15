@@ -20,6 +20,7 @@ type Store struct {
 	DB          *gorm.DB
 	SQL         *sql.DB
 	Path        string
+	identity    os.FileInfo
 }
 
 func Open(path string, create bool) (*Store, error) {
@@ -74,7 +75,12 @@ func open(path string, create, readOnly bool) (*Store, error) {
 		_ = pool.Close()
 		return nil, fmt.Errorf("database foreign keys unavailable")
 	}
-	return &Store{DB: db, SQL: pool, Path: absolute}, nil
+	identity, err := os.Stat(absolute)
+	if err != nil {
+		_ = pool.Close()
+		return nil, err
+	}
+	return &Store{DB: db, SQL: pool, Path: absolute, identity: identity}, nil
 }
 
 func (s *Store) Close() error { return s.SQL.Close() }

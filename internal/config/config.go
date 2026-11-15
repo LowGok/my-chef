@@ -14,6 +14,7 @@ import (
 )
 
 type Config struct {
+	PlanningTiers     bool
 	LifecycleDatabase string
 	Addr              string
 	Database          string
@@ -27,6 +28,13 @@ type Config struct {
 func Load() (Config, error) {
 	c := Config{Addr: os.Getenv("MYCHEF_ADDR"), Database: os.Getenv("MYCHEF_DB"), Origin: os.Getenv("MYCHEF_ORIGIN"), Provider: os.Getenv("MYCHEF_PROVIDER")}
 	c.LifecycleDatabase = os.Getenv("MYCHEF_LIFECYCLE_DB")
+	switch os.Getenv("MYCHEF_PLANNING_TIERS") {
+	case "", "0":
+	case "1":
+		c.PlanningTiers = true
+	default:
+		return c, errors.New("MYCHEF_PLANNING_TIERS must be 0 or 1")
+	}
 	hours := 168
 	if value := os.Getenv("MYCHEF_TRACE_RETENTION_HOURS"); value != "" {
 		n, err := strconv.Atoi(value)

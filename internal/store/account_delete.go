@@ -145,87 +145,19 @@ func (j *LifecycleJournal) deleteAccount(ctx context.Context, userID int64, oper
 	return j.deleteAccountLocked(ctx, userID, operation, now, opts, authorize)
 }
 func (j *LifecycleJournal) deleteAccountLocked(ctx context.Context, userID int64, operation string, now time.Time, opts AccountDeletionOptions, authorize func(*gorm.DB) error) (AccountDeletion, error) {
-	tx := j.app.DB.WithContext(ctx).Begin()
-	if tx.Error != nil {
-		return AccountDeletion{}, ErrAccountDeletion
-	}
-	defer func() { _ = tx.Rollback().Error }()
-	if err := authorize(tx); err != nil {
-		return AccountDeletion{}, err
-	}
-	var user User
-	if err := tx.First(&user, userID).Error; err != nil {
-		return AccountDeletion{}, ErrAccountAccess
-	}
-	var incarnation string
-	if err := tx.Raw("SELECT incarnation FROM account_incarnations WHERE user_id=?", user.ID).Row().Scan(&incarnation); err != nil {
-		return AccountDeletion{}, ErrAccountDeletion
-	}
-	if err := j.captureStoredAssets(ctx, tx, user.ID, incarnation); err != nil {
-		return AccountDeletion{}, ErrAccountDeletion
-	}
-	if opts.Capture != nil {
-		if err := opts.Capture(tx, user, incarnation); err != nil {
-			return AccountDeletion{}, ErrAccountDeletion
-		}
-	}
-	if err := j.PrepareDeletion(ctx, operation, incarnation); err != nil {
-		return AccountDeletion{}, err
-	}
-	// Cancellation must run after rollback and survive an HTTP client disconnect.
-	committed := false
-	defer func() {
-		if !committed {
-			_ = tx.Rollback().Error
+	var progress accountDeletionProgress
+	err := j.app.DB.WithContext(ctx).Connection(func(conn *gorm.DB) error {
+		return j.purgeAccountOnConnection(ctx, conn, userID, operation, now, opts, authorize, &progress)
+	})
+	if err != nil {
+		if progress.prepared && progress.rolledBack {
 			repair, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			_ = j.CancelDeletion(repair, operation)
+			_ = j.cancelRolledBackDeletion(repair, operation)
 		}
-	}()
-	if err := deletionFault(opts, "prepared"); err != nil {
-		return AccountDeletion{}, ErrAccountDeletion
+		return AccountDeletion{}, err
 	}
-	if opts.Cleanup != nil {
-		if err := opts.Cleanup(tx, user); err != nil {
-			return AccountDeletion{}, ErrAccountDeletion
-		}
-	}
-	if err := purgeAccountRows(tx, user.ID, incarnation, opts); err != nil {
-		return AccountDeletion{}, ErrAccountDeletion
-	}
-	notice := "skipped"
-	if user.EmailVerifiedAt != nil && opts.FinalNotice != nil {
-		if err := opts.FinalNotice(tx, user, operation); err != nil {
-			return AccountDeletion{}, ErrAccountDeletion
-		}
-		notice = "queued"
-	}
-	if err := deletionFault(opts, "notice"); err != nil {
-		return AccountDeletion{}, ErrAccountDeletion
-	}
-	result := tx.Where("user_id=?", user.ID).Delete(&User{})
-	if result.Error != nil || result.RowsAffected != 1 {
-		return AccountDeletion{}, ErrAccountDeletion
-	}
-	if err := deletionFault(opts, "user"); err != nil {
-		return AccountDeletion{}, ErrAccountDeletion
-	}
-	if opts.AfterDelete != nil {
-		if err := opts.AfterDelete(tx, user); err != nil {
-			return AccountDeletion{}, err
-		}
-	}
-	if err := tx.Exec("INSERT INTO lifecycle_operations(operation,incarnation,created_ns,notice) VALUES(?,?,?,?)", operation, incarnation, now.UnixNano(), notice).Error; err != nil {
-		return AccountDeletion{}, ErrAccountDeletion
-	}
-	if err := deletionFault(opts, "proof"); err != nil {
-		return AccountDeletion{}, ErrAccountDeletion
-	}
-	if err := tx.Commit().Error; err != nil {
-		return AccountDeletion{}, ErrLifecycleUncertain
-	}
-	committed = true
-	j.CancelAccountWork(incarnation)
+	j.CancelAccountWork(progress.incarnation)
 	if err := deletionFault(opts, "sqlite"); err != nil {
 		return AccountDeletion{}, ErrLifecycleUncertain
 	}
@@ -238,4 +170,101 @@ func (j *LifecycleJournal) deleteAccountLocked(ctx context.Context, userID int64
 		return AccountDeletion{}, ErrLifecycleUncertain
 	}
 	return AccountDeletion{Operation: operation}, nil
+}
+
+type accountDeletionProgress struct {
+	incarnation          string
+	prepared, rolledBack bool
+}
+
+func (j *LifecycleJournal) purgeAccountOnConnection(ctx context.Context, conn *gorm.DB, userID int64, operation string, now time.Time, opts AccountDeletionOptions, authorize func(*gorm.DB) error, progress *accountDeletionProgress) error {
+	conn = conn.Session(&gorm.Session{NewDB: true})
+	if err := authorize(conn); err != nil {
+		return err
+	}
+	if err := conn.Raw("SELECT incarnation FROM account_incarnations WHERE user_id=?", userID).Row().Scan(&progress.incarnation); err != nil {
+		return ErrAccountDeletion
+	}
+	incarnation := progress.incarnation
+	origin, err := j.checkpointDeletionOrigin(ctx, conn, operation, incarnation)
+	if err != nil {
+		return err
+	}
+	tx := conn.Begin().Session(&gorm.Session{NewDB: true})
+	if tx.Error != nil {
+		return ErrAccountDeletion
+	}
+	commitAttempted := false
+	defer func() {
+		if !commitAttempted {
+			progress.rolledBack = tx.Rollback().Error == nil
+		}
+	}()
+	if err := authorize(tx); err != nil {
+		return err
+	}
+	var user User
+	if err := tx.First(&user, userID).Error; err != nil {
+		return ErrAccountAccess
+	}
+	var current string
+	if err := tx.Raw("SELECT incarnation FROM account_incarnations WHERE user_id=?", user.ID).Row().Scan(&current); err != nil || current != incarnation {
+		return ErrAccountDeletion
+	}
+	if err := j.captureStoredAssets(ctx, tx, user.ID, incarnation); err != nil {
+		return ErrAccountDeletion
+	}
+	if opts.Capture != nil {
+		if err := opts.Capture(tx, user, incarnation); err != nil {
+			return ErrAccountDeletion
+		}
+	}
+	if err := j.prepareDeletion(ctx, operation, incarnation, origin); err != nil {
+		return err
+	}
+	progress.prepared = true
+	if err := deletionFault(opts, "prepared"); err != nil {
+		return ErrAccountDeletion
+	}
+	if opts.Cleanup != nil {
+		if err := opts.Cleanup(tx, user); err != nil {
+			return ErrAccountDeletion
+		}
+	}
+	if err := purgeAccountRows(tx, user.ID, incarnation, opts); err != nil {
+		return ErrAccountDeletion
+	}
+	notice := "skipped"
+	if user.EmailVerifiedAt != nil && opts.FinalNotice != nil {
+		if err := opts.FinalNotice(tx, user, operation); err != nil {
+			return ErrAccountDeletion
+		}
+		notice = "queued"
+	}
+	if err := deletionFault(opts, "notice"); err != nil {
+		return ErrAccountDeletion
+	}
+	result := tx.Where("user_id=?", user.ID).Delete(&User{})
+	if result.Error != nil || result.RowsAffected != 1 {
+		return ErrAccountDeletion
+	}
+	if err := deletionFault(opts, "user"); err != nil {
+		return ErrAccountDeletion
+	}
+	if opts.AfterDelete != nil {
+		if err := opts.AfterDelete(tx, user); err != nil {
+			return err
+		}
+	}
+	if err := tx.Exec("INSERT INTO lifecycle_operations(operation,incarnation,created_ns,notice) VALUES(?,?,?,?)", operation, incarnation, now.UnixNano(), notice).Error; err != nil {
+		return ErrAccountDeletion
+	}
+	if err := deletionFault(opts, "proof"); err != nil {
+		return ErrAccountDeletion
+	}
+	commitAttempted = true
+	if err := tx.Commit().Error; err != nil {
+		return ErrLifecycleUncertain
+	}
+	return nil
 }

@@ -1,5 +1,8 @@
 """Seed a disposable verified account through the app's real fixture API."""
 from contextlib import closing
+import base64
+import hashlib
+import hmac
 import http.client
 import json
 import re
@@ -7,7 +10,14 @@ import secrets
 import time
 
 
-def seed(port, origin, capability, username="nativefixture"):
+def fixture_billing_key(capability, store):
+    if not re.fullmatch(r"[A-Za-z0-9_-]{43}", capability) or store not in ("apple", "play"):
+        raise ValueError("Expected a disposable store fixture")
+    seed_key = hashlib.sha256(base64.urlsafe_b64decode(capability + "=")).digest()
+    return hmac.digest(seed_key, b"mychef/billing/fixture/v1\x00proof/" + store.encode(), "sha256")
+
+
+def seed(port, origin, capability, username="nativefixture", *, premium=True):
     if port != 18137 or not re.fullmatch(r"[a-z][a-z0-9]{3,24}", username):
         raise ValueError("Expected an owned loopback fixture and a synthetic username")
     if origin != "https://localhost:8977":
@@ -54,6 +64,9 @@ def seed(port, origin, capability, username="nativefixture"):
     status, user, _ = call("POST", "login", {"email": profile["email"], "password": password}, auth)
     if status != 200 or not user.get("user"):
         raise RuntimeError("Verified fixture account could not sign in")
+    credentials = {"email": profile["email"], "password": password}
+    if not premium:
+        return credentials
     account = user["user"]
     route = "fixture/personal-recipes/entitlement"
     status, lease, _ = call("GET", route, headers=fixture)
@@ -63,4 +76,4 @@ def seed(port, origin, capability, username="nativefixture"):
     if call("POST", route, dict(accountId=account["id"], accountInstance=account["accountInstance"],
                                 state="premium", generation=generation, operationId=secrets.token_hex(16)), fixture)[0] != 204:
         raise RuntimeError("Fixture Premium access could not be granted")
-    return {"email": profile["email"], "password": password}
+    return credentials

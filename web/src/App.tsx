@@ -6,6 +6,9 @@ import {
   nativeProofEvent,
   nativeBackEvent,
   nativeResumeEvent,
+  nativePurchaseEvent,
+  nativeStoreForegroundEvent,
+  nativeStoreReachable,
 } from "./native-runtime";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
@@ -21,11 +24,13 @@ refreshAnalyticsPreference,
   isStale,
   sessionEpoch,
   sessionHasAccount,
+  personalAccountReady,
   SESSION_LOST,
   message,
   type Menu,
   type MenuInput,
   type Operation,
+  type PlanningStatus,
   type Profile,
   type Recipe,
   type RecipePage,
@@ -48,6 +53,7 @@ import {
 } from "./components";
 import { addDays, dateLabel, monday, today } from "./dates";
 import { Planner } from "./Planner";
+import { confirmedCalendar, PlanningZoneForm } from "./PlanningZone";
 import { PasswordRecovery, readRecoveryProof } from "./PasswordRecovery";
 import { Favorites, QueuedFavorites } from "./Favorites";
 import { RecipeCard, RecipeDetail } from "./Recipes";
@@ -69,6 +75,10 @@ import {
   shoppingLogoutIntentKey,
 } from "./shopping-cache";
 import { Shopping, BackgroundShoppingSync } from "./Shopping";
+import {
+  billingVerifiedEvent,
+  nativeBillingFlow,
+} from "./native-billing-client";
 import { validDate } from "./validation";
 
 const readProofEntry = () =>
@@ -81,7 +91,10 @@ function pushAppHistory(url: string) {
   history.pushState(state, "", url);
 }
 
-type Pending = { key: string; input: MenuInput; id?: string };
+type Pending = { key: string; id?: string } & (
+  | { input: MenuInput; correction?: never }
+  | { input?: never; correction: { recipeId: string; date: string } }
+);
 export function App() {
   const [favoriteRevision, setFavoriteRevision] = useState(0);
   const [verificationRequired, setVerificationRequired] = useState(false);
@@ -134,6 +147,136 @@ export function App() {
     [reload, setReload] = useState(0),
     [imagePolls, setImagePolls] = useState(0);
   const [planningInput, setPlanningInput] = useState<MenuInput | null>(null);
+  const [planningStatus, setPlanningStatus] = useState<
+    PlanningStatus | null | undefined
+  >(undefined);
+  const [calendarError, setCalendarError] = useState("");
+  const [refreshCalendar, setRefreshCalendar] = useState(0);
+  const calendarRead = useRef(0);
+  const calendar = confirmedCalendar(planningStatus);
+  const canBrowse = offlineOnly || planningStatus === null || !!calendar;
+
+  const billingEpoch = sessionEpoch();
+  useEffect(() => {
+    if (
+      !isNativeTransport() ||
+      !user ||
+      offlineOnly ||
+      proofEntry ||
+      verificationRequired ||
+      !personalAccountReady()
+    )
+      return;
+    const flow = nativeBillingFlow();
+    if (!flow) return;
+    let current = true;
+    let checking = false;
+    let again = false;
+    const check = async () => {
+      if (
+        !current ||
+        !nativeStoreReachable() ||
+        sessionEpoch() !== billingEpoch ||
+        !personalAccountReady() ||
+        signedOut()
+      )
+        return;
+      if (checking) {
+        again = true;
+        return;
+      }
+      checking = true;
+      try {
+        if (
+          (await flow.discover()) === "verified" &&
+          current &&
+          sessionEpoch() === billingEpoch
+        ) {
+          window.dispatchEvent(new Event(billingVerifiedEvent));
+        }
+      } catch {
+        // No purchase is assumed complete. The next foreground or explicit
+        // restore can retry after the store or private server is reachable.
+      } finally {
+        checking = false;
+        if (again) {
+          again = false;
+          void check();
+        }
+      }
+    };
+    const wake = () => void check();
+    const verified = () => {
+      if (current && sessionEpoch() === billingEpoch && personalAccountReady())
+        setRefreshCalendar((revision) => revision + 1);
+    };
+    window.addEventListener(billingVerifiedEvent, verified);
+    window.addEventListener(nativeStoreForegroundEvent, wake);
+    window.addEventListener(nativePurchaseEvent, wake);
+    wake();
+    return () => {
+      current = false;
+      window.removeEventListener(billingVerifiedEvent, verified);
+      window.removeEventListener(nativeStoreForegroundEvent, wake);
+      window.removeEventListener(nativePurchaseEvent, wake);
+    };
+  }, [
+    billingEpoch,
+    user?.id,
+    user?.accountInstance,
+    offlineOnly,
+    proofEntry,
+    verificationRequired,
+  ]);
+
+  useEffect(() => {
+    if (!user || offlineOnly) return;
+    let active = true;
+    const owner = user.id;
+    const started = sessionEpoch();
+    const loadCalendar = async () => {
+      const read = ++calendarRead.current;
+      const current = () =>
+        active &&
+        activeAccount.current?.id === owner &&
+        started === sessionEpoch() &&
+        read === calendarRead.current;
+      try {
+        const value = await api<PlanningStatus>("/planning");
+        if (current()) {
+          setPlanningStatus(value);
+          setCalendarError("");
+        }
+      } catch (err) {
+        if (!current() || isStale(err)) return;
+        if (err instanceof APIError && err.status === 404) {
+          setPlanningStatus(null);
+          setCalendarError("");
+        } else {
+          setCalendarError(message(err));
+        }
+      }
+    };
+    void loadCalendar();
+    const timer = setInterval(loadCalendar, 60_000);
+    window.addEventListener("focus", loadCalendar);
+    window.addEventListener("online", loadCalendar);
+    window.addEventListener(nativeResumeEvent, loadCalendar);
+    return () => {
+      active = false;
+      clearInterval(timer);
+      window.removeEventListener("focus", loadCalendar);
+      window.removeEventListener("online", loadCalendar);
+      window.removeEventListener(nativeResumeEvent, loadCalendar);
+    };
+  }, [user?.id, user?.accountInstance, offlineOnly, refreshCalendar]);
+
+  function acceptCalendar(value: PlanningStatus) {
+    ++calendarRead.current;
+    setPlanningStatus(value);
+    setCalendarError("");
+    setReload((v) => v + 1);
+  }
   const signOutDialog = useRef<HTMLDialogElement>(null);
   const draftBackDialog = useRef<HTMLDialogElement>(null);
   useEffect(() => {
@@ -177,9 +320,17 @@ export function App() {
     window.addEventListener("storage", onSignIn);
     return () => window.removeEventListener("storage", onSignIn);
   }, [recoveryView]);
-  const week = validDate(search.get("week") ?? "")
-      ? search.get("week")!
-      : monday(today()),
+  const requestedWeek = search.get("week") ?? "";
+  const defaultWeek =
+    !offlineOnly && calendar ? calendar.firstWeek : monday(today());
+  const week = validDate(requestedWeek)
+      ? !offlineOnly && calendar
+        ? monday(requestedWeek) >= calendar.firstWeek &&
+          monday(requestedWeek) <= calendar.lastWeek
+          ? monday(requestedWeek)
+          : defaultWeek
+        : requestedWeek
+      : defaultWeek,
     shoppingView = search.get("view") === "shopping",
     feedbackView = search.get("view") === "feedback",
     personalView = search.get("view") === "my-recipes",
@@ -306,6 +457,9 @@ export function App() {
     setPending(null);
     setPlanning(false);
     setPlanningInput(null);
+    ++calendarRead.current;
+    setPlanningStatus(undefined);
+    setCalendarError("");
     setNextOffset(null);
     resumed.current = "";
     sending.current = false;
@@ -621,16 +775,22 @@ document.removeEventListener("visibilitychange",resumeAnalytics);
     setPollPaused(false);
     setError("");
     setPlanning(false);
+    if (!value.id) setOperation(null);
     setPending(value);
     sessionStorage.setItem(key, JSON.stringify(value));
     try {
       const op = value.id
         ? await api<Operation>(`/generations/${encodeURIComponent(value.id)}`)
-        : await api<Operation>("/generations", {
-            method: "POST",
-            headers: { "Idempotency-Key": value.key },
-            body: JSON.stringify(value.input),
-          });
+        : await api<Operation>(
+            value.correction
+              ? `/recipes/${encodeURIComponent(value.correction.recipeId)}/correction`
+              : "/generations",
+            {
+              method: "POST",
+              headers: { "Idempotency-Key": value.key },
+              body: JSON.stringify(value.input ?? {}),
+            },
+          );
       if (started !== sessionEpoch()) return;
       setOperation(op);
       setPlanningInput(null);
@@ -641,6 +801,7 @@ document.removeEventListener("visibilitychange",resumeAnalytics);
     } catch (err) {
       if (started === sessionEpoch() && !isStale(err)) {
         if (
+          value.input &&
           err instanceof APIError &&
           ["menu_exists", "favorite_conflict", "favorite_input"].includes(
             err.code,
@@ -648,6 +809,15 @@ document.removeEventListener("visibilitychange",resumeAnalytics);
         ) {
           reviewChangedWeek(value.input);
           return;
+        }
+        if (
+          value.correction &&
+          err instanceof APIError &&
+          [400, 404, 409].includes(err.status)
+        ) {
+          sessionStorage.removeItem(key);
+          setPending(null);
+          setOperation(null);
         }
         setError(message(err));
         setPollPaused(true);
@@ -666,7 +836,14 @@ document.removeEventListener("visibilitychange",resumeAnalytics);
       const saved = sessionStorage.getItem(key);
       if (saved) {
         const value = JSON.parse(saved) as Pending;
-        if (value.input && value.key) void submitPending(value);
+        if (
+          value.key &&
+          (value.input ||
+            (value.correction &&
+              /^[1-9][0-9]{0,18}$/.test(value.correction.recipeId) &&
+              validDate(value.correction.date)))
+        )
+          void submitPending(value);
       }
     } catch {
       sessionStorage.removeItem(key);
@@ -684,16 +861,23 @@ document.removeEventListener("visibilitychange",resumeAnalytics);
         if (value.status === "succeeded" && value.menuId) {
           sessionStorage.removeItem(key);
           setPending(null);
+          const date = pending?.correction?.date ?? pending?.input?.dates[0];
+          if (calendar || pending?.correction) setReload((v) => v + 1);
           navigate({
-            menu: value.menuId,
-            week: pending?.input.dates[0]
-              ? monday(pending.input.dates[0])
-              : week,
+            menu: pending?.correction || calendar ? undefined : value.menuId,
+            week: date ? monday(date) : week,
           });
           return;
         }
         if (value.status === "failed") {
-          if (value.errorCode === "menu_exists" && pending)
+          if (pending?.correction) {
+            sessionStorage.removeItem(key);
+            setPending(null);
+            setOperation(null);
+            setError(
+              value.errorMessage ?? "The dinner could not be corrected.",
+            );
+          } else if (value.errorCode === "menu_exists" && pending?.input)
             reviewChangedWeek(pending.input);
           return;
         }
@@ -712,7 +896,8 @@ document.removeEventListener("visibilitychange",resumeAnalytics);
     };
   }, [user?.id, operation?.id, pollEpoch]);
   useEffect(() => {
-    if (!user || offlineOnly || profileView || shoppingView) return;
+    if (!user || offlineOnly || !canBrowse || profileView || shoppingView)
+      return;
     let active = true;
     setLoading(true);
     setError("");
@@ -751,7 +936,7 @@ document.removeEventListener("visibilitychange",resumeAnalytics);
     return () => {
       active = false;
     };
-  }, [user?.id, search.toString(), reload]);
+  }, [user?.id, search.toString(), week, canBrowse, reload]);
   useEffect(() => {
     if (
       !user ||
@@ -1100,6 +1285,14 @@ document.removeEventListener("visibilitychange",resumeAnalytics);
                   onDeleted={deletedAccount}
                   onLogout={() => void logout()}
                   onFeedback={() => navigate({ view: "feedback", week })}
+                  planningSettings={
+                    planningStatus && (
+                      <PlanningZoneForm
+                        zone={planningStatus.zone}
+                        onSaved={acceptCalendar}
+                      />
+                    )
+                  }
                   personalRecipes={
                     <MyRecipesSection
                       onOpen={() => navigate({ view: "my-recipes", week })}
@@ -1107,6 +1300,8 @@ document.removeEventListener("visibilitychange",resumeAnalytics);
                   }
                   favorites={
                     <Favorites
+                      calendar={calendar}
+                      canPlan={canBrowse}
                       key={`${user.id}/${favoriteRevision}`}
                       onOpen={(r) =>
                         navigate({ recipe: r.id, return: "profile", week })
@@ -1120,16 +1315,46 @@ document.removeEventListener("visibilitychange",resumeAnalytics);
                 />
               </div>
             )}
-          {shoppingView ? (
+          {!profileView && !canBrowse ? (
+            <section className="panel">
+              {!planningStatus ? (
+                calendarError ? (
+                  <>
+                    <Alert>{calendarError}</Alert>
+                    <button
+                      className="button secondary"
+                      onClick={() => setRefreshCalendar((n) => n + 1)}
+                    >
+                      Retry loading calendar
+                    </button>
+                  </>
+                ) : (
+                  <p role="status">Loading your planning calendar…</p>
+                )
+              ) : (
+                <>
+                  <h2>Confirm your household time zone</h2>
+                  <PlanningZoneForm
+                    zone={planningStatus.zone}
+                    onSaved={acceptCalendar}
+                  />
+                </>
+              )}
+            </section>
+          ) : shoppingView ? (
             <Shopping
               key={`${user.id}/${user.accountInstance}/${week}`}
               profile={user}
               offlineOnly={offlineOnly}
+              firstWeek={offlineOnly ? undefined : calendar?.firstWeek}
+              lastWeek={offlineOnly ? undefined : calendar?.lastWeek}
               week={week}
               onWeek={(next) => navigate({ view: "shopping", week: next })}
             />
           ) : personalView && !offlineOnly ? (
             <PersonalRecipes
+              calendar={calendar}
+              canPlan={canBrowse}
               key={`${user.id}/${sessionEpoch()}/${viewEpoch.current}`}
               copySource={search.get("copy") ?? undefined}
               onCopyResolved={() => {
@@ -1183,6 +1408,49 @@ document.removeEventListener("visibilitychange",resumeAnalytics);
                     navigate({ view: "my-recipes", copy: detail.id, week })
                   }
                 />
+              }
+              correctionAction={
+                calendar &&
+                /^[1-9][0-9]{0,18}$/.test(detail.id) &&
+                validDate(detail.date) &&
+                monday(detail.date) >= calendar.firstWeek &&
+                monday(detail.date) <= calendar.lastWeek && (
+                  <div className="recipe-report">
+                    <p className="muted">
+                      If this dinner has a verified issue or conflicts with your
+                      saved exclusions, MyChef can replace it without using a
+                      regular replacement.
+                    </p>
+                    {pending?.correction?.recipeId === detail.id ? (
+                      working ? (
+                        <p role="status">Checking your dinner…</p>
+                      ) : (
+                        <button
+                          className="text-button"
+                          onClick={() => void submitPending(pending)}
+                        >
+                          Check request status
+                        </button>
+                      )
+                    ) : (
+                      <button
+                        className="text-button"
+                        disabled={working || !!pending}
+                        onClick={() =>
+                          void submitPending({
+                            key: crypto.randomUUID(),
+                            correction: {
+                              recipeId: detail.id,
+                              date: detail.date,
+                            },
+                          })
+                        }
+                      >
+                        Check for a correction
+                      </button>
+                    )}
+                  </div>
+                )
               }
               onReport={() =>
                 navigate({
@@ -1301,6 +1569,9 @@ document.removeEventListener("visibilitychange",resumeAnalytics);
               )}
               {planning && (
                 <Planner
+                  key={week + "/" + String(calendar?.premium)}
+                  calendar={calendar}
+                  week={week}
                   preferences={user.preferences}
                   initialInput={planningInput}
                   onCancel={() => setPlanning(false)}
@@ -1328,6 +1599,7 @@ document.removeEventListener("visibilitychange",resumeAnalytics);
                   <div className="week-picker">
                     <button
                       aria-label="Previous week"
+                      disabled={!!calendar && week <= calendar.firstWeek}
                       onClick={() => navigate({ week: addDays(week, -7) })}
                     >
                       ←
@@ -1336,6 +1608,10 @@ document.removeEventListener("visibilitychange",resumeAnalytics);
                       <input
                         type="date"
                         value={week}
+                        min={calendar?.firstWeek}
+                        max={
+                          calendar ? addDays(calendar.lastWeek, 6) : undefined
+                        }
                         onChange={(e) => {
                           if (validDate(e.target.value))
                             navigate({ week: monday(e.target.value) });
@@ -1344,6 +1620,7 @@ document.removeEventListener("visibilitychange",resumeAnalytics);
                     </Field>
                     <button
                       aria-label="Next week"
+                      disabled={!!calendar && week >= calendar.lastWeek}
                       onClick={() => navigate({ week: addDays(week, 7) })}
                     >
                       →
@@ -1365,6 +1642,13 @@ document.removeEventListener("visibilitychange",resumeAnalytics);
                         <RecipeCard
                           key={recipe.id}
                           recipe={recipe}
+                          todayHighlight={
+                            calendar
+                              ? calendar.premium
+                                ? calendar.today
+                                : null
+                              : undefined
+                          }
                           onOpen={() =>
                             navigate({
                               recipe: recipe.id,
@@ -1411,9 +1695,7 @@ document.removeEventListener("visibilitychange",resumeAnalytics);
               </section>
             </>
           )}
-          <footer className="app-footer">
-            
-          </footer>
+          <footer className="app-footer"></footer>
         </main>
       </div>
     </>

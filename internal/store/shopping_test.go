@@ -4,7 +4,12 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"slices"
+	"sync/atomic"
 	"testing"
+	"time"
+
+	"gorm.io/gorm"
 
 	"github.com/LowGok/my-chef/internal/domain"
 	"github.com/LowGok/my-chef/migrations"
@@ -233,5 +238,85 @@ func TestShoppingFollowsRealWeeklyReplacement(t *testing.T) {
 	unchanged, err := s.Shopping(ctx, 1, other.Week)
 	if err != nil || unchanged.Revision != other.Revision {
 		t.Fatal("replacement changed another week")
+	}
+}
+
+func TestShoppingDowngradeAppliesOnlyChecksAndRetainsCustomChoices(t *testing.T) {
+	s := shoppingStore(t)
+	ctx := t.Context()
+	const week = "2026-11-02"
+	shoppingMeal(t, s, 1, week, "carrot", "100")
+	shoppingMeal(t, s, 1, "2026-11-04", "leek", "50")
+	var premium atomic.Bool
+	premium.Store(true)
+	policy := &PlanningPolicy{
+		Now:           func() time.Time { return time.Date(2026, 11, 6, 12, 0, 0, 0, time.UTC) },
+		HouseholdZone: func(context.Context, *gorm.DB, int64) (string, error) { return "Europe/Brussels", nil },
+		Entitlements: func(context.Context, *gorm.DB, int64, string) (PersonalEntitlement, error) {
+			return PersonalEntitlement{Premium: premium.Load()}, nil
+		},
+	}
+	read := func() domain.ShoppingList {
+		t.Helper()
+		list, err := s.ShoppingForPlan(ctx, 1, week, policy)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return list
+	}
+	save := func(in domain.ShoppingList) domain.ShoppingList {
+		t.Helper()
+		list, err := s.SaveShoppingForPlan(ctx, 1, week, in, policy)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return list
+	}
+	index := func(list domain.ShoppingList, name string) int {
+		return slices.IndexFunc(list.Items, func(item domain.ShoppingItem) bool { return item.Name == name })
+	}
+	before := read()
+	before.Meals[1].Selected = false
+	before.Items = append(before.Items, domain.ShoppingItem{ID: "retained-extra", Name: "Dish soap", Manual: true, State: "buy"})
+	saved := save(before)
+	if index(saved, "leek") >= 0 || saved.Meals[1].Selected {
+		t.Fatal("Premium could not exclude a dinner")
+	}
+
+	premium.Store(false)
+	free := read()
+	if !free.CustomizationLocked || !free.Meals[1].Selected || index(free, "leek") < 0 || index(free, "Dish soap") < 0 {
+		t.Fatal("Free view did not restore all week ingredients while keeping extras", free)
+	}
+	if _, err := s.SaveShoppingForPlan(ctx, 1, week, saved, policy); !errors.Is(err, ErrShoppingConflict) {
+		t.Fatal("offline snapshot bypassed the new scope", err)
+	}
+	free.Meals[1].Selected = false
+	free.Items[index(free, "Dish soap")].State = "basket"
+	free.Items[index(free, "carrot")].State = "home"
+	free.Items[index(free, "leek")].State = "basket"
+	free.Items = append(free.Items, domain.ShoppingItem{ID: "unapproved-extra", Name: "New extra", Manual: true, State: "buy"})
+	out := save(free)
+	if !slices.Equal(out.BlockedChanges, []string{"extras", "meals"}) || !out.Meals[1].Selected || index(out, "New extra") >= 0 ||
+		out.Items[index(out, "Dish soap")].State != "basket" ||
+		out.Items[index(out, "carrot")].State != "home" ||
+		out.Items[index(out, "leek")].State != "basket" {
+		t.Fatal("a forbidden edit was applied or a valid check-off was lost", out)
+	}
+	out = read()
+	if out.Items[index(out, "leek")].State != "basket" {
+		t.Fatal("a confirmed check-off did not survive another read")
+	}
+	premium.Store(true)
+	restored := read()
+	if restored.CustomizationLocked || restored.Meals[1].Selected || index(restored, "leek") >= 0 ||
+		restored.Items[index(restored, "Dish soap")].State != "basket" ||
+		restored.Items[index(restored, "carrot")].State != "home" {
+		t.Fatal("original Premium choices or shared check-offs were lost", restored)
+	}
+	premium.Store(false)
+	again := read()
+	if again.Items[index(again, "leek")].State != "basket" {
+		t.Fatal("full-week-only checks were not retained across the tier change")
 	}
 }

@@ -138,6 +138,16 @@ test("the installed simulator links fixture entitlements without enabling device
   expect(() => compilePlan("android", false, entitlements)).toThrow();
 });
 
+test("the billing simulator build switch cannot enable a device or an ordinary build", () => {
+  const path = "/tmp/mychef-sim/keychain.plist";
+  const run = compilePlan("ios-simulator", false, path, true);
+  expect(run.join(" ")).toContain("SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) MYCHEF_BILLING_SIMULATOR");
+  expect(compilePlan("ios-simulator", false, path).join(" ")).not.toContain("MYCHEF_BILLING_SIMULATOR");
+  expect(() => compilePlan("ios-simulator", false, undefined, true)).toThrow();
+  expect(() => compilePlan("ios-device", false, undefined, true)).toThrow();
+  expect(() => compilePlan("android", false, undefined, true)).toThrow();
+});
+
 test("the next private candidate uses build 2 on every native platform", () => {
   for (const platform of ["ios-device", "ios-simulator"] as const) {
     const plan = compilePlan(platform, false);
@@ -208,5 +218,46 @@ test("copied assets must match all reviewed bytes and contain only the two empty
     await expect(verifyCopiedNativeAssets(root, inventory)).rejects.toThrow();
   } finally {
     await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("subscription fixture compilation is bound to its own public PR and simulator platforms", () => {
+  const event = {
+    action: "labeled",
+    number: 41,
+    sender: { login: "LowGok" },
+    label: { name: "native-subscription-fixture" },
+    repository: { id: 1454481532, full_name: "LowGok/my-chef", private: false },
+    pull_request: {
+      number: 41,
+      head: {
+        sha: "d".repeat(40),
+        ref: "feat/subscription-billing",
+        repo: { id: 1454481532, full_name: "LowGok/my-chef" },
+      },
+      base: { ref: "main" },
+    },
+  };
+  const input = (value: unknown, platform = "android", configuredPR = "41") =>
+    compileInputs(value, platform, "41", "41", configuredPR);
+  for (const platform of ["android", "ios-simulator"] as const) {
+    expect(input(event, platform)).toEqual({ platform, commit: "d".repeat(40), installed: true });
+  }
+  expect(() => input(event, "ios-device")).toThrow();
+  expect(() => input(event, "android", "")).toThrow();
+  expect(() => input(event, "android", "42")).toThrow();
+  for (const changed of [
+    { ...event, action: "synchronize" },
+    { ...event, sender: { login: "another-owner" } },
+    { ...event, label: { name: "native-installed" } },
+    { ...event, label: { name: "native-reminder-fixture" } },
+    { ...event, label: { name: "native-iphone-archive" } },
+    { ...event, repository: { ...event.repository, private: true } },
+    { ...event, pull_request: { ...event.pull_request, number: 42 } },
+    { ...event, pull_request: { ...event.pull_request, base: { ref: "other" } } },
+    { ...event, pull_request: { ...event.pull_request, head: { ...event.pull_request.head, sha: "main" } } },
+    { ...event, pull_request: { ...event.pull_request, head: { ...event.pull_request.head, repo: { id: 1, full_name: "fork/my-chef" } } } },
+  ]) {
+    expect(() => input(changed)).toThrow();
   }
 });

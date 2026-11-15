@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/LowGok/my-chef/internal/auth"
+	"github.com/LowGok/my-chef/internal/billing"
 	"github.com/LowGok/my-chef/internal/email/mailqueue"
 	"github.com/LowGok/my-chef/internal/store"
 	"gorm.io/gorm"
@@ -114,6 +115,10 @@ func (a *API) exportAccount(w http.ResponseWriter, r *http.Request) {
 		}
 		return reader.ReadPersonalPhoto(ctx, asset.Target, asset.Digest)
 	}}
+	if cfg := a.Config.NativeBilling; cfg != nil {
+		options.Billing = a.Config.Lifecycle
+		options.BillingEnvironment = cfg.Environment
+	}
 	if err := a.Store.WriteAccountExport(r.Context(), actor, writer, time.Now().UTC(), options); err != nil {
 		if writer.started {
 			// Do not complete a clean HTTP transfer of an incomplete archive.
@@ -123,6 +128,29 @@ func (a *API) exportAccount(w http.ResponseWriter, r *http.Request) {
 		w.Header().Del("Content-Disposition")
 		a.accountActionError(w, r, err)
 	}
+}
+
+func (a *API) accountDeletionAdvice(w http.ResponseWriter, r *http.Request) {
+	if !a.personalNoQuery(w, r) {
+		return
+	}
+	w.Header().Set("Cache-Control", "private, no-store")
+	stores := []billing.Store{}
+	user := *info(r).Session.UserID
+	w.Header().Set("X-MyChef-User", strconv.FormatInt(user, 10))
+	if cfg := a.Config.NativeBilling; cfg != nil {
+		if a.Config.Lifecycle == nil {
+			a.billingError(w, r, billing.ErrStoreUnavailable)
+			return
+		}
+		var err error
+		stores, err = a.Config.Lifecycle.BillingDeletionStores(r.Context(), user, cfg.Environment, time.Now().UTC())
+		if err != nil {
+			a.accountActionError(w, r, err)
+			return
+		}
+	}
+	a.write(w, http.StatusOK, map[string][]billing.Store{"stores": stores})
 }
 func (a *API) deleteAccount(w http.ResponseWriter, r *http.Request) {
 	var input struct {
