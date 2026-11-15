@@ -130,3 +130,103 @@ func TestPlaySignupReleasesOnlyKnownProviderCancelledPurchase(t *testing.T) {
 		})
 	}
 }
+
+func TestPlayKnownPendingRecoversWithoutNotification(t *testing.T) {
+	for _, state := range []string{"SUBSCRIPTION_STATE_ACTIVE", "SUBSCRIPTION_STATE_PENDING_PURCHASE_CANCELED"} {
+		t.Run(state, func(t *testing.T) {
+			db, journal, now := fixture(t)
+			ctx := t.Context()
+			attempt, err := journal.Reserve(ctx, owner, Sandbox, Play, Monthly, now)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := journal.Launch(ctx, attempt, now); err != nil {
+				t.Fatal(err)
+			}
+			const app, product = "com.example.fixture", "premium"
+			const token, order = "offline-pending-recovery-token", "GPA.1111-2222-3333-44444"
+			currentState := "SUBSCRIPTION_STATE_PENDING"
+			clock := now
+			start, end := now.Add(time.Minute), now.AddDate(0, 1, 0)
+			provider, err := NewPlayProvider(PlayConfig{Package: app, Product: product, MonthlyBasePlan: "monthly", AnnualBasePlan: "annual", Environment: Sandbox,
+				AccessToken: func(context.Context) (string, error) { return "offline-fixture-access", nil }}, &http.Client{Transport: playTestTransport(func(r *http.Request) (*http.Response, error) {
+				switch r.URL.Path {
+				case "/androidpublisher/v3/applications/" + app + "/purchases/subscriptionsv2/tokens/" + token:
+					extra := ""
+					if currentState == "SUBSCRIPTION_STATE_ACTIVE" {
+						extra = fmt.Sprintf(`,"latestSuccessfulOrderId":%q,"expiryTime":%q,"offerPhase":{"basePrice":{}}`, order, end.Format(time.RFC3339))
+					}
+					return playTestReply(200, fmt.Sprintf(`{"kind":"androidpublisher#subscriptionPurchaseV2","regionCode":"BE","subscriptionState":%q,"testPurchase":{},
+ "externalAccountIdentifiers":{"obfuscatedExternalAccountId":%q},"lineItems":[{"productId":"premium","autoRenewingPlan":{},"offerDetails":{"basePlanId":"monthly"}%s}]}`,
+						currentState, attempt.Binding, extra)), nil
+				case "/androidpublisher/v3/applications/" + app + "/orders/" + order:
+					return playTestReply(200, fmt.Sprintf(`{"orderId":%q,"purchaseToken":%q,"state":"PROCESSED","total":{"currencyCode":"EUR","units":"6","nanos":990000000},
+ "lineItems":[{"productId":"premium","total":{"currencyCode":"EUR","units":"6","nanos":990000000},"subscriptionDetails":{"basePlanId":"monthly","offerPhaseDetails":{"baseDetails":{}},"servicePeriodStartTime":%q,"servicePeriodEndTime":%q}}]}`,
+						order, token, start.Format(time.RFC3339), end.Format(time.RFC3339))), nil
+				default:
+					t.Fatalf("unexpected Play lookup: %s", r.URL.Path)
+					return nil, ErrStoreUnavailable
+				}
+			})}, func() time.Time { return clock })
+			if err != nil {
+				t.Fatal(err)
+			}
+			offer := Offer{Store: Play, Environment: Sandbox, App: app, Product: product, BasePlan: "monthly", Interval: Monthly}
+			key := bytes.Repeat([]byte{2}, 32)
+			inbox, err := NewPlayInbox(journal, Sandbox, []Offer{offer}, provider, key)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result, err := inbox.ReconcileCheckout(ctx, owner, attempt, offer, token, nil); err != nil || result.CompleteStoreTransaction {
+				t.Fatalf("could not journal pending purchase without acknowledging: %+v, %v", result, err)
+			}
+			var ciphertext []byte
+			if err := db.QueryRowContext(ctx, `SELECT ciphertext FROM billing_play_polls WHERE binding=?`, attempt.Binding).Scan(&ciphertext); err != nil || bytes.Contains(ciphertext, []byte(token)) {
+				t.Fatal("no encrypted retry reference", err)
+			}
+			journal, err = StartRuntime(ctx, db)
+			if err != nil {
+				t.Fatal(err)
+			}
+			inbox, err = NewPlayInbox(journal, Sandbox, []Offer{offer}, provider, key)
+			if err != nil {
+				t.Fatal(err)
+			}
+			clock = now.Add(time.Hour)
+			currentState = state
+			var acks int
+			worker := PlayReconciler{Inbox: inbox, Now: func() time.Time { return clock }, WithLiveOwner: func(_ context.Context, found string, commit func() error) error {
+				if found != owner {
+					t.Fatal("incorrect live owner")
+				}
+				return commit()
+			}, Acknowledge: func(ctx context.Context, value, binding string) error {
+				acks++
+				period, err := journal.Active(ctx, owner, Sandbox, clock)
+				if value != token || binding != attempt.Binding || err != nil || period == nil || period.Transaction != order {
+					t.Fatalf("acknowledged before correct durable grant: %v", err)
+				}
+				return nil
+			}}
+			if batch, err := worker.PollKnown(ctx); err != nil || batch.Processed != 1 || batch.Failed != 0 {
+				t.Fatalf("pending purchase was not recovered from the retry worker: %+v, %v", batch, err)
+			}
+			if state == "SUBSCRIPTION_STATE_ACTIVE" {
+				if acks != 1 {
+					t.Fatalf("paid purchase acknowledgements: %d", acks)
+				}
+			} else {
+				if acks != 0 {
+					t.Fatal("acknowledged a cancelled purchase")
+				}
+				if _, err := journal.Reserve(ctx, owner, Sandbox, Apple, Annual, clock); err != nil {
+					t.Fatal("did not reopen checkout", err)
+				}
+				var count int
+				if err := db.QueryRowContext(ctx, `SELECT count(*) FROM billing_play_polls WHERE binding=?`, attempt.Binding).Scan(&count); err != nil || count != 0 {
+					t.Fatal("retained the encrypted token after terminal cancellation", err)
+				}
+			}
+		})
+	}
+}

@@ -53,7 +53,7 @@ func (i *PlayInbox) ReconcileCheckout(ctx context.Context, owner string, attempt
 	if pending.binding != attempt.Binding || pending.offer != offer {
 		return CheckoutResult{}, ErrPurchaseBinding
 	}
-	commit := func() error { return i.retainSignup(ctx, pending, token, owner) }
+	commit := func() error { return i.retainSignup(ctx, pending, token, owner, nil) }
 	if fence != nil {
 		return CheckoutResult{}, fence(commit)
 	}
@@ -87,33 +87,37 @@ func (i *PlayInbox) remember(token string) journalPeriodHook {
 			p.Subscription != playTokenDigest(token) {
 			return ErrPurchaseBinding
 		}
-		// This row also references the existing binding and rolls back if any
-		// subsequent entitlement validation or write fails.
-		raw := []byte(token)
-		encrypted := i.seal.Seal(nil, nil, raw, i.pollContext(p.Binding, p.Subscription))
-		clear(raw)
-		res, err := tx.ExecContext(ctx, `INSERT INTO billing_play_polls(environment,binding,token_digest,ciphertext,due_ns)
+		return i.savePoll(ctx, tx, p.Binding, p.Subscription, token, p.ObservedAt)
+	}
+}
+
+func (i *PlayInbox) savePoll(ctx context.Context, tx *sql.Tx, binding, digest, token string, observed time.Time) error {
+	// Keep the token in the independent encrypted journal. A failed write
+	// also rolls back purchase state captured by the calling transaction.
+	raw := []byte(token)
+	encrypted := i.seal.Seal(nil, nil, raw, i.pollContext(binding, digest))
+	clear(raw)
+	res, err := tx.ExecContext(ctx, `INSERT INTO billing_play_polls(environment,binding,token_digest,ciphertext,due_ns)
  VALUES(?,?,?,?,?) ON CONFLICT(environment,binding) DO NOTHING`,
-			i.env, p.Binding, p.Subscription, encrypted, timeNS(p.ObservedAt.Add(playPollInterval)))
-		if err != nil {
-			return err
-		}
-		written, err := res.RowsAffected()
-		if err != nil || written == 1 {
-			return err
-		}
-		var digest string
-		var saved []byte
-		if err := tx.QueryRowContext(ctx, `SELECT token_digest,ciphertext FROM billing_play_polls
- WHERE environment=? AND binding=?`, i.env, p.Binding).Scan(&digest, &saved); err != nil {
-			return err
-		}
-		if digest != p.Subscription {
-			return ErrPurchaseBinding
-		}
-		_, err = i.openPoll(playPoll{binding: p.Binding, digest: digest, ciphertext: saved})
+		i.env, binding, digest, encrypted, timeNS(observed.Add(playPollInterval)))
+	if err != nil {
 		return err
 	}
+	written, err := res.RowsAffected()
+	if err != nil || written == 1 {
+		return err
+	}
+	var savedDigest string
+	var saved []byte
+	if err := tx.QueryRowContext(ctx, `SELECT token_digest,ciphertext FROM billing_play_polls
+ WHERE environment=? AND binding=?`, i.env, binding).Scan(&savedDigest, &saved); err != nil {
+		return err
+	}
+	if savedDigest != digest {
+		return ErrPurchaseBinding
+	}
+	_, err = i.openPoll(playPoll{binding: binding, digest: digest, ciphertext: saved})
+	return err
 }
 
 type playPoll struct {
@@ -143,9 +147,9 @@ func (i *PlayInbox) claimPoll(ctx context.Context, now time.Time) (playPoll, err
 	w := playPoll{lease: lease}
 	err = i.journal.db.QueryRowContext(ctx, `UPDATE billing_play_polls SET lease=?,lease_ns=?
  WHERE environment=? AND binding=(SELECT p.binding FROM billing_play_polls p
- JOIN billing_subscriptions s ON s.environment=p.environment AND s.store='play' AND s.binding=p.binding
+ JOIN billing_attempts a ON a.binding=p.binding AND a.environment=p.environment AND a.store='play' AND a.state IN ('launched','fulfilled')
  WHERE p.environment=? AND p.due_ns<=? AND p.lease_ns<=?
- AND NOT EXISTS(SELECT 1 FROM lifecycle_deletions d WHERE d.incarnation=s.incarnation AND d.state!='cancelled')
+ AND NOT EXISTS(SELECT 1 FROM lifecycle_deletions d WHERE d.incarnation=a.incarnation AND d.state!='cancelled')
  ORDER BY p.due_ns,p.binding LIMIT 1)
  AND `+currentGenerationSQL+`=?
  RETURNING binding,token_digest,ciphertext,failures`, lease, timeNS(now.Add(playWorkLease)), i.env, i.env, timeNS(now), timeNS(now), i.journal.generation).
@@ -201,9 +205,9 @@ func (r PlayReconciler) PollKnown(ctx context.Context) (ReconcileBatch, error) {
 func (i *PlayInbox) pollLease(ctx context.Context, db reader, w playPoll, owner string, now time.Time) error {
 	var eligible bool
 	err := db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM billing_play_polls p
- JOIN billing_subscriptions s ON s.environment=p.environment AND s.store='play' AND s.binding=p.binding
- WHERE p.environment=? AND p.binding=? AND p.token_digest=? AND p.lease=? AND p.lease_ns>? AND s.incarnation=?
- AND NOT EXISTS(SELECT 1 FROM lifecycle_deletions d WHERE d.incarnation=s.incarnation AND d.state!='cancelled')
+ JOIN billing_attempts a ON a.binding=p.binding AND a.environment=p.environment AND a.store='play' AND a.state IN ('launched','fulfilled')
+ WHERE p.environment=? AND p.binding=? AND p.token_digest=? AND p.lease=? AND p.lease_ns>? AND a.incarnation=?
+ AND NOT EXISTS(SELECT 1 FROM lifecycle_deletions d WHERE d.incarnation=a.incarnation AND d.state!='cancelled')
  AND `+currentGenerationSQL+`=?)`, i.env, w.binding, w.digest, w.lease, timeNS(now), owner, i.journal.generation).Scan(&eligible)
 	if err == nil && !eligible {
 		return ErrUnresolved
@@ -215,7 +219,16 @@ func (r PlayReconciler) refreshKnown(parent context.Context, w playPoll, now fun
 	ctx, cancel := context.WithTimeout(parent, playWorkBudget)
 	defer cancel()
 	i := r.Inbox
-	var owner, canonical, predecessor string
+	var owner, state string
+	var interval Interval
+	if err := i.journal.db.QueryRowContext(ctx, `SELECT incarnation,state,interval FROM billing_attempts
+ WHERE binding=? AND environment=? AND store='play'`, w.binding, i.env).Scan(&owner, &state, &interval); err != nil {
+		return err
+	}
+	if state == "launched" {
+		return r.refreshSignup(ctx, w, owner, interval, now)
+	}
+	var canonical, predecessor string
 	var expectedInterval Interval
 	var boundary int64
 	if err := i.journal.db.QueryRowContext(ctx, `SELECT s.incarnation,s.subscription,
@@ -288,6 +301,53 @@ func (r PlayReconciler) refreshKnown(parent context.Context, w playPoll, now fun
 			return err
 		}
 		return acknowledge()
+	}
+	return ErrPurchaseBinding
+}
+
+func (r PlayReconciler) refreshSignup(ctx context.Context, w playPoll, owner string, interval Interval, now func() time.Time) error {
+	i := r.Inbox
+	if err := i.pollLease(ctx, i.journal.db, w, owner, now()); err != nil {
+		return err
+	}
+	token, err := i.openPoll(w)
+	if err != nil {
+		return err
+	}
+	proof, err := i.provider.Verify(ctx, token)
+	check := func(ctx context.Context, tx *sql.Tx) error { return i.pollLease(ctx, tx, w, owner, now()) }
+	var p *playSignup
+	if errors.As(err, &p) {
+		if p.binding != w.binding || p.digest != w.digest || p.offer.Interval != interval || !i.Offers(p.offer) {
+			return ErrPurchaseBinding
+		}
+		if !p.cancelled {
+			return nil // A still-pending result refreshes the normal retry schedule.
+		}
+		return r.WithLiveOwner(ctx, owner, func() error { return i.retainSignup(ctx, p, token, owner, check) })
+	}
+	if err != nil {
+		return err
+	}
+	attempt := Attempt{Binding: w.binding, Store: Play, Environment: i.env, Interval: interval}
+	if proof.Period.Subscription != w.digest {
+		return ErrPurchaseBinding
+	}
+	for _, offer := range i.offers {
+		if !offer.admits(attempt, proof) {
+			continue
+		}
+		if err := r.WithLiveOwner(ctx, owner, func() error {
+			return i.journal.fulfil(ctx, proof.Period, owner, false, check)
+		}); err != nil {
+			return err
+		}
+		if err := r.WithLiveOwner(ctx, owner, func() error {
+			return i.pollLease(ctx, i.journal.db, w, owner, now())
+		}); err != nil {
+			return err
+		}
+		return r.Acknowledge(ctx, token, w.binding)
 	}
 	return ErrPurchaseBinding
 }

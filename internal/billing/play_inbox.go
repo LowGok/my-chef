@@ -90,7 +90,7 @@ func (i *PlayInbox) Retain(ctx context.Context, n PlayNotice, now time.Time) err
 	proof, err := i.provider.VerifyExisting(ctx, n.Token)
 	var signup *playSignup
 	if errors.As(err, &signup) {
-		return i.retainSignup(ctx, signup, n.Token, "")
+		return i.retainSignup(ctx, signup, n.Token, "", nil)
 	}
 	if errors.Is(err, ErrUnresolved) {
 		return i.retainReplacement(ctx, "", n.Token, nil, func(ctx context.Context, tx *sql.Tx, r PlayReplacement) error {

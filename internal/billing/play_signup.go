@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"strings"
+	"time"
 )
 
 const playSignupSchema = `
@@ -20,6 +21,7 @@ CREATE TABLE IF NOT EXISTS billing_play_signups(
 type playSignup struct {
 	offer           Offer
 	binding, digest string
+	observed        time.Time
 	cancelled       bool
 }
 
@@ -50,11 +52,12 @@ func (p *PlayProvider) signupState(sub playSubscription, token string) error {
 		offer: Offer{Store: Play, Environment: p.cfg.Environment, App: p.cfg.Package, Product: line.Product,
 			BasePlan: line.Offer.BasePlan, Interval: interval},
 		binding: strings.ToLower(sub.Account.Binding), digest: playTokenDigest(token),
+		observed:  p.now().UTC(),
 		cancelled: sub.State == "SUBSCRIPTION_STATE_PENDING_PURCHASE_CANCELED",
 	}
 }
 
-func (i *PlayInbox) retainSignup(ctx context.Context, p *playSignup, token, expectedOwner string) error {
+func (i *PlayInbox) retainSignup(ctx context.Context, p *playSignup, token, expectedOwner string, check journalWriteCheck) error {
 	if p == nil || p.offer.Store != Play || p.offer.Environment != i.env || !i.Offers(p.offer) ||
 		!accountUUID.MatchString(p.binding) || p.digest != playTokenDigest(token) {
 		return ErrPurchaseBinding
@@ -67,6 +70,11 @@ func (i *PlayInbox) retainSignup(ctx context.Context, p *playSignup, token, expe
 		}
 		if err := i.journal.requireRuntime(ctx, tx); err != nil {
 			return err
+		}
+		if check != nil {
+			if err := check(ctx, tx); err != nil {
+				return err
+			}
 		}
 		var owner, state string
 		if err := tx.QueryRowContext(ctx, `SELECT incarnation,state FROM billing_attempts
@@ -90,10 +98,21 @@ func (i *PlayInbox) retainSignup(ctx context.Context, p *playSignup, token, expe
 			}
 			// Two distinct verified tokens already establish ambiguity. Bound
 			// storage while retaining enough evidence to prevent unsafe release.
-			_, err := tx.ExecContext(ctx, `INSERT INTO billing_play_signups(binding,token_digest)
+			if _, err := tx.ExecContext(ctx, `INSERT INTO billing_play_signups(binding,token_digest)
  SELECT ?,? WHERE (SELECT count(*) FROM billing_play_signups WHERE binding=?)<2
- ON CONFLICT DO NOTHING`, p.binding, p.digest, p.binding)
-			return err
+ ON CONFLICT DO NOTHING`, p.binding, p.digest, p.binding); err != nil {
+				return err
+			}
+			var count int
+			if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM billing_play_signups WHERE binding=?`, p.binding).Scan(&count); err != nil {
+				return err
+			}
+			if count > 1 {
+				// Retain ambiguity but stop polling only one of two purchases.
+				_, err := tx.ExecContext(ctx, `DELETE FROM billing_play_polls WHERE environment=? AND binding=?`, i.env, p.binding)
+				return err
+			}
+			return i.savePoll(ctx, tx, p.binding, p.digest, token, p.observed)
 		}
 		var exact, conflicting bool
 		if err := tx.QueryRowContext(ctx, `SELECT
@@ -113,7 +132,10 @@ func (i *PlayInbox) retainSignup(ctx context.Context, p *playSignup, token, expe
 		if state != "launched" {
 			return ErrUnresolved
 		}
-		_, err := tx.ExecContext(ctx, `UPDATE billing_attempts SET state='cancelled' WHERE binding=? AND state='launched'`, p.binding)
+		if _, err := tx.ExecContext(ctx, `UPDATE billing_attempts SET state='cancelled' WHERE binding=? AND state='launched'`, p.binding); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx, `DELETE FROM billing_play_polls WHERE environment=? AND binding=?`, i.env, p.binding)
 		return err
 	})
 }
