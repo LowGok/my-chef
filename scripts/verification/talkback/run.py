@@ -18,9 +18,9 @@ SOURCE = "0f3e4a8764669be1a1d6ca02d6a93612f6f1f053"
 BUNDLE = "65f9286044cb000028fbdbbd09c3624781084748ef9be2ac0c20b9417e22dfe3"
 SERVICE = "com.google.android.marvin.talkback/.TalkBackService"
 
-if len(sys.argv) != 6:
-    raise SystemExit("Expected app checkout, verified capture and recognition tools, model and report directory")
-root, scrcpy, recognizer, model, report = (Path(x).resolve() for x in sys.argv[1:])
+if len(sys.argv) != 7:
+    raise SystemExit("Expected app checkout, verified capture and recognition tools, model, debug keystore and report directory")
+root, scrcpy, recognizer, model, debug_keystore, report = (Path(x).resolve() for x in sys.argv[1:])
 event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
 if (os.environ.get("GITHUB_ACTIONS") != "true" or os.environ["GITHUB_EVENT_NAME"] != "push"
         or os.environ["GITHUB_REPOSITORY"] != "LowGok/my-chef" or event["repository"]["id"] != 1454481532
@@ -83,7 +83,29 @@ with tempfile.TemporaryDirectory(prefix="mychef-installed-") as directory, ExitS
     journey_path = root / "scripts/native-android-journeys.ts"
     probe(probe_path, probe_path)
     journey(journey_path, journey_path)
-    adb("install", str(build(state, Path(os.environ["ANDROID_HOME"]), f.command)))
+    sdk = Path(os.environ["ANDROID_HOME"])
+    apksigner = str(sdk / "build-tools/36.0.0/apksigner")
+    if debug_keystore.name != "debug.keystore" or not debug_keystore.is_file():
+        raise RuntimeError("Expected the disposable Gradle debug keystore")
+
+    def using_build_key(*args, **kwargs):
+        if args[:2] == (apksigner, "sign"):
+            args = list(args)
+            args[args.index("--ks") + 1] = str(debug_keystore)
+        return f.command(*args, **kwargs)
+
+    probe_apk = build(state, sdk, using_build_key)
+
+    def signer_digest(path):
+        details = f.command(apksigner, "verify", "--print-certs", str(path))
+        digests = re.findall(r"certificate SHA-256 digest: ([a-fA-F0-9]{64})", details)
+        if len(digests) != 1:
+            raise RuntimeError("Unexpected fixture APK signer count")
+        return digests[0].lower()
+
+    if signer_digest(apk) != signer_digest(probe_apk):
+        raise RuntimeError("Disposable probe must be signed by the same debug certificate as the app")
+    adb("install", str(probe_apk))
     capability = json.loads((state / "fixture-inbox.json").read_text())["capability"]
     account = seed(18137, f.ORIGIN, capability, "nativeandroidtalkback")
     (state / "native-android-account.json").write_text(json.dumps(account))
