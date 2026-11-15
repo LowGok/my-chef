@@ -40,7 +40,7 @@ Local verification and production operation remain distinct. Acceptance authoriz
 ### Background and dependency
 
 After acceptance, default main advanced to weekly-reminders merge
-`7ff4669700` (full commit resolved by Git in the review target). It adds schema
+`7ff466952834a0d295e0d483456fa312e2b97d1b`. It adds schema
 25/26 while preserving the schema-24 newsletter foundation. The current role
 must initialize the current published schema, not downgrade to 24, and must not
 start reminder/push workers. This is dependency integration, with no new
