@@ -70,25 +70,41 @@ def stage(source, output):
     );
   }, { timeout: 20_000 }).toBe(true);
   await checkpoint("talkback-bound");
-  // The first time the service starts, its tutorial can take focus. Return to
-  // the existing activity without clearing the signed-in fixture or settings.
-  if (!adb("shell", "dumpsys", "window", "displays").split("\\n").some(line => line.includes("mCurrentFocus") && line.includes(app))) {
-    adb("shell", "am", "start", "-W", "-n", app + "/.MainActivity");
+  // The stock reader can open a tutorial after service binding. Check the
+  // real app window again after audio setup and before each native focus.
+  async function ensureAppForeground() {
+    let resumed = false;
+    await expect.poll(() => {
+      const current = adb("shell", "dumpsys", "window", "displays").split("\\n")
+        .find(line => line.includes("mCurrentFocus=Window{"));
+      const owner = current?.match(/ u0 ([^ /]+)\\//)?.[1];
+      if (owner === app) return true;
+      if (!resumed) {
+        resumed = true;
+        adb("shell", "am", "start", "-W", "-n", app + "/.MainActivity");
+      }
+      return false;
+    }, { timeout: 20_000 }).toBe(true);
   }
+  await ensureAppForeground();
   await checkpoint("app-foregrounded");
   await writeFile(join(state, "talkback-ready"), "ready\\n");
   await expect.poll(async () =>
     await readFile(join(state, "talkback-capture-ready"), "utf8").catch(() => ""),
     { timeout: 25_000 }).toBe("capturing\\n");
+  await ensureAppForeground();
+  await checkpoint("speaker-capturing");
   for (const [target, control] of [
     ["opt-in", optIn], ["save", save], ["device-off", off],
   ] as const) {
     await check("OS accessibility focus with TalkBack on " + target, async () => {
+      await ensureAppForeground();
       await expect(control).toBeEnabled();
       await control.evaluate((element) =>
         element.scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" }),
       );
       await Bun.sleep(350);
+      await ensureAppForeground();
       await probeAction("speech-focus", target);
       await writeFile(join(state, "talkback-focused-" + target), "focused\\n");
       await Bun.sleep(4500);

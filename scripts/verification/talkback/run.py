@@ -229,7 +229,7 @@ with tempfile.TemporaryDirectory(prefix="mychef-installed-") as directory, ExitS
         checkpoints = {"driver-connected", "signed-in", "profile", "panel-open", "time-zone-entered",
                        "opt-in-checked", "save-clicked", "preferences-saved", "permission-granted",
                        "register-clicked", "device-registered", "large-text-fits", "talkback-requested",
-                       "talkback-bound", "app-foregrounded"}
+                       "talkback-bound", "app-foregrounded", "speaker-capturing"}
         last = checkpoint.read_text() if checkpoint.exists() else ""
         print("TalkBack setup stage:", last if last in checkpoints else "before-driver-ready", flush=True)
         probe_log = state / "probe-private.log"
