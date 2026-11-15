@@ -9,11 +9,11 @@ import (
 	"encoding/binary"
 )
 
-// AppleCancellationCredential is a public key from verified App Attest
-// enrollment. It must never come from the cancellation request.
+// AppleCancellationCredential contains the stored uncompressed P-256 key
+// from verified App Attest enrollment. It never comes from the request.
 type AppleCancellationCredential struct {
-	PublicKey *ecdsa.PublicKey
-	Count     uint32
+	Point [65]byte
+	Count uint32
 }
 
 // AppleCancellationKeys must select an already-attested key for this exact
@@ -59,14 +59,12 @@ func (v AppleCancellationVerifier) verifyAssertion(ctx context.Context, c Native
 	if err != nil {
 		return err
 	}
-	key := credential.PublicKey
 	count := binary.BigEndian.Uint32(auth[33:37])
-	if key == nil || key.Curve != elliptic.P256() || key.X == nil || key.Y == nil ||
-		!key.Curve.IsOnCurve(key.X, key.Y) || count <= credential.Count {
+	if count <= credential.Count || sha256.Sum256(credential.Point[:]) != c.AppInstance {
 		return ErrPurchaseBinding
 	}
-	point, err := key.ECDH()
-	if err != nil || sha256.Sum256(point.Bytes()) != c.AppInstance {
+	key, err := ecdsa.ParseUncompressedPublicKey(elliptic.P256(), credential.Point[:])
+	if err != nil {
 		return ErrPurchaseBinding
 	}
 	client := appleCheckoutClientHash(c, purpose)

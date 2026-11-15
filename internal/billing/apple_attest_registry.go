@@ -2,8 +2,6 @@ package billing
 
 import (
 	"context"
-	"crypto/ecdsa"
-	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
@@ -205,25 +203,21 @@ func (r AppleCancellationRegistry) CancellationCredential(ctx context.Context, c
 	if err != nil {
 		return AppleCancellationCredential{}, err
 	}
-	credential.PublicKey, err = ecdsa.ParseUncompressedPublicKey(elliptic.P256(), point)
-	if err != nil {
+	if len(point) != len(credential.Point) {
 		return AppleCancellationCredential{}, ErrStoreUnavailable
 	}
+	copy(credential.Point[:], point)
 	return credential, nil
 }
 
 func (r AppleCancellationRegistry) AdvanceCancellationCounter(ctx context.Context, c NativeCancellation,
 	credential AppleCancellationCredential, next uint32) (bool, error) {
 	args, err := r.credentialArgs(c)
-	if err != nil || credential.PublicKey == nil || next <= credential.Count {
-		return false, ErrPurchaseBinding
-	}
-	point, err := credential.PublicKey.ECDH()
-	if err != nil {
+	if err != nil || next <= credential.Count || sha256.Sum256(credential.Point[:]) != c.AppInstance {
 		return false, ErrPurchaseBinding
 	}
 	args = append([]any{next}, args...)
-	args = append(args, point.Bytes(), credential.Count)
+	args = append(args, credential.Point[:], credential.Count)
 	result, err := r.Journal.db.ExecContext(ctx, `UPDATE billing_apple_attested_keys SET counter=?`+
 		appleCredentialWhere+` AND point=? AND counter=?`, args...)
 	if err != nil {

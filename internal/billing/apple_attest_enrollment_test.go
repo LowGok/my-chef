@@ -230,7 +230,7 @@ func TestAppleAttestationEnrollmentAuthenticatesAppAndBuild(t *testing.T) {
 	}
 	registry.Journal = restarted
 	saved, err := registry.CancellationCredential(ctx, cancel)
-	if err != nil || saved.Count != 1 || !saved.PublicKey.Equal(&appKey.PublicKey) {
+	if err != nil || saved.Count != 1 || saved.Point != [65]byte(point.Bytes()) {
 		t.Fatal("the replay counter did not survive restart", err)
 	}
 	authorize.Keys = registry

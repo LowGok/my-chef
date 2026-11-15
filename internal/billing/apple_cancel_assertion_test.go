@@ -21,7 +21,7 @@ type fixtureAppleKeys struct {
 	mu      sync.Mutex
 	owner   string
 	family  string
-	key     *ecdsa.PublicKey
+	point   [65]byte
 	counter uint32
 }
 
@@ -31,13 +31,13 @@ func (s *fixtureAppleKeys) CancellationCredential(_ context.Context, c NativeCan
 	if c.Owner != s.owner || c.Family != s.family {
 		return AppleCancellationCredential{}, ErrPurchaseBinding
 	}
-	return AppleCancellationCredential{PublicKey: s.key, Count: s.counter}, nil
+	return AppleCancellationCredential{Point: s.point, Count: s.counter}, nil
 }
 
 func (s *fixtureAppleKeys) AdvanceCancellationCounter(_ context.Context, c NativeCancellation, k AppleCancellationCredential, next uint32) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if c.Owner != s.owner || c.Family != s.family || s.key != k.PublicKey || s.counter != k.Count {
+	if c.Owner != s.owner || c.Family != s.family || s.point != k.Point || s.counter != k.Count {
 		return false, nil
 	}
 	s.counter = next
@@ -118,7 +118,7 @@ func TestAppleCancellationAssertionRejectsUntrustedOrReplayedProof(t *testing.T)
 		t.Fatal(err)
 	}
 	valid := fixtureAppleAssertion(t, key, fixtureAppleApp, c, 6)
-	keys := &fixtureAppleKeys{owner: owner, family: family, key: &key.PublicKey, counter: 5}
+	keys := &fixtureAppleKeys{owner: owner, family: family, point: [65]byte(point.Bytes()), counter: 5}
 	v := AppleCancellationVerifier{AppID: fixtureAppleApp, Keys: keys, Build: AppleAttestBuildPolicy{Category: 2, Version: "8", AllowLegacy: true}}
 	modified := c
 	modified.Challenge[0] ^= 1
@@ -150,12 +150,24 @@ func TestAppleCancellationAssertionRejectsUntrustedOrReplayedProof(t *testing.T)
 			}
 		})
 	}
-	keys.key = &otherKey.PublicKey
+	otherPoint, err := otherKey.PublicKey.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	keys.point = [65]byte(otherPoint)
 	replacement := fixtureAppleAssertion(t, otherKey, fixtureAppleApp, c, 6)
 	if err := v.VerifyCancellation(ctx, c, replacement); !errors.Is(err, ErrPurchaseBinding) {
 		t.Fatal("a replacement key signed for a launch it did not authorize", err)
 	}
-	keys.key = &key.PublicKey
+	for _, malformed := range [][65]byte{{}, {4}} {
+		keys.point = malformed
+		claim := c
+		claim.AppInstance = sha256.Sum256(malformed[:])
+		if err := v.VerifyCancellation(ctx, claim, valid); !errors.Is(err, ErrPurchaseBinding) || keys.counter != 5 {
+			t.Fatal("unusable point advanced the counter or did not fail closed", err)
+		}
+	}
+	keys.point = [65]byte(point.Bytes())
 	v.Build.AllowLegacy = false
 	if err := v.VerifyCancellation(ctx, c, valid); !errors.Is(err, ErrPurchaseBinding) {
 		t.Fatal("a legacy assertion passed a signed build requirement", err)
