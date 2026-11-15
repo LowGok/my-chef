@@ -267,6 +267,18 @@ class NativeVerificationTest(unittest.TestCase):
             value = json.loads((root / "installed-journeys.json").read_text())
             self.assertEqual(value["passed"][0], "Android large text and Play purchase controls are accessible")
 
+    def test_subscription_journey_can_use_the_probe_for_real_android_taps(self):
+        script = (ROOT / "scripts/native-android-journeys.ts").read_text()
+        journey = script.split("async function billingJourneys()", 1)[1].split("async function", 1)[0]
+        taps = set(re.findall(r'await activate\("([^"]+)"\)', journey))
+        self.assertEqual(taps, {"Subscribe monthly", "Restore purchases"})
+        java = (ROOT / "scripts/native-android/NativeJourneyProbe.java").read_text()
+        method = java.split("private void activate(String label)", 1)[1]
+        allowlist = re.search(r'Arrays\.asList\(([^)]+)\)\.contains\(label\)', method)
+        self.assertIsNotNone(allowlist)
+        self.assertEqual(taps - set(re.findall(r'"([^"]+)"', allowlist[1])), set(),
+                         "The installed walk-through would stop before sending these OS taps")
+
     def test_android_groups_continue_on_failure_without_issuing_a_full_receipt(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
