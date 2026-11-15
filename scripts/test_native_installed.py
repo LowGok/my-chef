@@ -354,6 +354,8 @@ def fixture(state, stack, journeys=False, analytics=None, controls=None):
                     notice = json.loads(body)
                     if notice.get("available") is False and notice.get("defaultEnabled") is False:
                         event_kind = "analytics-notice-disabled"
+                    elif notice.get("available") is True and notice.get("defaultEnabled") is True:
+                        event_kind = "analytics-notice-assessed"
                 if re.fullmatch(r"favorite-weeks/\d{4}-\d{2}-\d{2}", route):
                     event_kind = "favorite-week"
                 events.append((self.command, event_kind, response.status))

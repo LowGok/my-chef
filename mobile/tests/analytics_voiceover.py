@@ -93,8 +93,9 @@ def main():
     with tempfile.TemporaryDirectory(prefix='mychef-installed-') as directory, ExitStack() as stack:
         state = Path(directory).resolve()
         controls = {}
-        ca, _, _ = native.fixture(state, stack, analytics='disabled', controls=controls)
+        ca, events, _ = native.fixture(state, stack, analytics='disabled', controls=controls)
         fixture = Fixture(state, controls['restart'])
+        fixture.native_events = events
         account = fixture.operate({'operation': 'seed'})
         control = fixture.serve(stack)
         metadata, _, _, _ = native.ios(state, stack, ca, artifact,
@@ -108,6 +109,8 @@ def main():
         metadata['contentSize'] = 'accessibility-medium'
         container = Path(native.command('xcrun', 'simctl', 'get_app_container', identifier, native.APP, 'data'))
         checks = analytics_ios.run(state, control, account, identifier, container, voiceover_only=True)
+        if not all(('GET', kind, 200) in events for kind in ('analytics-notice-disabled', 'analytics-notice-assessed')):
+            raise RuntimeError('VoiceOver requires both actual signup notice responses')
         text_scale = json.loads((container / 'tmp/analytics-text-result.json').read_text())
         if (set(text_scale) != {'root', 'label', 'notice', 'fits', 'osTextEnlarged'}
                 or not all(value is True for value in text_scale.values())):

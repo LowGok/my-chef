@@ -20,6 +20,15 @@ class SpeechEvidenceTest(unittest.TestCase):
         self.assertTrue(matches('offline', 'Turning off was not confirmed. Analytics may still be On.'))
         self.assertFalse(matches('offline', 'Analytics On'))
 
+    def test_signup_states_and_cleanup_announcements_require_the_actual_words(self):
+        self.assertTrue(matches('signup-on', 'Help improve MyChef, checked, checkbox'))
+        self.assertTrue(matches('signup-off', 'Help improve MyChef, unchecked, checkbox'))
+        self.assertFalse(matches('signup-off', 'Help improve MyChef checked'))
+        self.assertTrue(matches('cleanup', 'Off. Active deletion is in progress.'))
+        self.assertFalse(matches('cleanup', 'Off.'))
+        self.assertTrue(matches('backup', 'Off. Active data is erased; isolated backup cleanup is pending for up to seven days.'))
+        self.assertFalse(matches('backup', 'Active deletion is in progress'))
+
     def test_silence_wrong_format_and_unbounded_audio_are_not_evidence(self):
         with tempfile.TemporaryDirectory(prefix='analytics-speech-') as directory:
             path = Path(directory) / 'speaker.wav'

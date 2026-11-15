@@ -11,13 +11,15 @@ import time
 import urllib.request
 import wave
 
-TARGETS = ('on', 'off', 'stale', 'offline', 'order')
+TARGETS = ('on', 'off', 'stale', 'offline', 'order', 'signup-on', 'signup-off', 'cleanup', 'backup')
 MODEL_SHA = 'a03779c86df3323075f5e796cb2ce5029f00ec8869eee3fdfb897afe36c6d002'
 RECOGNIZER_SOURCE = 'd1be6fde11ac6e0407606b4e42fe72d34add8037'
 
 
 def matches(target, transcript):
     text = ' '.join(re.findall(r'[a-z]+', transcript.lower()))
+    if target in ('signup-on', 'signup-off'):
+        target = target.removeprefix('signup-')
     if target in ('on', 'off'):
         label = re.search(r'help improve my\s?chef', text)
         if not label:
@@ -26,7 +28,8 @@ def matches(target, transcript):
         off = re.search(r'\b(?:not checked|unchecked|not selected|off)\b', state) is not None
         return off if target == 'off' else not off and re.search(r'\b(?:checked|selected|on)\b', state) is not None
     phrase = {'stale': 'your setting changed elsewhere', 'offline': 'turning off was not confirmed',
-              'order': 'refresh analytics setting'}.get(target)
+              'order': 'refresh analytics setting', 'cleanup': 'active deletion is in progress',
+              'backup': 'isolated backup cleanup is pending'}.get(target)
     return phrase is not None and phrase in text
 
 

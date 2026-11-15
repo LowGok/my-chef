@@ -134,7 +134,7 @@ const button = (name: string) =>
 let controlSequence = 0;
 function probeCommand(value: string) {
   if (
-    !/^(pinch|activate:[1-9][0-9]{0,3}:[A-Za-z -]{1,50}|document:[1-9][0-9]{0,3}:(?:SAVE|native-(?:dish|page)\.png)|accessibility:[1-9][0-9]{0,3}:(?:nav|export-dialog)|speech-focus:[1-9][0-9]{0,3}:(?:on|off|stale|offline)|speech-order:[1-9][0-9]{0,3}:on)$/.test(
+    !/^(pinch|activate:[1-9][0-9]{0,3}:[A-Za-z -]{1,50}|document:[1-9][0-9]{0,3}:(?:SAVE|native-(?:dish|page)\.png)|accessibility:[1-9][0-9]{0,3}:(?:nav|export-dialog)|speech-focus:[1-9][0-9]{0,3}:(?:on|off|stale|offline|cleanup|backup)|speech-toggle:[1-9][0-9]{0,3}:(?:on|off)|speech-order:[1-9][0-9]{0,3}:on)$/.test(
       value,
     )
   )
@@ -165,7 +165,7 @@ function probeCommand(value: string) {
   );
 }
 async function probeAction(
-  kind: "activate" | "document" | "accessibility" | "speech-focus" | "speech-order",
+  kind: "activate" | "document" | "accessibility" | "speech-focus" | "speech-order" | "speech-toggle",
   name: string,
 ) {
   const sequence = String(++controlSequence);
@@ -1214,12 +1214,9 @@ async function analyticsJourneys() {
   };
   const toggle = () =>
     page.getByRole("checkbox", { name: "Help improve MyChef", exact: true });
-  async function hear(target: "on" | "off" | "stale" | "offline" | "order") {
-    if (process.env.NATIVE_ANALYTICS_SPEECH !== "1") return;
-    console.log("Installed Android speech target: " + target);
+  const speechEnabled = process.env.NATIVE_ANALYTICS_SPEECH === "1";
+  async function withTalkBack(control: Locator, action: () => Promise<void>) {
     const service = "com.google.android.marvin.talkback/.TalkBackService";
-    const control = target === "stale" || target === "offline"
-      ? page.getByRole("alert") : toggle();
     await control.scrollIntoViewIfNeeded();
     adb("shell", "settings", "put", "secure", "enabled_accessibility_services", service);
     adb("shell", "settings", "put", "secure", "accessibility_enabled", "1");
@@ -1228,23 +1225,38 @@ async function analyticsJourneys() {
         .split("\n").some(line => /ServiceRecord/.test(line) && line.includes("TalkBackService"))).toBe(true);
       adb("shell", "am", "start", "-W", "-n", app + "/.MainActivity");
       await Bun.sleep(2000);
-      // TalkBack startup or its tutorial can move WebKit to another position.
-      // The existing spoken native test centers the target after startup.
       await control.evaluate((node) => node.scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" }));
       await expect(control).toBeVisible();
       await Bun.sleep(350);
-      await fixture("speech-start", { target });
-      await probeAction(target === "order" ? "speech-order" : "speech-focus", target === "order" ? "on" : target);
-      await Bun.sleep(target === "stale" || target === "offline" ? 12000 : 6500);
-      expect((await fixture("speech-stop", { target })).passed).toBe(true);
+      await action();
     } finally {
       adb("shell", "settings", "delete", "secure", "enabled_accessibility_services");
       adb("shell", "settings", "put", "secure", "accessibility_enabled", "0");
     }
   }
+  async function hear(target: "on" | "off" | "stale" | "offline" | "order" | "signup-on" | "signup-off" | "cleanup" | "backup") {
+    if (!speechEnabled) return;
+    console.log("Installed Android speech target: " + target);
+    const control = target === "stale" || target === "offline" ? page.getByRole("alert")
+      : target === "cleanup" || target === "backup" ? page.getByRole("status").filter({ hasText:
+        target === "cleanup" ? "Active deletion is in progress" : "isolated backup cleanup is pending" }) : toggle();
+    await withTalkBack(control, async () => {
+      await fixture("speech-start", { target });
+      const focus = target === "order" ? "on" : target.replace("signup-", "");
+      await probeAction(target === "order" ? "speech-order" : "speech-focus", focus);
+      await Bun.sleep(["stale", "offline", "cleanup", "backup"].includes(target) ? 16000 : 6500);
+      expect((await fixture("speech-stop", { target })).passed).toBe(true);
+    });
+  }
+  async function voiceToggle(before: "on" | "off") {
+    await withTalkBack(toggle(), async () => {
+      await probeAction("speech-toggle", before);
+      await Bun.sleep(400);
+    });
+  }
   async function chooseOn() {
     await expect(toggle()).toBeEnabled();
-    await toggle().click();
+    if (speechEnabled) await voiceToggle("off"); else await toggle().click();
     await expect(toggle()).toBeChecked();
     await expect
       .poll(async () => (await fixture("preference")).enabled)
@@ -1266,7 +1278,12 @@ async function analyticsJourneys() {
           { exact: false },
         ),
       ).toBeVisible();
-      await toggle().uncheck();
+      if (speechEnabled) {
+        await hear("signup-on");
+        await voiceToggle("on");
+        await expect(toggle()).not.toBeChecked();
+        await hear("signup-off");
+      } else await toggle().uncheck();
       remember("signup", "assessedNotice", "offBeforeCompletion");
     } else {
       await expect(toggle()).toBeDisabled();
@@ -1418,7 +1435,7 @@ async function analyticsJourneys() {
       await hear("on");
       await hear("order");
       await fixture("other-session-choice", { enabled: false });
-      await toggle().click();
+      if (speechEnabled) await voiceToggle("on"); else await toggle().click();
       await expect(page.getByRole("alert")).toContainText(
         "Your setting changed elsewhere",
       );
@@ -1429,7 +1446,7 @@ async function analyticsJourneys() {
       await fixture("maintenance");
       await chooseOn();
       await fixture("offline");
-      await toggle().click();
+      if (speechEnabled) await voiceToggle("on"); else await toggle().click();
       await expect(page.getByRole("alert")).toContainText(
         "Turning off was not confirmed",
       );
@@ -1437,7 +1454,7 @@ async function analyticsJourneys() {
       remember("conflict", "offlineOffUnconfirmed");
       await hear("offline");
       await fixture("online");
-      await toggle().click();
+      if (speechEnabled) await voiceToggle("on"); else await toggle().click();
       await expect(toggle()).not.toBeChecked();
       expect((await fixture("preference")).enabled).toBe(false);
       await expect(
@@ -1447,6 +1464,7 @@ async function analyticsJourneys() {
       ).toBeVisible();
       remember("conflict", "reconnectFenceAcknowledged");
       remember("lifecycle", "activeCleanup");
+      await hear("cleanup");
       await fixture("maintenance");
     },
   );
@@ -1506,7 +1524,7 @@ async function analyticsJourneys() {
       await expect.poll(async () => (await fixture("counts")).queued).toBe(1);
       await fixture("backup");
       await accountDetails();
-      await toggle().click();
+      if (speechEnabled) await voiceToggle("on"); else await toggle().click();
       await expect(toggle()).not.toBeChecked();
       await fixture("maintenance");
       await button("Refresh analytics setting").click();
@@ -1516,6 +1534,7 @@ async function analyticsJourneys() {
           .filter({ hasText: "isolated backup cleanup is pending" }),
       ).toBeVisible();
       remember("lifecycle", "isolatedBackupPending");
+      await hear("backup");
       for (const save of [false, true]) {
         await button("Download my data").click();
         const dialog = page.getByRole("dialog", {

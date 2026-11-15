@@ -128,7 +128,7 @@ final class AnalyticsProbe: XCTestCase {
         while Date() < end {
             let frame = element.frame
             unchanged = element.exists && element.isHittable && frame == previous ? unchanged + 1 : 0
-            if unchanged >= 3 { element.tap(); return }
+            if unchanged >= 3 { element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap(); return }
             previous = frame
             RunLoop.current.run(until: Date().addingTimeInterval(0.2))
         }
@@ -139,6 +139,16 @@ final class AnalyticsProbe: XCTestCase {
         if app.keyboards.firstMatch.exists {
             let done = app.buttons.matching(NSPredicate(format: "label == %@", "Done")).firstMatch
             if done.exists && done.isHittable { done.tap() }
+        }
+        if ["Shopping list", "Profile", "Meals"].contains(label) {
+            // Reach the normal-flow header before touching sticky navigation;
+            // this avoids relying on WebKit's scrolled sticky hit point.
+            let home = app.buttons["Go to Meals"].firstMatch
+            for _ in 0..<18 {
+                if home.exists && home.isHittable && home.frame.minY >= app.frame.minY { break }
+                scrollContent(up: false)
+            }
+            XCTAssertTrue(home.exists && home.isHittable, "Navigation header is reachable")
         }
         if label == "Shopping list" {
             // The OS exposes this wrapped navigation name differently from
@@ -411,11 +421,23 @@ final class AnalyticsProbe: XCTestCase {
         print("Analytics iOS voice phase: unavailable status")
         _ = try spoken("Analytics is Off while unavailable")
         try voice.disable()
+        _ = try control("approved"); relaunch()
+        tap("Create an account")
+        let assessedBox = checkbox(); reveal(assessedBox)
+        waitFor({ self.checkbox().isEnabled && (self.checkbox().value as? String) == "1" }, "Assessed signup notice must arrive before interaction")
+        try voice.enable()
+        print("Analytics iOS voice phase: assessed signup choice")
+        XCTAssertEqual(state(try focusSpeech(assessedBox, "Help improve MyChef")), "on")
+        app.doubleTap()
+        waitFor({ (self.checkbox().value as? String) == "0" }, "VoiceOver signup choice must become Off")
+        XCTAssertEqual(state(try focusSpeech(checkbox(), "Help improve MyChef")), "off")
+        XCTAssertEqual(try control("counts")["enabled"] as? Int, 0, "Incomplete signup creates no enrollment")
+        try voice.disable()
         tap("Sign in")
         fill("Email", configuration["email"] ?? "")
         fill("Password", configuration["password"] ?? "", secure: true)
         tap("Sign in to MyChef"); profile(); details()
-        _ = try control("approved"); relaunch(); profile(); details()
+        relaunch(); profile(); details()
         let privacyHeading = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Privacy and data")).firstMatch
         reveal(privacyHeading)
         try voice.enable()
@@ -432,11 +454,14 @@ final class AnalyticsProbe: XCTestCase {
         XCTAssertLessThan(checkboxIndex ?? 100, statusIndex ?? -1)
         XCTAssertLessThan(statusIndex ?? 100, refreshIndex ?? -1)
         mark("accessibility", "focusOrder")
-        try voice.disable(); enabled(true)
+        try voice.disable()
         let enabledBox = checkbox(); reveal(enabledBox)
         try voice.enable()
         print("Analytics iOS voice phase: enabled state")
-        XCTAssertEqual(state(try focusSpeech(enabledBox, "Help improve MyChef")), "on", "VoiceOver must convey enabled participation")
+        XCTAssertEqual(state(try focusSpeech(enabledBox, "Help improve MyChef")), "off")
+        app.doubleTap()
+        waitFor({ ((try? self.control("preference")["enabled"]) as? Bool) == true }, "VoiceOver enable receives server acknowledgement")
+        XCTAssertEqual(state(try focusSpeech(checkbox(), "Help improve MyChef")), "on", "VoiceOver must convey enabled participation")
         XCTAssertEqual(try control("preference")["enabled"] as? Bool, true, "Touch exploration must not change participation")
         // Change the server choice from another session while the focused
         // control remains On, then activate it with the real VoiceOver gesture.
@@ -458,9 +483,33 @@ final class AnalyticsProbe: XCTestCase {
         XCTAssertEqual(state(try spoken("Help improve MyChef")), "on")
         print("Analytics iOS voice phase: acknowledged off")
         _ = try control("online")
-        app.doubleTap()
+        try voice.disable()
+        fill("Diet", "Mediterranean")
+        if app.keyboards.firstMatch.exists {
+            let done = app.buttons["Done"].firstMatch
+            if done.exists && done.isHittable { done.tap() }
+        }
+        let save = app.buttons["Save preferences"].firstMatch; reveal(save)
+        try voice.enable()
+        _ = try focusSpeech(save, "Save preferences"); app.doubleTap()
+        waitFor({ ((try? self.control("counts")["queued"]) as? Int) == 1 }, "VoiceOver core action commits one event")
+        _ = try control("tick"); _ = try control("backup")
+        try voice.disable()
+        let erase = checkbox(); reveal(erase)
+        try voice.enable()
+        _ = try focusSpeech(erase, "Help improve MyChef"); app.doubleTap()
         waitFor({ ((try? self.control("preference")["enabled"]) as? Bool) == false }, "VoiceOver Off must receive server acknowledgement")
-        XCTAssertEqual(state(try spoken("Help improve MyChef")), "off")
+        XCTAssertEqual(state(try focusSpeech(checkbox(), "Help improve MyChef")), "off")
+        print("Analytics iOS voice phase: active cleanup")
+        _ = try spoken("Active deletion is in progress")
+        _ = try control("maintenance")
+        try voice.disable()
+        let refresh = app.buttons["Refresh analytics setting"].firstMatch; reveal(refresh)
+        try voice.enable()
+        _ = try focusSpeech(refresh, "Refresh analytics setting"); app.doubleTap()
+        waitFor({ self.text("isolated backup cleanup is pending") }, "Backup cleanup stays pending")
+        print("Analytics iOS voice phase: backup cleanup")
+        _ = try spoken("isolated backup cleanup is pending", backward: true)
         mark("accessibility", "platformScreenReader", "spokenStatesAndErrors")
     }
     #endif

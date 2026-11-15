@@ -8,7 +8,7 @@ import tempfile
 import unittest
 import zipfile
 
-from analytics_fixture import own_export
+from analytics_fixture import Fixture, own_export
 import analytics_ios
 
 
@@ -21,6 +21,24 @@ class FixtureBoundaryTest(unittest.TestCase):
         self.assertIn('Reason: missing target', value)
         for private in ('ignored secret stdout', '/private', 'user@example.test', 'x' * 43, 'synthetic-password'):
             self.assertNotIn(private, value)
+
+    def test_approval_fixture_requires_a_real_disabled_notice_before_switching(self):
+        with tempfile.TemporaryDirectory(prefix='analytics-notice-') as folder:
+            state = Path(folder)
+            config = state / 'analytics-config.json'
+            config.write_text(json.dumps({'collection': {'Enabled': False}}))
+            fixture = object.__new__(Fixture)
+            fixture.state, fixture.native_events = state, []
+            restarted = []
+            fixture.restart = lambda: restarted.append(True)
+            with self.assertRaises(RuntimeError):
+                fixture.operate({'operation': 'approved'})
+            self.assertFalse(json.loads(config.read_text())['collection']['Enabled'])
+            self.assertEqual(restarted, [])
+            fixture.native_events.append(('GET', 'analytics-notice-disabled', 200))
+            self.assertEqual(fixture.operate({'operation': 'approved'}), {'passed': True})
+            self.assertTrue(json.loads(config.read_text())['collection']['Enabled'])
+            self.assertEqual(restarted, [True])
 
     def archive(self, **files):
         buffer = io.BytesIO()

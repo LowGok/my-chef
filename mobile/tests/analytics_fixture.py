@@ -45,6 +45,7 @@ class Fixture:
         self.capability = json.loads((self.state / 'fixture-inbox.json').read_text())['capability']
         self.headers = None
         self.speech = None
+        self.native_events = None
 
     def call(self, method, route, data=None, headers=None):
         with closing(http.client.HTTPConnection('127.0.0.1', 18137, timeout=20)) as c:
@@ -107,6 +108,8 @@ class Fixture:
             self.sign_in()
             return self.account
         if op == 'approved':
+            if self.native_events is not None and ('GET', 'analytics-notice-disabled', 200) not in self.native_events:
+                raise RuntimeError('Native disabled notice was not corroborated')
             config = self.state / 'analytics-config.json'
             document = json.loads(config.read_text())
             document['collection']['Enabled'] = True

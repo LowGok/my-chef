@@ -336,6 +336,8 @@ public final class NativeJourneyProbe extends Instrumentation {
             case "on", "off" -> "Help improve MyChef";
             case "stale" -> "Your setting changed elsewhere.";
             case "offline" -> "Turning off was not confirmed.";
+            case "cleanup" -> "Off. Active deletion is in progress.";
+            case "backup" -> "Off. Active data is erased; isolated backup cleanup is pending";
             default -> throw new IllegalStateException("accessibility-controls");
         };
         UiAutomation automation = interactiveWindows();
@@ -365,6 +367,26 @@ public final class NativeJourneyProbe extends Instrumentation {
             SystemClock.sleep(200);
         }
         throw new IllegalStateException(!hadWindow ? "speech-window" : !hadNode ? "speech-node" : !hadState ? "speech-state" : "speech-event");
+    }
+
+    private void speechToggle(String before) throws Exception {
+        speechFocus(before);
+        UiAutomation automation = interactiveWindows();
+        int[] origin = new int[2], size = new int[2];
+        runOnMainSync(() -> { web.getLocationOnScreen(origin); size[0] = web.getWidth(); size[1] = web.getHeight(); });
+        SystemClock.sleep(350);
+        // TalkBack routes a real double tap to the accessibility-focused node.
+        for (int tap = 0; tap < 2; tap++) {
+            long down = SystemClock.uptimeMillis();
+            for (int action : new int[]{MotionEvent.ACTION_DOWN, MotionEvent.ACTION_UP}) {
+                MotionEvent event = MotionEvent.obtain(down, SystemClock.uptimeMillis(), action,
+                    origin[0] + size[0] * .5f, origin[1] + size[1] * .4f, 0);
+                event.setSource(InputDevice.SOURCE_TOUCHSCREEN);
+                try { automation.injectInputEvent(event, true); } finally { event.recycle(); }
+                SystemClock.sleep(30);
+            }
+            SystemClock.sleep(80);
+        }
     }
 
     private void speechOrder() throws Exception {
@@ -460,9 +482,13 @@ public final class NativeJourneyProbe extends Instrumentation {
                         String[] parts = value.split(":", 3);
                         selectSystemDocument(parts[2]);
                         Files.write(done.toPath(), parts[1].getBytes(StandardCharsets.UTF_8));
-                    } else if (value.matches("speech-focus:[1-9][0-9]{0,3}:(on|off|stale|offline)")) {
+                    } else if (value.matches("speech-focus:[1-9][0-9]{0,3}:(on|off|stale|offline|cleanup|backup)")) {
                         String[] parts = value.split(":", 3);
                         speechFocus(parts[2]);
+                        Files.write(done.toPath(), parts[1].getBytes(StandardCharsets.UTF_8));
+                    } else if (value.matches("speech-toggle:[1-9][0-9]{0,3}:(on|off)")) {
+                        String[] parts = value.split(":", 3);
+                        speechToggle(parts[2]);
                         Files.write(done.toPath(), parts[1].getBytes(StandardCharsets.UTF_8));
                     } else if (value.matches("speech-order:[1-9][0-9]{0,3}:on")) {
                         String[] parts = value.split(":", 3);

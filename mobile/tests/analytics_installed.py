@@ -86,6 +86,7 @@ def full_journeys(receipt, artifact):
         controls = {}
         ca, events, rejected = native.fixture(state, stack, analytics='disabled', controls=controls)
         fixture = Fixture(state, controls['restart'])
+        fixture.native_events = events
         account = fixture.operate({'operation': 'seed'})
         control = fixture.serve(stack)
         config_digest = hashlib.sha256((state / 'analytics-config.json').read_bytes()).hexdigest()
@@ -102,7 +103,7 @@ def full_journeys(receipt, artifact):
             # large-text case, independent of the runner's AVD defaults.
             native.command(adb_path, '-s', 'emulator-5554', 'shell', 'wm', 'size', '1080x1920')
             native.command(adb_path, '-s', 'emulator-5554', 'shell', 'wm', 'density', '432')
-            native.command(adb_path, '-s', 'emulator-5554', 'shell', 'settings', 'put', 'system', 'font_scale', '1.0')
+            native.command(adb_path, '-s', 'emulator-5554', 'shell', 'settings', 'put', 'system', 'font_scale', '1.5' if speech is not None else '1.0')
         else:
             metadata, launch, stop, diagnostic = native.ios(state, stack, ca, artifact)
         native.verify_stage(lambda: ('POST', 'session', 201) in events and ('GET', 'session', 200) in events,
@@ -169,6 +170,8 @@ def full_journeys(receipt, artifact):
                 raise RuntimeError('Small supported iPhone layout did not pass')
             checks['accessibility']['phoneWidths'] = True
             metadata['smallPhone'] = small_metadata
+        if not all(('GET', kind, 200) in events for kind in ('analytics-notice-disabled', 'analytics-notice-assessed')):
+            raise RuntimeError('Both native signup notices must be corroborated by actual responses')
         boundary = json.loads((state / 'analytics-client-boundary.json').read_text())
         if boundary['observed'] < 1 or boundary['passed'] is not True:
             raise RuntimeError('Native response boundary included analytics identifiers')

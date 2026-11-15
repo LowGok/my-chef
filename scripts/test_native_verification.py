@@ -441,7 +441,7 @@ class NativeFixtureProxyTest(unittest.TestCase):
             handler.wfile = io.BytesIO()
             replies.append(Response(200, b'{"available":true,"defaultEnabled":true}'))
             handler.forward()
-            self.assertEqual(namespace['events'][-1], ('GET', 'feature', 200))
+            self.assertEqual(namespace['events'][-1], ('GET', 'analytics-notice-assessed', 200))
 
 
 class NativeSystemPickerTest(unittest.TestCase):
