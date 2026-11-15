@@ -134,7 +134,7 @@ const button = (name: string) =>
 let controlSequence = 0;
 function probeCommand(value: string) {
   if (
-    !/^(pinch|activate:[1-9][0-9]{0,3}:[A-Za-z -]{1,50}|document:[1-9][0-9]{0,3}:(?:SAVE|native-(?:dish|page)\.png)|accessibility:[1-9][0-9]{0,3}:(?:nav|export-dialog))$/.test(
+    !/^(pinch|activate:[1-9][0-9]{0,3}:[A-Za-z -]{1,50}|document:[1-9][0-9]{0,3}:(?:SAVE|native-(?:dish|page)\.png)|accessibility:[1-9][0-9]{0,3}:(?:nav|export-dialog)|speech-focus:[1-9][0-9]{0,3}:(?:on|off|stale|offline)|speech-order:[1-9][0-9]{0,3}:on)$/.test(
       value,
     )
   )
@@ -165,7 +165,7 @@ function probeCommand(value: string) {
   );
 }
 async function probeAction(
-  kind: "activate" | "document" | "accessibility",
+  kind: "activate" | "document" | "accessibility" | "speech-focus" | "speech-order",
   name: string,
 ) {
   const sequence = String(++controlSequence);
@@ -1152,7 +1152,9 @@ async function analyticsJourneys() {
     | "offline"
     | "online"
     | "verify-native-export"
-    | "foreign-export",
+    | "foreign-export"
+    | "speech-start"
+    | "speech-stop",
     { passed: boolean }
   >;
   async function fixture<K extends keyof FixtureReplies>(
@@ -1166,7 +1168,7 @@ async function analyticsJourneys() {
         Authorization: "Bearer " + control.token,
       },
       body: JSON.stringify({ operation, ...fields }),
-      signal: AbortSignal.timeout(40_000),
+      signal: AbortSignal.timeout(operation === "speech-stop" ? 90_000 : 40_000),
     });
     if (response.status !== 200)
       throw Error("Disposable analytics operation refused");
@@ -1209,6 +1211,28 @@ async function analyticsJourneys() {
   };
   const toggle = () =>
     page.getByRole("checkbox", { name: "Help improve MyChef", exact: true });
+  async function hear(target: "on" | "off" | "stale" | "offline" | "order") {
+    if (process.env.NATIVE_ANALYTICS_SPEECH !== "1") return;
+    const service = "com.google.android.marvin.talkback/.TalkBackService";
+    const control = target === "stale" || target === "offline"
+      ? page.getByRole("alert") : toggle();
+    await control.scrollIntoViewIfNeeded();
+    adb("shell", "settings", "put", "secure", "enabled_accessibility_services", service);
+    adb("shell", "settings", "put", "secure", "accessibility_enabled", "1");
+    try {
+      await expect.poll(() => adb("shell", "dumpsys", "activity", "services", service.split("/")[0])
+        .split("\n").some(line => /ServiceRecord/.test(line) && line.includes("TalkBackService"))).toBe(true);
+      adb("shell", "am", "start", "-W", "-n", app + "/.MainActivity");
+      await Bun.sleep(2000);
+      await fixture("speech-start", { target });
+      await probeAction(target === "order" ? "speech-order" : "speech-focus", target === "order" ? "on" : target);
+      await Bun.sleep(target === "stale" || target === "offline" ? 12000 : 6500);
+      expect((await fixture("speech-stop", { target })).passed).toBe(true);
+    } finally {
+      adb("shell", "settings", "delete", "secure", "enabled_accessibility_services");
+      adb("shell", "settings", "put", "secure", "accessibility_enabled", "0");
+    }
+  }
   async function chooseOn() {
     await expect(toggle()).toBeEnabled();
     await toggle().click();
@@ -1381,6 +1405,8 @@ async function analyticsJourneys() {
   await check(
     "analytics stale session and interrupted Off remain truthful",
     async () => {
+      await hear("on");
+      await hear("order");
       await fixture("other-session-choice", { enabled: false });
       await toggle().click();
       await expect(page.getByRole("alert")).toContainText(
@@ -1388,6 +1414,8 @@ async function analyticsJourneys() {
       );
       await expect(toggle()).not.toBeChecked();
       remember("conflict", "staleConflict", "currentState");
+      await hear("stale");
+      await hear("off");
       await fixture("maintenance");
       await chooseOn();
       await fixture("offline");
@@ -1397,6 +1425,7 @@ async function analyticsJourneys() {
       );
       await expect(toggle()).toBeChecked();
       remember("conflict", "offlineOffUnconfirmed");
+      await hear("offline");
       await fixture("online");
       await toggle().click();
       await expect(toggle()).not.toBeChecked();

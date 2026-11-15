@@ -44,6 +44,7 @@ class Fixture:
         self.account = None
         self.capability = json.loads((self.state / 'fixture-inbox.json').read_text())['capability']
         self.headers = None
+        self.speech = None
 
     def call(self, method, route, data=None, headers=None):
         with closing(http.client.HTTPConnection('127.0.0.1', 18137, timeout=20)) as c:
@@ -92,9 +93,13 @@ class Fixture:
         native.wait_for(complete, 'disposable analytics operation', 25)
 
     def operate(self, value):
-        if type(value) is not dict or set(value) - {'operation', 'enabled', 'recipient'}:
+        if type(value) is not dict or set(value) - {'operation', 'enabled', 'recipient', 'target'}:
             raise ValueError('Invalid fixture controller request')
         op = value.get('operation')
+        if op in ('speech-start', 'speech-stop'):
+            if self.speech is None or set(value) != {'operation', 'target'}:
+                raise ValueError('Speech observation unavailable')
+            return self.speech.operate(op, value['target'])
         if op == 'seed':
             if self.account is not None:
                 raise ValueError('Fixture actor already created')

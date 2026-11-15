@@ -89,7 +89,13 @@ def full_journeys(receipt, artifact):
         account = fixture.operate({'operation': 'seed'})
         control = fixture.serve(stack)
         config_digest = hashlib.sha256((state / 'analytics-config.json').read_bytes()).hexdigest()
+        speech = None
         if native.PLATFORM == 'android':
+            if os.environ.get('NATIVE_ANALYTICS_SPEECH') == '1':
+                from analytics_speech import Speech
+                native.ENV['NATIVE_ANALYTICS_SPEECH'] = '1'
+                speech = Speech(state, stack, native)
+                fixture.speech = speech
             metadata, launch, stop, diagnostic = native.android(state, stack, ca, artifact)
             adb_path = str(Path(native.ENV['ANDROID_HOME']) / 'platform-tools/adb')
             # Establish a measured normal viewport before the 320-CSS-pixel
@@ -106,8 +112,15 @@ def full_journeys(receipt, artifact):
             (state / 'native-android-account.json').write_text(json.dumps(account))
             for key in ('GITHUB_ACTIONS', 'GITHUB_REPOSITORY', 'NATIVE_PLATFORM'):
                 native.ENV[key] = os.environ[key]
-            native.command('bun', 'scripts/native-android-journeys.ts', str(state), 'analytics', timeout=600)
+            native.command('bun', 'scripts/native-android-journeys.ts', str(state), 'analytics', timeout=900)
             checks = json.loads((state / 'native-android-journeys-analytics.json').read_text())['checks']
+            if speech is not None:
+                from analytics_speech import TARGETS
+                if speech.passed != set(TARGETS):
+                    raise RuntimeError('Incomplete actual TalkBack speech evidence')
+                checks['accessibility'].update(platformScreenReader=True, spokenStatesAndErrors=True, focusOrder=True)
+                metadata['speech'] = dict(method='stock TalkBack speaker output and pinned offline recognition',
+                                         targets=sorted(speech.passed), rawAudioRetained=False, externalRecognition=False)
         else:
             devices = json.loads(native.command('xcrun', 'simctl', 'list', 'devices', 'booted', '-j'))['devices']
             identifiers = [d['udid'] for group in devices.values() for d in group if d.get('name') == 'MyChef fixture']

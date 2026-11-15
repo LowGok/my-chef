@@ -425,7 +425,13 @@ def android(state, stack, ca, apk):
         command(manager, "--uninstall", *ndks, timeout=180)
     print(f"Android fixture disk after cleanup: {shutil.disk_usage(sdk).free // 1024**2} MiB", flush=True)
     command(manager, "--install", image, timeout=240)
-    command(avdmanager, "create", "avd", "--name", "mychef-ci", "--package", image, data="no\n")
+    if ENV.get("NATIVE_ANALYTICS_SPEECH") == "1":
+        avd = state / "avd"
+        avd.mkdir(mode=0o700)
+        ENV["ANDROID_AVD_HOME"] = str(avd)
+        command(avdmanager, "create", "avd", "--name", "mychef-ci", "--package", image, "--device", "pixel_6", "--path", str(avd / "mychef-ci.avd"))
+    else:
+        command(avdmanager, "create", "avd", "--name", "mychef-ci", "--package", image, data="no\n")
     adb_path = str(sdk / "platform-tools/adb")
     emu_path = str(sdk / "emulator/emulator")
     print(command(emu_path, "-accel-check"), flush=True)
@@ -433,7 +439,8 @@ def android(state, stack, ca, apk):
     boot_output = stack.enter_context(boot_log.open("w"))
     subprocess.run([adb_path, "start-server"], env=ENV, check=True, timeout=25,
                    stdout=boot_output, stderr=boot_output)
-    emulator = subprocess.Popen([emu_path, "-avd", "mychef-ci", "-port", "5554", "-no-window", "-no-audio",
+    audio_flags = [] if ENV.get("NATIVE_ANALYTICS_SPEECH") == "1" else ["-no-window", "-no-audio"]
+    emulator = subprocess.Popen([emu_path, "-avd", "mychef-ci", "-port", "5554", *audio_flags,
                                 "-no-snapshot", "-writable-system", "-gpu", "software", "-no-boot-anim",
                                 "-camera-back", "none", "-memory", "2048", "-partition-size", "2048"], env=ENV,
                                 stdout=boot_output, stderr=boot_output)

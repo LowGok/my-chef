@@ -13,6 +13,7 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewConfiguration;
 import android.view.ViewGroup;
+import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.accessibility.AccessibilityWindowInfo;
 import android.webkit.WebView;
@@ -57,7 +58,7 @@ public final class NativeJourneyProbe extends Instrumentation {
         }
         MotionEvent event = MotionEvent.obtain(down, SystemClock.uptimeMillis(), action, count,
             properties, coordinates, 0, 0, 1f, 1f, 0, 0, InputDevice.SOURCE_TOUCHSCREEN, 0);
-        try { getUiAutomation().injectInputEvent(event, true); } finally { event.recycle(); }
+        try { getUiAutomation(UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES).injectInputEvent(event, true); } finally { event.recycle(); }
     }
 
     private void pinch() {
@@ -136,7 +137,7 @@ public final class NativeJourneyProbe extends Instrumentation {
     }
 
     private UiAutomation interactiveWindows() {
-        UiAutomation automation = getUiAutomation();
+        UiAutomation automation = getUiAutomation(UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES);
         AccessibilityServiceInfo info = automation.getServiceInfo();
         int flags = AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
             | AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS;
@@ -299,12 +300,99 @@ public final class NativeJourneyProbe extends Instrumentation {
             : sawPicker ? "picker-target" : "picker-window");
     }
 
+    private AccessibilityNodeInfo speechNode(AccessibilityNodeInfo node, String label, int depth) {
+        if (node == null || depth > 32) return null;
+        String text = String.valueOf(node.getText()).strip();
+        String description = String.valueOf(node.getContentDescription()).strip();
+        if (node.isVisibleToUser() && (text.equals(label) || description.equals(label)
+                || text.startsWith(label + " ") || description.startsWith(label + " "))) {
+            if (label.equals("Help improve MyChef")) {
+                AccessibilityNodeInfo candidate = node;
+                for (int i = 0; i < 4 && candidate != null; i++, candidate = candidate.getParent()) {
+                    if (candidate.isCheckable()) return candidate;
+                }
+            } else return node;
+        }
+        for (int i = 0; i < node.getChildCount(); i++) {
+            AccessibilityNodeInfo result = speechNode(node.getChild(i), label, depth + 1);
+            if (result != null) return result;
+        }
+        return null;
+    }
+
+    private void speechFocus(String target) throws Exception {
+        String label = switch (target) {
+            case "on", "off" -> "Help improve MyChef";
+            case "stale" -> "Your setting changed elsewhere.";
+            case "offline" -> "Turning off was not confirmed.";
+            default -> throw new IllegalStateException("accessibility-controls");
+        };
+        UiAutomation automation = interactiveWindows();
+        long end = SystemClock.uptimeMillis() + 18_000;
+        while (SystemClock.uptimeMillis() < end) {
+            AccessibilityNodeInfo root = automation.getRootInActiveWindow();
+            AccessibilityNodeInfo node = root != null && getTargetContext().getPackageName().equals(String.valueOf(root.getPackageName()))
+                ? speechNode(root, label, 0) : null;
+            if (node != null && (!target.equals("on") && !target.equals("off")
+                    || node.isCheckable() && node.isChecked() == target.equals("on"))) {
+                node.performAction(AccessibilityNodeInfo.ACTION_CLEAR_ACCESSIBILITY_FOCUS);
+                SystemClock.sleep(150);
+                if (!node.refresh()) continue;
+                try {
+                    AccessibilityEvent event = automation.executeAndWaitForEvent(
+                        () -> node.performAction(AccessibilityNodeInfo.ACTION_ACCESSIBILITY_FOCUS),
+                        value -> value.getEventType() == AccessibilityEvent.TYPE_VIEW_ACCESSIBILITY_FOCUSED
+                            && getTargetContext().getPackageName().equals(String.valueOf(value.getPackageName()))
+                            && node.equals(value.getSource()), 3500);
+                    event.recycle();
+                    return;
+                } catch (java.util.concurrent.TimeoutException ignored) { }
+            }
+            SystemClock.sleep(200);
+        }
+        throw new IllegalStateException("accessibility-controls");
+    }
+
+    private void speechOrder() throws Exception {
+        speechFocus("on");
+        UiAutomation automation = interactiveWindows();
+        boolean status = false;
+        int[] size = new int[2];
+        runOnMainSync(() -> { size[0] = web.getWidth(); size[1] = web.getHeight(); });
+        for (int step = 0; step < 20; step++) {
+            // Real TalkBack swipe-next gesture, rather than direct focus of the
+            // desired later control. The intervening status must precede Refresh.
+            float y = size[1] * .5f;
+            long down = SystemClock.uptimeMillis();
+            for (int move = 0; move <= 8; move++) {
+                int action = move == 0 ? MotionEvent.ACTION_DOWN : move == 8 ? MotionEvent.ACTION_UP : MotionEvent.ACTION_MOVE;
+                MotionEvent event = MotionEvent.obtain(down, SystemClock.uptimeMillis(), action,
+                    size[0] * (.3f + .4f * move / 8), y, 0);
+                event.setSource(InputDevice.SOURCE_TOUCHSCREEN);
+                try { automation.injectInputEvent(event, true); } finally { event.recycle(); }
+                SystemClock.sleep(25);
+            }
+            SystemClock.sleep(500);
+            AccessibilityNodeInfo root = automation.getRootInActiveWindow();
+            AccessibilityNodeInfo focused = root == null ? null : root.findFocus(AccessibilityNodeInfo.FOCUS_ACCESSIBILITY);
+            if (focused == null) continue;
+            String text = String.valueOf(focused.getText()).strip();
+            String description = String.valueOf(focused.getContentDescription()).strip();
+            if (text.equals("On") || description.equals("On")) status = true;
+            if (text.equals("Refresh analytics setting") || description.equals("Refresh analytics setting")) {
+                if (status) return;
+                throw new IllegalStateException("accessibility-controls");
+            }
+        }
+        throw new IllegalStateException("accessibility-controls");
+    }
+
     private void checkAccessibility(String group) {
         String[] labels = group.equals("nav") ? new String[]{"Meals", "Shopping list", "Profile"}
             : new String[]{"Cancel", "Download ZIP"};
         long end = SystemClock.uptimeMillis() + 25_000;
         while (SystemClock.uptimeMillis() < end) {
-            AccessibilityNodeInfo root = getUiAutomation().getRootInActiveWindow();
+            AccessibilityNodeInfo root = getUiAutomation(UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES).getRootInActiveWindow();
             boolean ready = root != null && getTargetContext().getPackageName().equals(String.valueOf(root.getPackageName()));
             for (String label : labels) {
                 if (!ready) break;
@@ -344,7 +432,7 @@ public final class NativeJourneyProbe extends Instrumentation {
             // The packaged app's config and normal runtime keep debugging off.
             runOnMainSync(() -> WebView.setWebContentsDebuggingEnabled(true));
             Bundle ready = new Bundle(); ready.putString("probe", "ready"); sendStatus(1, ready);
-            long deadline = SystemClock.uptimeMillis() + 600_000;
+            long deadline = SystemClock.uptimeMillis() + 900_000;
             while (!stop.exists() && SystemClock.uptimeMillis() < deadline) {
                 if (command.exists()) {
                     String value = new String(Files.readAllBytes(command.toPath()), StandardCharsets.UTF_8).trim();
@@ -357,6 +445,14 @@ public final class NativeJourneyProbe extends Instrumentation {
                     } else if (value.matches("document:[1-9][0-9]{0,3}:(SAVE|native-(dish|page)\\.png)")) {
                         String[] parts = value.split(":", 3);
                         selectSystemDocument(parts[2]);
+                        Files.write(done.toPath(), parts[1].getBytes(StandardCharsets.UTF_8));
+                    } else if (value.matches("speech-focus:[1-9][0-9]{0,3}:(on|off|stale|offline)")) {
+                        String[] parts = value.split(":", 3);
+                        speechFocus(parts[2]);
+                        Files.write(done.toPath(), parts[1].getBytes(StandardCharsets.UTF_8));
+                    } else if (value.matches("speech-order:[1-9][0-9]{0,3}:on")) {
+                        String[] parts = value.split(":", 3);
+                        speechOrder();
                         Files.write(done.toPath(), parts[1].getBytes(StandardCharsets.UTF_8));
                     } else if (value.matches("accessibility:[1-9][0-9]{0,3}:(nav|export-dialog)")) {
                         String[] parts = value.split(":", 3);
