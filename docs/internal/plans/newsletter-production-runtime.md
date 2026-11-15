@@ -134,6 +134,7 @@ None for the technical scope. Controller, contact, retention-review criteria and
 | 2026-11-15 | R-1 | spec | `4c3722702a4a45f3b37350281f5fdf3bfbe2cc71` | unknown | procedural | Review stopped because required pinned container pages were absent from cache. Model identity not attested. |
 | 2026-11-15 | R-2 | spec | `8e5cdee68f34719d89dc4d905beb2bb0870b159f` | unknown | procedural | No findings after complete pinned-source review. Model identity not attested; owner acceptance pending. |
 | 2026-11-15 | R-2 | spec | `8e5cdee68f34719d89dc4d905beb2bb0870b159f` | n/a | n/a | accepted by owner |
+| 2026-11-15 | R-3 | spec | `946c91c5cd424f35ac8d0d660d5266d064050a20` | unknown | procedural | No findings after current-main/schema-26 freshness review. Accepted normative baseline unchanged; model identity not attested. |
 
 ### R-1
 
@@ -145,6 +146,10 @@ EVIDENCE: The pinned docs README.md routes container work to conventions/contain
 PROPOSAL: Make both pages available at the exact pinned revision and rerun the independent specification review before acceptance.
 
 ### R-2
+
+NO FINDINGS
+
+### R-3
 
 NO FINDINGS
 
