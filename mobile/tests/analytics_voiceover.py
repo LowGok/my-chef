@@ -104,8 +104,14 @@ def main():
         if len(identifiers) != 1:
             raise RuntimeError('Expected one owned VoiceOver simulator')
         identifier = identifiers[0]
+        native.command('xcrun', 'simctl', 'ui', identifier, 'content_size', 'accessibility-medium')
+        metadata['contentSize'] = 'accessibility-medium'
         container = Path(native.command('xcrun', 'simctl', 'get_app_container', identifier, native.APP, 'data'))
         checks = analytics_ios.run(state, control, account, identifier, container, voiceover_only=True)
+        text_scale = json.loads((container / 'tmp/analytics-text-result.json').read_text())
+        if (set(text_scale) != {'root', 'label', 'notice', 'fits', 'osTextEnlarged'}
+                or not all(value is True for value in text_scale.values())):
+            raise RuntimeError('VoiceOver enlarged OS text did not propagate or fit')
         expected_supplement = dict(artifact_binding, fixtureConfigSha256=hashlib.sha256(json.dumps({
             'configuration': hashlib.sha256((state / 'analytics-config.json').read_bytes()).hexdigest(),
             'driver': hashlib.sha256((ROOT / 'mobile/tests/ios/AnalyticsProbe.swift').read_bytes()).hexdigest(),

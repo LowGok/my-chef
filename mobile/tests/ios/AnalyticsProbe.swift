@@ -376,6 +376,13 @@ final class AnalyticsProbe: XCTestCase {
             XCTFail("Required app control or error must be spoken by VoiceOver")
             throw Failure.missingControl
         }
+        func focusSpeech(_ element: XCUIElement, _ phrase: String) throws -> String {
+            XCTAssertTrue(element.exists && element.isHittable, "Spoken control must be in the visible native tree")
+            // A real single-finger touch explores the visible WebKit element.
+            // This anchors VoiceOver inside its content before sequential moves.
+            element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+            return try spoken(phrase)
+        }
         func state(_ utterance: String) -> String {
             // Inspect only the control/state prefix, before its long hint.
             let prefix = String(utterance.prefix(100)).lowercased()
@@ -389,11 +396,12 @@ final class AnalyticsProbe: XCTestCase {
         // This uses the OS VoiceOver service's actual spoken output. No TTS
         // substitute, DOM label or accessibility audit can set these flags.
         tap("Create an account")
+        let signupBox = checkbox(); reveal(signupBox)
         try voice.enable()
         defer { try? voice.disable() }
         XCTAssertTrue(voice.isEnabled)
         print("Analytics iOS voice phase: unavailable control")
-        let unavailable = try spoken("Help improve MyChef")
+        let unavailable = try focusSpeech(signupBox, "Help improve MyChef")
         let disabled = unavailable.range(of: "dimmed|disabled|unavailable", options: [.regularExpression, .caseInsensitive]) != nil
         let role = unavailable.range(of: "switch|check.?box|button", options: [.regularExpression, .caseInsensitive]) != nil
         print("Analytics iOS spoken control: role=\(role) disabled=\(disabled) state=\(state(unavailable))")
@@ -408,9 +416,11 @@ final class AnalyticsProbe: XCTestCase {
         fill("Password", configuration["password"] ?? "", secure: true)
         tap("Sign in to MyChef"); profile(); details()
         _ = try control("approved"); relaunch(); profile(); details()
+        let privacyHeading = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Privacy and data")).firstMatch
+        reveal(privacyHeading)
         try voice.enable()
         print("Analytics iOS voice phase: profile order")
-        _ = try spoken("Privacy and data")
+        _ = try focusSpeech(privacyHeading, "Privacy and data")
         var checkboxIndex: Int?, statusIndex: Int?, refreshIndex: Int?
         for index in 0..<24 {
             let utterance = try voice.moveForward().utterance
@@ -423,9 +433,11 @@ final class AnalyticsProbe: XCTestCase {
         XCTAssertLessThan(statusIndex ?? 100, refreshIndex ?? -1)
         mark("accessibility", "focusOrder")
         try voice.disable(); enabled(true)
+        let enabledBox = checkbox(); reveal(enabledBox)
         try voice.enable()
         print("Analytics iOS voice phase: enabled state")
-        XCTAssertEqual(state(try spoken("Help improve MyChef")), "on", "VoiceOver must convey enabled participation")
+        XCTAssertEqual(state(try focusSpeech(enabledBox, "Help improve MyChef")), "on", "VoiceOver must convey enabled participation")
+        XCTAssertEqual(try control("preference")["enabled"] as? Bool, true, "Touch exploration must not change participation")
         // Change the server choice from another session while the focused
         // control remains On, then activate it with the real VoiceOver gesture.
         print("Analytics iOS voice phase: stale choice")
@@ -437,7 +449,10 @@ final class AnalyticsProbe: XCTestCase {
         try voice.disable(); _ = try control("maintenance"); enabled(true)
         _ = try control("offline")
         print("Analytics iOS voice phase: interrupted off")
-        try voice.enable(); _ = try spoken("Help improve MyChef"); app.doubleTap()
+        let offlineBox = checkbox(); reveal(offlineBox)
+        try voice.enable(); _ = try focusSpeech(offlineBox, "Help improve MyChef")
+        XCTAssertEqual(try control("preference")["enabled"] as? Bool, true, "Touch exploration preserves On")
+        app.doubleTap()
         waitFor({ self.text("Turning off was not confirmed") }, "VoiceOver action must encounter unconfirmed Off")
         _ = try spoken("Turning off was not confirmed", backward: true)
         XCTAssertEqual(state(try spoken("Help improve MyChef")), "on")
