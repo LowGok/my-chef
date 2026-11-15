@@ -373,21 +373,20 @@ public final class NativeJourneyProbe extends Instrumentation {
     private void speechTouchMode() {
         AccessibilityManager manager = getTargetContext().getSystemService(AccessibilityManager.class);
         long end = SystemClock.uptimeMillis() + 15_000;
+        String reason = "speech-touch-service";
         while (manager != null && SystemClock.uptimeMillis() < end) {
-            if (manager.isTouchExplorationEnabled()) return;
-            SystemClock.sleep(200);
-        }
-        if (manager != null) {
             for (AccessibilityServiceInfo info : manager.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_SPOKEN)) {
                 if (!info.getId().startsWith("com.google.android.marvin.talkback/")) continue;
-                if ((info.flags & AccessibilityServiceInfo.FLAG_REQUEST_TOUCH_EXPLORATION_MODE) == 0)
-                    throw new IllegalStateException("speech-touch-request");
                 if ((info.getCapabilities() & AccessibilityServiceInfo.CAPABILITY_CAN_REQUEST_TOUCH_EXPLORATION) == 0)
-                    throw new IllegalStateException("speech-touch-capability");
-                throw new IllegalStateException("speech-touch-mode");
+                    reason = "speech-touch-capability";
+                else if ((info.flags & AccessibilityServiceInfo.FLAG_REQUEST_TOUCH_EXPLORATION_MODE) == 0)
+                    reason = "speech-touch-request";
+                else if (!manager.isTouchExplorationEnabled()) reason = "speech-touch-mode";
+                else return;
             }
+            SystemClock.sleep(200);
         }
-        throw new IllegalStateException("speech-touch-service");
+        throw new IllegalStateException(reason);
     }
 
     private void speechToggle(String before) throws Exception {

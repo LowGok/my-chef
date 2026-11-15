@@ -124,9 +124,15 @@ final class AnalyticsProbe: XCTestCase {
         XCTAssertTrue(exists, "Expected installed app control")
         for _ in 0..<12 {
             if element.isHittable { return }
-            // Keep the content gesture above the software keyboard. A whole-
-            // screen swipe can land entirely on the keyboard on a small phone.
-            scrollContent(up: true)
+            // A restored focus can place the result above the viewport. Use
+            // its current native rectangle to choose the scroll direction,
+            // keeping the gesture above the software keyboard.
+            scrollContent(up: element.frame.midY > app.frame.midY)
+        }
+        if !element.isHittable {
+            screenState()
+            let frame = element.frame
+            print("Analytics iOS tap rect: \(frame.minX),\(frame.minY),\(frame.width),\(frame.height)")
         }
         XCTAssertTrue(element.isHittable, "Control must be reachable at OS text size")
     }
