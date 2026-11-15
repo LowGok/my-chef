@@ -209,6 +209,21 @@ func (s *Service) Step(ctx context.Context) (bool, error) {
 	if s.Lifecycle != nil && s.Lifecycle.CheckReady(ctx) != nil {
 		return false, ErrUnavailable
 	}
+	if s.Lifecycle != nil && s.Lifecycle.NewsletterFilesReady(ctx) != nil {
+		// A generic, unbound namespace keeps the historical path. A bound namespace
+		// waits for physical maintenance without killing its capture worker.
+		key, err := store.DeriveNewsletterIdentityKey(s.RateKey)
+		if err != nil {
+			return false, ErrUnavailable
+		}
+		bound, err := s.Store.ConfigureNewsletterIdentityIfBound(ctx, key)
+		if err != nil {
+			return false, ErrUnavailable
+		}
+		if bound {
+			return false, nil
+		}
+	}
 	var worked bool
 	err := s.Store.NewsletterTransaction(ctx, s.Lifecycle, func(tx *gorm.DB) error {
 		var job requestRecord
@@ -266,7 +281,11 @@ func (s *Service) resolve(ctx context.Context, tx *gorm.DB, now time.Time, job r
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		prefix, _ := localePath(input.Locale)
 		sub = subscription{UserID: user.ID, EmailKey: key, Status: "pending", Locale: input.Locale, ConsentVersion: input.ConsentVersion, Source: prefix + "blog/", RequestedUnix: job.RequestedUnix, Revision: 1}
-		if err := tx.Create(&sub).Error; err != nil {
+		if user.NewsletterMinimised {
+			if err := tx.Exec("INSERT INTO newsletter_subscriptions(user_id,email_key,status,locale,consent_version,source,requested_unix) VALUES(?,NULL,'pending',NULL,?,NULL,NULL)", user.ID, input.ConsentVersion).Error; err != nil {
+				return err
+			}
+		} else if err := tx.Create(&sub).Error; err != nil {
 			return err
 		}
 	} else if err != nil {
@@ -378,7 +397,11 @@ func (s *Service) issue(ctx context.Context, tx *gorm.DB, now time.Time, user st
 	}
 	withdraw := proofRecord{Hash: withdrawalHash, UserID: user.ID, Purpose: "unsubscribe", EmailKey: addressKey, Revision: sub.Revision, RequestOrder: job.OrderID, CreatedUnix: now.Unix()}
 	withdraw.IdentityIncarnation, withdraw.IdentityKeyVersion, withdraw.IdentityAddressTag = proof.IdentityIncarnation, proof.IdentityKeyVersion, proof.IdentityAddressTag
-	if err := tx.Create(&withdraw).Error; err != nil {
+	withdrawTx := tx
+	if user.NewsletterMinimised {
+		withdrawTx = tx.Omit("EmailKey")
+	}
+	if err := withdrawTx.Create(&withdraw).Error; err != nil {
 		return err
 	}
 	prefix, _ := localePath(input.Locale)

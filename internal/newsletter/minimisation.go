@@ -2,6 +2,7 @@ package newsletter
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/LowGok/my-chef/internal/email/mailqueue"
@@ -15,25 +16,42 @@ func (s *Service) Minimise(ctx context.Context, j *store.LifecycleJournal) error
 	if !s.valid() || j == nil {
 		return ErrUnavailable
 	}
+	after := int64(0)
+	for {
+		last, count, err := s.minimiseSlice(ctx, j, after)
+		if err != nil {
+			return err
+		}
+		if count == 0 {
+			return nil
+		}
+		after = last
+	}
+}
+func (s *Service) minimiseSlice(ctx context.Context, j *store.LifecycleJournal, after int64) (int64, int, error) {
 	s.Store.AccountWork.Lock()
 	defer s.Store.AccountWork.Unlock()
+	if err := ctx.Err(); err != nil {
+		return after, 0, err
+	}
 	if err := j.CheckReady(ctx); err != nil {
-		return ErrUnavailable
+		return after, 0, ErrUnavailable
 	}
 	now := s.now()
 	if err := s.expireTransientOwned(ctx, now); err != nil {
-		return err
+		return after, 0, err
 	}
 	var users []store.User
-	if err := s.Store.DB.WithContext(ctx).Where("isNewsletterOnly=1 AND user_id IN (SELECT user_id FROM newsletter_subscriptions WHERE status<>'confirmed')").Order("user_id").Limit(100).Find(&users).Error; err != nil {
-		return err
+	if err := s.Store.DB.WithContext(ctx).Where("isNewsletterOnly=1 AND user_id>? AND (user_id NOT IN (SELECT user_id FROM newsletter_subscriptions) OR user_id IN (SELECT user_id FROM newsletter_subscriptions WHERE status<>'confirmed'))", after).Order("user_id").Limit(100).Find(&users).Error; err != nil {
+		return after, 0, err
 	}
 	for _, user := range users {
 		if err := s.minimiseContact(ctx, j, user, now); err != nil {
-			return err
+			return after, len(users), err
 		}
+		after = user.ID
 	}
-	return nil
+	return after, len(users), nil
 }
 
 func (s *Service) contactAuthorityLive(ctx context.Context, tx *gorm.DB, user store.User, now time.Time) (bool, error) {
@@ -67,7 +85,9 @@ func (s *Service) minimiseContact(ctx context.Context, j *store.LifecycleJournal
 		return store.ErrLifecycleUncertain
 	}
 	var sub subscription
-	if err := s.Store.DB.WithContext(ctx).Take(&sub, "user_id=?", user.ID).Error; err != nil {
+	if err := s.Store.DB.WithContext(ctx).Take(&sub, "user_id=?", user.ID).Error; errors.Is(err, gorm.ErrRecordNotFound) {
+		sub.Status = "pending"
+	} else if err != nil {
 		return err
 	}
 	if sub.Status != current.Status || sub.Revision != current.Revision || sub.ProvedOrder != current.DecisionOrder {

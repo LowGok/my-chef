@@ -46,7 +46,7 @@ func loadNewsletterRole() (newsletterRoleConfig, error) {
 		return invalid()
 	}
 	settings, err := config.LoadNewsletter(cfg, mail)
-	if err != nil || settings.Mode == "disabled" || settings.Origin != cfg.Origin || !cfg.Secure || os.Getenv("MYCHEF_NEWSLETTER_CONSENT_VERSION") == "" {
+	if err != nil || !settings.PendingDays.NoExpiry || !settings.WithdrawnDays.NoExpiry || settings.Mode == "disabled" || settings.Origin != cfg.Origin || !cfg.Secure || os.Getenv("MYCHEF_NEWSLETTER_CONSENT_VERSION") == "" {
 		return invalid()
 	}
 	collect := os.Getenv("MYCHEF_NEWSLETTER_COLLECT")
@@ -109,6 +109,10 @@ func serveNewsletter(parent context.Context) error {
 	if db.CheckSchema(ctx) != nil {
 		return errNewsletterRole
 	}
+	identityKey, err := store.DeriveNewsletterIdentityKey(cfg.rateKey)
+	if err != nil || db.ConfigureNewsletterIdentity(ctx, identityKey) != nil {
+		return errNewsletterRole
+	}
 	journal, err := db.OpenLifecycleJournal(ctx, cfg.app.LifecycleDatabase)
 	if err != nil {
 		return errNewsletterRole
@@ -128,7 +132,7 @@ func serveNewsletter(parent context.Context) error {
 		return errNewsletterRole
 	}
 	service := &newsletter.Service{Store: db, Keys: cfg.keys, RateKey: cfg.rateKey, Origin: cfg.settings.Origin, ConsentVersion: cfg.settings.ConsentVersion, Lifecycle: journal}
-	if service.Sweep(ctx, journal, cfg.settings.PendingDays, cfg.settings.WithdrawnDays, deletion) != nil {
+	if err := service.Maintain(ctx, journal, cfg.settings.PendingDays, cfg.settings.WithdrawnDays, deletion); err != nil && !errors.Is(err, newsletter.ErrPhysicalCleanupPending) {
 		return errNewsletterRole
 	}
 	// The purpose-scoped worker rejects unrelated app/security queue rows.
@@ -146,7 +150,9 @@ func serveNewsletter(parent context.Context) error {
 	}
 	defer func() { cancel(); workers.Wait() }()
 	checks := func(ctx context.Context) map[string]bool {
-		return newsletterRoleChecks(cfg.settings, journal.CheckReady(ctx) == nil && db.SQL.PingContext(ctx) == nil, mailService.Ready(ctx), true, failed.Load())
+		checks := newsletterRoleChecks(cfg.settings, journal.CheckReady(ctx) == nil && db.SQL.PingContext(ctx) == nil, mailService.Ready(ctx), true, failed.Load())
+		checks["physicalCleanup"] = journal.NewsletterFilesReady(ctx) == nil
+		return checks
 	}
 	ready := func(ctx context.Context) bool {
 		for _, value := range checks(ctx) {
@@ -158,7 +164,7 @@ func serveNewsletter(parent context.Context) error {
 	}
 	operational := func(ctx context.Context) bool {
 		for key, value := range checks(ctx) {
-			if key != "collectionEnabled" && !value {
+			if key != "collectionEnabled" && key != "physicalCleanup" && !value {
 				return false
 			}
 		}
