@@ -436,20 +436,34 @@ final class AnalyticsProbe: XCTestCase {
     func verifyVoiceOver() throws {
         let voice = XCUIDevice.shared.voiceOverService
         func spoken(_ phrase: String, backward: Bool = false, controlRole: Bool = false) throws -> String {
+            func words(_ value: String) -> String {
+                value.lowercased().components(separatedBy: CharacterSet.alphanumerics.inverted)
+                    .filter { !$0.isEmpty }.joined(separator: " ")
+            }
+            let expected = words(phrase)
+            var seen = Set<String>()
             func matches(_ value: String) -> Bool {
-                guard value.localizedCaseInsensitiveContains(phrase) else { return false }
+                let normalized = words(value)
+                for token in ["help improve mychef", "analytics is off", "unavailable", "check box", "checkbox", "checked", "button", "web content", "create an account", "privacy"] {
+                    if normalized.contains(token) { seen.insert(token) }
+                }
+                guard normalized.contains(expected) else { return false }
                 return !controlRole || value.range(of: "switch|check.?box|button|link", options: [.regularExpression, .caseInsensitive]) != nil
             }
             if let current = try? voice.currentSpeech().utterance, matches(current) { return current }
-            let deadline = Date().addingTimeInterval(90)
             for reverse in [backward, !backward] {
-                for _ in 0..<64 {
+                // Reserve time for both directions if the first reaches a
+                // boundary without throwing or changing its announcement.
+                let deadline = Date().addingTimeInterval(45)
+                for _ in 0..<32 {
                     if Date() >= deadline { break }
                     let output = try? (reverse ? voice.moveBackward() : voice.moveForward()).utterance
                     guard let output = output else { break }
                     if matches(output) { return output }
                 }
             }
+            // Only fixed app vocabulary, never arbitrary speech or fields.
+            print("Analytics iOS spoken vocabulary: " + seen.sorted().joined(separator: ","))
             XCTFail("Required app control or error must be spoken by VoiceOver")
             throw Failure.missingControl
         }
