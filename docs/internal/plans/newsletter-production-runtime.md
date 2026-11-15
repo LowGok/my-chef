@@ -121,7 +121,13 @@ Rollback pauses site then backend capture, preserves proof routes, SQL, authorit
 
 ## Tasks
 
-None yet; written once the document is planned.
+- [ ] T1 `internal/config/newsletter_email_test.go` - add failing tests for a newsletter-only protected sender profile without fabricated webhook settings, missing/invalid mail keys, fake-mode limits and unchanged full-app parser requirements (AC-01, AC-03).
+- [ ] T2 `internal/config/email.go` and `internal/config/newsletter_email.go` - implement the role-specific mail loader while preserving normal app validation; T1 and existing email tests pass (AC-01, AC-03).
+- [ ] T3 `cmd/mychef/newsletter_serve_test.go` and `internal/http/newsletter_only_test.go` - add failing CLI/mux/config/readiness/shutdown tests, including no recipe credentials, forbidden app/native/operator routes, paused check vectors and proof actions (AC-01, AC-02, AC-04).
+- [ ] T4 `cmd/mychef/newsletter.go`, `cmd/mychef/newsletter_serve.go` and `internal/http/newsletter.go` - implement the narrow role/mux and current-schema journal/worker wiring, explicit production capability and safe shutdown without normal app/reminder/analytics startup; T3 and full-app regressions pass (AC-01, AC-02, AC-04).
+- [ ] T5 `internal/email/newsletter_only_test.go` - add failing tests for unrelated queue rows in the role and capture exact six-template profile/withdrawal/retry behavior with fake transport (AC-03).
+- [ ] T6 `internal/email/service.go`, `internal/email/worker.go` and minimal mailqueue helper - restrict the dedicated role to newsletter templates while preserving normal workers; T5 and concurrent withdrawal/expiry/transfer tests pass (AC-03, AC-04).
+- [ ] T7 `scripts/test_newsletter_runtime.py`, `deploy/newsletter/` and `README.md` - add a reproducible disposable executable/init/restart/backup/restore/erasure/lock/pause rehearsal, restricted deployment templates and exact-source/image/site receipt instructions; run required build/generate/test/lint/audit/browser/upgrade/final-container checks and independent review before delivery (AC-01, AC-02, AC-03, AC-04, AC-05).
 
 ## Open Questions
 
