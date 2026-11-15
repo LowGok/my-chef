@@ -176,7 +176,7 @@ final class AnalyticsProbe: XCTestCase {
         waitFor({ ((try? self.control("preference")["enabled"]) as? Bool) == desired }, "Server preference must acknowledge choice")
     }
     func text(_ phrase: String) -> Bool {
-        app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", phrase)).firstMatch.exists
+        app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", phrase)).firstMatch.exists
     }
     func profile() {
         tap("Profile")
