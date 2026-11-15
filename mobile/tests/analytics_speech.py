@@ -160,7 +160,13 @@ class Speech:
             '-l', 'en', '-t', '4', '-np', '-nt', '-otxt', '-of', str(prefix)],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=60)
         transcript = prefix.with_suffix('.txt')
-        passed = result.returncode == 0 and transcript.is_file() and transcript.stat().st_size < 16384 and matches(target, transcript.read_text())
+        text = transcript.read_text() if result.returncode == 0 and transcript.is_file() and transcript.stat().st_size < 16384 else ''
+        passed = matches(target, text)
+        if not passed:
+            words = ' '.join(re.findall(r'[a-z]+', text.lower()))
+            label = re.search(r'help improve my\s?chef', words) is not None
+            state = 'on' if matches('on', text) else 'off' if matches('off', text) else 'unknown'
+            print('Analytics speech evidence: target=' + target + ' audible=true label=' + str(label).lower() + ' state=' + state, flush=True)
         path.unlink(missing_ok=True)
         transcript.unlink(missing_ok=True)
         if not passed:

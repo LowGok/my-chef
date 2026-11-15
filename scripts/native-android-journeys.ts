@@ -1218,6 +1218,8 @@ async function analyticsJourneys() {
   async function withTalkBack(control: Locator, action: () => Promise<void>) {
     const service = "com.google.android.marvin.talkback/.TalkBackService";
     await control.scrollIntoViewIfNeeded();
+    adb("shell", "settings", "put", "secure", "tts_default_synth", "com.google.android.tts");
+    adb("shell", "cmd", "media_session", "volume", "--stream", "10", "--set", "10");
     adb("shell", "settings", "put", "secure", "enabled_accessibility_services", service);
     adb("shell", "settings", "put", "secure", "accessibility_enabled", "1");
     try {

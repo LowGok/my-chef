@@ -221,7 +221,10 @@ class Fixture:
                               'foreign-export', 'verify-native-export'}
                     operation = operation if isinstance(operation, str) and operation in closed else 'unknown'
                     reason = {'Timed out waiting for disposable signup message': 'proof-timeout',
-                              'Fixture signup inbox refused': 'proof-inbox'}.get(str(error), 'refused')
+                              'Fixture signup inbox refused': 'proof-inbox',
+                              'Speaker capture is silent or outside bounds': 'speech-audio',
+                              'Speech capture timeline mismatch': 'speech-timeline',
+                              'Offline model changed': 'speech-model'}.get(str(error), 'refused')
                     print('Analytics fixture refusal: operation=' + operation + ' reason=' + reason, flush=True)
                     status, body = 409, b'{"error":"fixture_operation_refused"}'
                 self.send_response(status)
