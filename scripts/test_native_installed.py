@@ -550,7 +550,8 @@ def ios_billing_verified(result, events):
 
 
 def ios_billing_timeout(stage_path, events):
-    stages = {"waiting-for-webview", "waiting-for-system-text", "fixture-input", "web-script",
+    stages = {"waiting-for-webview", "waiting-for-system-text", "waiting-for-sign-in", "fixture-input",
+              "web-script", "web-error", "web-result",
               "sign-in-form", "fake-store", "sign-in", "terms", "system-text", "checkout", "restore"}
     routes = {"session", "refresh", "login", "billing/status", "billing/checkouts",
               "billing/launch", "billing/verify", "billing/restore"}
@@ -559,7 +560,7 @@ def ios_billing_timeout(stage_path, events):
             stage = file.read(65).decode("ascii")
     except (OSError, UnicodeError):
         stage = ""
-    return (stage if stage in stages else "unreported",
+    return (stage if stage in stages or re.fullmatch(r"webkit-[1-9][0-9]?", stage) else "unreported",
             [entry for entry in events if entry[0] in {"GET", "POST"} and entry[1] in routes
              and type(entry[2]) is int and 100 <= entry[2] <= 599][-20:])
 
@@ -578,7 +579,7 @@ def ios_billing_journey(state, receipt, metadata, events, stop, start):
         "expiresAt": int(datetime.fromisoformat(lease["expires"]).timestamp() * 1000),
     })
     try:
-        wait_for(result.is_file, "iOS simulator subscription journey", seconds=100)
+        wait_for(result.is_file, "iOS simulator subscription journey", seconds=125)
     except RuntimeError:
         stage, statuses = ios_billing_timeout(result.with_name("mychef-ios-billing-stage.txt"), events[first:])
         print(f"Disposable iOS billing stage: {stage}; route statuses: {statuses}", flush=True)

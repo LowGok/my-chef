@@ -213,6 +213,9 @@ class NativeVerificationTest(unittest.TestCase):
             stage.write_text("system-text")
             self.assertEqual(installed.ios_billing_timeout(stage, events),
                              ("system-text", events[:2]))
+            stage.write_text("webkit-4")
+            self.assertEqual(installed.ios_billing_timeout(stage, events),
+                             ("webkit-4", events[:2]))
             stage.write_text("unrecognized diagnostic")
             self.assertEqual(installed.ios_billing_timeout(stage, events),
                              ("unreported", events[:2]))

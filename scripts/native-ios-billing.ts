@@ -109,9 +109,10 @@ export function iosBillingFixtureSource() {
   return `
 let stage = "sign-in-form";
 try {
-  return await (${runIOSBillingFixture.toString()})(fixture, ${installBillingStoreFixture.toString()}, next => { stage = next; });
+  const fixture = JSON.parse(fixtureJSON);
+  return JSON.stringify(await (${runIOSBillingFixture.toString()})(fixture, ${installBillingStoreFixture.toString()}, next => { stage = next; }));
 } catch {
-  return { failedStage: stage };
+  return JSON.stringify({ failedStage: stage });
 }
 `;
 }

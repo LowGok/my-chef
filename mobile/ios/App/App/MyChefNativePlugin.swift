@@ -477,7 +477,7 @@ final class MyChefBridgeViewController: CAPBridgeViewController {
         #endif
         #if targetEnvironment(simulator) && MYCHEF_BILLING_SIMULATOR
         if ProcessInfo.processInfo.arguments.contains("--mychef-billing-fixture") {
-            runBillingFixture(remaining: 80)
+            runBillingFixture(remaining: 120)
         }
         #endif
     }
@@ -584,22 +584,43 @@ final class MyChefBridgeViewController: CAPBridgeViewController {
 
     private func runBillingFixture(remaining: Int) {
         let fixtureOrigin = nativePlugin.billingFixtureOrigin
-        if remaining == 80 && fixtureOrigin { reportBillingFixtureStage("waiting-for-webview") }
-        guard fixtureOrigin, let view = webView,
-              view.url?.scheme == "capacitor", view.url?.host == "localhost",
-              view.traitCollection.preferredContentSizeCategory.isAccessibilityCategory else {
+        func retry(_ stage: String) {
             if remaining == 0 {
-                if fixtureOrigin {
-                    let localView = webView?.url?.scheme == "capacitor" && webView?.url?.host == "localhost"
-                    reportBillingFixtureStage(localView ? "waiting-for-system-text" : "waiting-for-webview")
-                }
+                if fixtureOrigin { reportBillingFixtureStage(stage) }
                 return
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
                 self?.runBillingFixture(remaining: remaining - 1)
             }
+        }
+        if remaining == 120 && fixtureOrigin { reportBillingFixtureStage("waiting-for-webview") }
+        guard fixtureOrigin, let view = webView,
+              view.url?.scheme == "capacitor", view.url?.host == "localhost" else {
+            retry("waiting-for-webview")
             return
         }
+        guard view.traitCollection.preferredContentSizeCategory.isAccessibilityCategory else {
+            retry("waiting-for-system-text")
+            return
+        }
+        // A URL can be visible while WebKit is still replacing the document.
+        // Keep the one-use input on disk until the correct form and bridge load.
+        view.evaluateJavaScript("""
+            document.readyState === "complete" &&
+              !!document.querySelector("#sign-in-email")?.form &&
+              typeof window.Capacitor?.nativePromise === "function"
+            """) { [weak self, weak view] value, error in
+            guard let self, let view else { return }
+            guard error == nil, value as? Bool == true,
+                  view.url?.scheme == "capacitor", view.url?.host == "localhost" else {
+                retry("waiting-for-sign-in")
+                return
+            }
+            self.executeBillingFixture(in: view)
+        }
+    }
+
+    private func executeBillingFixture(in view: WKWebView) {
         let directory = FileManager.default.temporaryDirectory
         let file = directory.appendingPathComponent("mychef-ios-billing-input.json")
         reportBillingFixtureStage("fixture-input")
@@ -616,11 +637,27 @@ final class MyChefBridgeViewController: CAPBridgeViewController {
               let expiry = input["expiresAt"] as? NSNumber,
               Date(timeIntervalSince1970: expiry.doubleValue / 1000) > Date(),
               let asset = Bundle.main.url(forResource: "mychef-ios-billing-fixture", withExtension: "js", subdirectory: "public/app"),
-              let source = try? String(contentsOf: asset, encoding: .utf8) else { return }
+              let source = try? String(contentsOf: asset, encoding: .utf8),
+              let inputJSON = String(data: data, encoding: .utf8) else { return }
         do { try FileManager.default.removeItem(at: file) } catch { return }
         reportBillingFixtureStage("web-script")
-        view.callAsyncJavaScript(source, arguments: ["fixture": input], in: nil, in: .page) { [weak self] result in
-            guard case .success(let value) = result else { return }
+        view.callAsyncJavaScript(source, arguments: ["fixtureJSON": inputJSON], in: nil, in: .page) { [weak self] result in
+            let value: Any
+            switch result {
+            case .success(let raw):
+                guard let json = raw as? String, json.utf8.count <= 256,
+                      let parsed = try? JSONSerialization.jsonObject(with: Data(json.utf8)) else {
+                    self?.reportBillingFixtureStage("web-result")
+                    return
+                }
+                value = parsed
+            case .failure(let error):
+                let nsError = error as NSError
+                let stage = nsError.domain == WKErrorDomain && (1...99).contains(nsError.code)
+                    ? "webkit-\(nsError.code)" : "web-error"
+                self?.reportBillingFixtureStage(stage)
+                return
+            }
             if let failure = value as? [String: String], Set(failure.keys) == ["failedStage"],
                let stage = failure["failedStage"], [
                 "sign-in-form", "fake-store", "sign-in", "terms", "system-text", "checkout", "restore"
@@ -630,7 +667,10 @@ final class MyChefBridgeViewController: CAPBridgeViewController {
             }
             guard let proof = value as? [String: Bool],
                   Set(proof.keys) == ["terms", "systemTextSize", "checkout", "restore"], proof.values.allSatisfy({ $0 }),
-                  let output = try? JSONSerialization.data(withJSONObject: proof) else { return }
+                  let output = try? JSONSerialization.data(withJSONObject: proof) else {
+                self?.reportBillingFixtureStage("web-result")
+                return
+            }
             try? output.write(to: directory.appendingPathComponent("mychef-ios-billing-result.json"), options: .atomic)
         }
     }
