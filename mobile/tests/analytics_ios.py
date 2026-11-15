@@ -110,7 +110,7 @@ def run(state, control, account, identifier, container, layout_only=False, voice
                                     stderr=subprocess.STDOUT, timeout=seconds)
         except subprocess.TimeoutExpired as error:
             text = (error.stdout or b'').decode(errors='replace')
-            stages = re.findall(r'Analytics iOS (?:phase|control): ([A-Za-z ?]{1,60})', text)
+            stages = re.findall(r'Analytics iOS (?:phase|control|voice phase): ([A-Za-z ?]{1,60})', text)
             raise RuntimeError('Isolated iOS analytics probe deadline ' + str(seconds)
                                + ' seconds; controls ' + ', '.join(stages[-4:])) from None
         if result.returncode:
@@ -118,7 +118,7 @@ def run(state, control, account, identifier, container, layout_only=False, voice
             text = result.stdout.decode(errors='replace')
             categories = sorted({kind for kind in ('SwiftCompile', 'CompileSwift', 'CompileAssetCatalog', 'CodeSign', 'Testing failed') if kind in text})
             lines = sorted(set(re.findall(r'AnalyticsProbe\.swift:([0-9]{1,4}):(?:[0-9]+:)?\s*(?:error:)?', text)))
-            stages = re.findall(r'Analytics iOS (?:phase|control): ([A-Za-z ?]{1,60})', text)
+            stages = re.findall(r'Analytics iOS (?:phase|control|voice phase): ([A-Za-z ?]{1,60})', text)
             detail = ', '.join(categories or ['XCTest'])
             if lines:
                 detail += '; source lines ' + ', '.join(lines[-6:])

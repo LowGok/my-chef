@@ -198,6 +198,8 @@ def full_journeys(receipt, artifact):
         if complete:
             (native.ARTIFACTS / 'analytics-installed-full.json').write_text(json.dumps(result, indent=2) + '\n')
         print('Installed analytics observations retained; full receipt ' + ('complete' if complete else 'withheld'))
+        if native.PLATFORM == 'android' and speech is not None and not complete:
+            raise RuntimeError('Android spoken verification requires every native observation')
 
 
 def main():

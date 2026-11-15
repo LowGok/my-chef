@@ -364,8 +364,10 @@ final class AnalyticsProbe: XCTestCase {
         func spoken(_ phrase: String, backward: Bool = false) throws -> String {
             if let current = try? voice.currentSpeech().utterance,
                current.localizedCaseInsensitiveContains(phrase) { return current }
+            let deadline = Date().addingTimeInterval(90)
             for reverse in [backward, !backward] {
-                for _ in 0..<160 {
+                for _ in 0..<64 {
+                    if Date() >= deadline { break }
                     let output = try? (reverse ? voice.moveBackward() : voice.moveForward()).utterance
                     guard let output = output else { break }
                     if output.localizedCaseInsensitiveContains(phrase) { return output }
@@ -390,6 +392,7 @@ final class AnalyticsProbe: XCTestCase {
         try voice.enable()
         defer { try? voice.disable() }
         XCTAssertTrue(voice.isEnabled)
+        print("Analytics iOS voice phase: unavailable control")
         let unavailable = try spoken("Help improve MyChef")
         let disabled = unavailable.range(of: "dimmed|disabled|unavailable", options: [.regularExpression, .caseInsensitive]) != nil
         let role = unavailable.range(of: "switch|check.?box|button", options: [.regularExpression, .caseInsensitive]) != nil
@@ -397,6 +400,7 @@ final class AnalyticsProbe: XCTestCase {
         XCTAssertTrue(disabled, "VoiceOver must convey unavailable participation")
         // The disabled checkbox and its adjacent status together communicate
         // unavailability and Off; require both actual spoken outputs.
+        print("Analytics iOS voice phase: unavailable status")
         _ = try spoken("Analytics is Off while unavailable")
         try voice.disable()
         tap("Sign in")
@@ -405,6 +409,7 @@ final class AnalyticsProbe: XCTestCase {
         tap("Sign in to MyChef"); profile(); details()
         _ = try control("approved"); relaunch(); profile(); details()
         try voice.enable()
+        print("Analytics iOS voice phase: profile order")
         _ = try spoken("Privacy and data")
         var checkboxIndex: Int?, statusIndex: Int?, refreshIndex: Int?
         for index in 0..<24 {
@@ -419,9 +424,11 @@ final class AnalyticsProbe: XCTestCase {
         mark("accessibility", "focusOrder")
         try voice.disable(); enabled(true)
         try voice.enable()
+        print("Analytics iOS voice phase: enabled state")
         XCTAssertEqual(state(try spoken("Help improve MyChef")), "on", "VoiceOver must convey enabled participation")
         // Change the server choice from another session while the focused
         // control remains On, then activate it with the real VoiceOver gesture.
+        print("Analytics iOS voice phase: stale choice")
         _ = try control("other-session-choice", ["enabled": false])
         app.doubleTap()
         waitFor({ self.text("Your setting changed elsewhere") }, "VoiceOver action must encounter stale-choice error")
@@ -429,10 +436,12 @@ final class AnalyticsProbe: XCTestCase {
         XCTAssertEqual(state(try spoken("Help improve MyChef")), "off")
         try voice.disable(); _ = try control("maintenance"); enabled(true)
         _ = try control("offline")
+        print("Analytics iOS voice phase: interrupted off")
         try voice.enable(); _ = try spoken("Help improve MyChef"); app.doubleTap()
         waitFor({ self.text("Turning off was not confirmed") }, "VoiceOver action must encounter unconfirmed Off")
         _ = try spoken("Turning off was not confirmed", backward: true)
         XCTAssertEqual(state(try spoken("Help improve MyChef")), "on")
+        print("Analytics iOS voice phase: acknowledged off")
         _ = try control("online")
         app.doubleTap()
         waitFor({ ((try? self.control("preference")["enabled"]) as? Bool) == false }, "VoiceOver Off must receive server acknowledgement")
