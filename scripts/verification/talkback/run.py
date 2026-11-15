@@ -50,7 +50,8 @@ fixture_module.__file__ = str(smoke)
 avd = 'command(avdmanager, "create", "avd", "--name", "mychef-ci", "--package", image, data="no\\n")'
 if base.count(avd) != 1:
     raise SystemExit("Unexpected fixture virtual device creation")
-base = base.replace(flag, '"-no-window",', 1).replace(avd,
+# The calibrated display build has PulseAudio output; the headless build is silent.
+base = base.replace(flag, "", 1).replace(avd,
     'command(avdmanager, "create", "avd", "--name", "mychef-ci", "--package", image, '
     '"--device", "pixel_6", "--path", str(Path(ENV["ANDROID_AVD_HOME"]) / "mychef-ci.avd"))', 1)
 exec(compile(base, str(smoke), "exec"), fixture_module.__dict__)
@@ -78,7 +79,14 @@ with tempfile.TemporaryDirectory(prefix="mychef-installed-") as directory, ExitS
     sink = "mychef_talkback"
     audio_env = {**f.ENV, "XDG_RUNTIME_DIR": str(pulse_runtime),
                  "PULSE_SERVER": "unix:" + str(socket), "PULSE_SINK": sink,
-                 "QEMU_AUDIO_DRV": "pa"}
+                 "QEMU_AUDIO_DRV": "pa", "QEMU_AUDIO_OUT_DRV": "pa",
+                 "QT_QPA_PLATFORM": "xcb", "DISPLAY": ":91"}
+    display_log = stack.enter_context((state / "display.log").open("w"))
+    display = subprocess.Popen(["Xvfb", ":91", "-screen", "0", "1280x800x24", "-nolisten", "tcp"],
+                               env=audio_env, stdout=display_log, stderr=display_log)
+    stack.callback(f.terminate, display)
+    f.wait_for(lambda: Path("/tmp/.X11-unix/X91").is_socket() and display.poll() is None,
+               "isolated emulator display", seconds=12)
     audio_log = stack.enter_context((state / "speaker.log").open("w"))
     pulse = subprocess.Popen(["pulseaudio", "--daemonize=no", "--use-pid-file=no",
                               "--exit-idle-time=-1", "--disallow-module-loading", "-n",

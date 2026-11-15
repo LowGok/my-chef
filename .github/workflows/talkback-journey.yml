@@ -61,7 +61,7 @@ jobs:
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install platform-tools
           "$ANDROID_HOME/platform-tools/adb" version
           sudo apt-get update -qq
-          sudo apt-get install -y -qq --no-install-recommends ffmpeg cmake g++ pulseaudio pulseaudio-utils
+          sudo apt-get install -y -qq --no-install-recommends ffmpeg cmake g++ pulseaudio pulseaudio-utils xvfb
           ffmpeg -version | sed -n '1p'
           pulseaudio --version
       - name: Prepare a checksum-verified offline recognizer
