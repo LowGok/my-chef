@@ -96,6 +96,11 @@ final class AnalyticsProbe: XCTestCase {
                     try? data.write(to: URL(fileURLWithPath: output).deletingPathExtension().appendingPathExtension("json"), options: .atomic)
                 }
             }
+            for word in ["Shopping", "Profile", "Meals", "A few extras", "Extra item"] {
+                let matches = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", word)).allElementsBoundByIndex
+                let types = matches.prefix(6).map { String($0.elementType.rawValue) }.joined(separator: ",")
+                print("Analytics iOS known control: " + word + " types: " + types)
+            }
             let candidates = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Help improve MyChef")).allElementsBoundByIndex
             for node in candidates.prefix(8) {
                 let value = node.value as? String
@@ -118,8 +123,10 @@ final class AnalyticsProbe: XCTestCase {
             let done = app.buttons.matching(NSPredicate(format: "label == %@", "Done")).firstMatch
             if done.exists && done.isHittable { done.tap() }
         }
+        let labelPattern = label.split(whereSeparator: { $0.isWhitespace })
+            .map { NSRegularExpression.escapedPattern(for: String($0)) }.joined(separator: "\\s+")
         let element = app.descendants(matching: .any).matching(NSPredicate(format:
-            "label == %@ AND (elementType == %d OR elementType == %d OR elementType == %d OR elementType == %d)", label,
+            "label MATCHES %@ AND (elementType == %d OR elementType == %d OR elementType == %d OR elementType == %d)", labelPattern,
             XCUIElement.ElementType.button.rawValue, XCUIElement.ElementType.switch.rawValue,
             XCUIElement.ElementType.link.rawValue, XCUIElement.ElementType.disclosureTriangle.rawValue)).firstMatch
         reveal(element); element.tap()
@@ -127,8 +134,10 @@ final class AnalyticsProbe: XCTestCase {
     func fill(_ label: String, _ text: String, secure: Bool = false) {
         print("Analytics iOS control: " + label)
         hasEnteredData = true
-        let ordinary = app.textFields[label].firstMatch
-        let element = secure ? app.secureTextFields[label].firstMatch : (ordinary.exists ? ordinary : app.textViews[label].firstMatch)
+        let ordinary = app.descendants(matching: .any).matching(NSPredicate(format:
+            "label == %@ AND (elementType == %d OR elementType == %d)", label,
+            XCUIElement.ElementType.textField.rawValue, XCUIElement.ElementType.textView.rawValue)).firstMatch
+        let element = secure ? app.secureTextFields[label].firstMatch : ordinary
         reveal(element); element.tap()
         if let current = element.value as? String, !current.isEmpty,
            current != element.placeholderValue {
@@ -203,6 +212,24 @@ final class AnalyticsProbe: XCTestCase {
     }
     func testAuthenticatedAnalytics() throws {
         app.launch()
+        if configuration["layoutOnly"] == "true" {
+            tap("Create an account")
+            let box = checkbox(); reveal(box)
+            XCTAssertGreaterThanOrEqual(app.frame.width, 370, "Small supported iPhone width")
+            XCTAssertLessThanOrEqual(app.frame.width, 380, "Small supported iPhone width")
+            XCTAssertGreaterThanOrEqual(box.frame.minX, app.frame.minX)
+            XCTAssertLessThanOrEqual(box.frame.maxX, app.frame.maxX)
+            fill("Email", "layout@example.test")
+            let email = app.textFields["Email"].firstMatch
+            let keyboard = app.keyboards.firstMatch
+            XCTAssertTrue(keyboard.waitForExistence(timeout: 5))
+            XCTAssertLessThanOrEqual(email.frame.maxY, keyboard.frame.minY + 1)
+            mark("accessibility", "phoneWidths", "keyboardUnobstructed")
+            guard let output = configuration["output"] else { throw Failure.invalidFixture }
+            try JSONSerialization.data(withJSONObject: ["checks": observations]).write(to: URL(fileURLWithPath: output), options: .atomic)
+            return
+        }
+        XCTAssertGreaterThanOrEqual(app.frame.width, 390, "Regular supported iPhone width")
         try signup("analyticsdisabled@example.test", assessed: false)
         _ = try control("approved"); relaunch()
         try signup("analyticsassessed@example.test", assessed: true)

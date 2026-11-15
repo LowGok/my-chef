@@ -512,7 +512,10 @@ def android(state, stack, ca, apk):
     return metadata, launch, stop, diagnostics
 
 
-def ios(state, stack, ca, package):
+def ios(state, stack, ca, package, model="iPhone 16", fixture_name="MyChef fixture"):
+    if (model, fixture_name) not in (("iPhone 16", "MyChef fixture"),
+                                    ("iPhone SE (3rd generation)", "MyChef analytics small fixture")):
+        raise ValueError("Unsupported disposable simulator selection")
     # Verify the archive before booting the simulator. The host Mach-O tools
     # do not need CoreSimulator, and can otherwise contend with its first boot.
     command("/usr/bin/ditto", "-x", "-k", str(package), str(state))
@@ -538,8 +541,8 @@ def ios(state, stack, ca, package):
 
     runtimes = json.loads(sim("list", "devices", "available", "-j"))["devices"]
     runtime, device = next((runtime, device) for runtime, devices in runtimes.items()
-                           if runtime.endswith("iOS-18-6") for device in devices if device["name"] == "iPhone 16")
-    identifier = sim("create", "MyChef fixture", device["deviceTypeIdentifier"], runtime)
+                           if runtime.endswith("iOS-18-6") for device in devices if device["name"] == model)
+    identifier = sim("create", fixture_name, device["deviceTypeIdentifier"], runtime)
     if not re.fullmatch(r"[0-9A-Fa-f]{8}(?:-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}", identifier):
         raise RuntimeError("CoreSimulator did not return a device identifier")
 

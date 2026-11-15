@@ -90,12 +90,13 @@ def project(state):
     return path
 
 
-def run(state, control, account, identifier, container):
+def run(state, control, account, identifier, container, layout_only=False):
     root = Path(state)
     output = root / 'analytics-ios-observations.json'
     input_path = root / 'analytics-ios-input.json'
     input_path.write_text(json.dumps({**control, **account, 'appContainer': str(container),
                                      'contract': str(ROOT / 'mobile/tests/analytics-contract.json'), 'output': str(output),
+                                     'layoutOnly': 'true' if layout_only else 'false',
                                      'anonymousScreenshot': str(native.ARTIFACTS / 'analytics-anonymous.png')}))
     input_path.chmod(0o600)
     source = project(root)
@@ -103,8 +104,14 @@ def run(state, control, account, identifier, container):
     # Raw XCTest logs can include synthetic field values. Keep them private,
     # never echo a failing assertion's data or upload an xcresult/screenshots.
     def execute(arguments, seconds):
-        result = subprocess.run(arguments, cwd=root, env=native.ENV, stdout=subprocess.PIPE,
-                                stderr=subprocess.STDOUT, timeout=seconds)
+        try:
+            result = subprocess.run(arguments, cwd=root, env=native.ENV, stdout=subprocess.PIPE,
+                                    stderr=subprocess.STDOUT, timeout=seconds)
+        except subprocess.TimeoutExpired as error:
+            text = (error.stdout or b'').decode(errors='replace')
+            stages = re.findall(r'Analytics iOS (?:phase|control): ([A-Za-z ?]{1,60})', text)
+            raise RuntimeError('Isolated iOS analytics probe deadline ' + str(seconds)
+                               + ' seconds; controls ' + ', '.join(stages[-4:])) from None
         if result.returncode:
             # Fixed compiler error classes only, without source/paths/values.
             text = result.stdout.decode(errors='replace')
@@ -119,6 +126,9 @@ def run(state, control, account, identifier, container):
             roles = re.findall(r'Analytics iOS accessibility type: ([0-9]{1,3}) state: (off|on|other) enabled: (true|false)', text)
             if roles:
                 detail += '; observed roles ' + ', '.join('/'.join(role) for role in roles[-8:])
+            known = re.findall(r'Analytics iOS known control: ([A-Za-z ]{1,30}) types: ([0-9,]{0,30})', text)
+            if known:
+                detail += '; known roles ' + ', '.join(name + '=' + types for name, types in known[-5:])
             diagnostic = safe_diagnostic(text, [*account.values(), control['token'], str(input_path), str(container)])
             if diagnostic:
                 detail += '; ' + diagnostic
@@ -145,7 +155,7 @@ def run(state, control, account, identifier, container):
     target['UserAttachmentLifetime'] = 'deleteAlways'
     plans[0].write_bytes(plistlib.dumps(plan))
     execute(['xcodebuild', 'test-without-building', '-xctestrun', str(plans[0]), '-destination', 'id=' + identifier,
-             '-parallel-testing-enabled', 'NO', '-maximum-concurrent-test-simulator-destinations', '1'], 600)
+             '-parallel-testing-enabled', 'NO', '-maximum-concurrent-test-simulator-destinations', '1'], 900)
     value = json.loads(output.read_text())
     if type(value) is not dict or set(value) != {'checks'}:
         raise RuntimeError('Incomplete iOS analytics observations')
