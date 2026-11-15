@@ -117,6 +117,33 @@ for (const scenario of [
           );
         }),
       ).toBe(true);
+      if (scenario.platform === "ios") {
+        await page.evaluate(() => {
+          type Input = Record<string, unknown>;
+          type Call = (plugin: string, method: string, input: Input) => Promise<Input>;
+          const cap = (window as unknown as { Capacitor: { nativePromise: Call } }).Capacitor;
+          const original = cap.nativePromise.bind(cap);
+          let checkoutQuotes = 0;
+          cap.nativePromise = async (plugin, method, input) => {
+            const reply = await original(plugin, method, input);
+            if (plugin === "MyChefNative" && method === "billingQuotes" &&
+                Array.isArray(input.plans) && input.plans.length === 1 && ++checkoutQuotes === 2 &&
+                Array.isArray(reply.quotes)) {
+              return { ...reply, quotes: reply.quotes.map((quote: Input) => ({ ...quote, region: "FRA" })) };
+            }
+            return reply;
+          };
+        });
+        await subscribe.tap();
+        await expect(panel.getByRole("status")).toHaveText("This purchase option is unavailable.");
+        const reservation = await server.get("/api/native/v1/billing/status", {
+          headers: { Authorization: native.access() },
+        });
+        expect(reservation.status()).toBe(200);
+        expect((await reservation.json()).pending).toBe(false);
+        expect(finishCalls).toBe(0);
+        await expect(subscribe).toBeEnabled();
+      }
       await subscribe.tap();
       if (scenario.platform === "ios") {
         await expect.poll(() => finishCalls).toBe(1);
