@@ -240,10 +240,19 @@ export function createBillingFlow(
       : await device.unfinished();
     requireSession();
     let result: Result = "empty";
+    let failure: { cause: unknown } | undefined;
     for (const proof of receipts.slice(0, 10)) {
-      const checked = await finish(proof, server.restore);
-      if (result !== "verified") result = checked;
+      try {
+        const checked = await finish(proof, server.restore);
+        if (result !== "verified") result = checked;
+      } catch (cause) {
+        requireSession();
+        failure ??= { cause };
+      }
     }
+    // One unavailable proof must not hide a recoverable purchase or make the
+    // store appear empty. Never start a new checkout from an incomplete scan.
+    if (result !== "verified" && failure) throw failure.cause;
     return result;
   }
   function restore(): Promise<Result> {

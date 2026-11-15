@@ -326,3 +326,37 @@ test("a failed store finish does not block a second unfinished verified transact
     "finish",
   ]);
 });
+
+test("a temporary verification failure does not hide a later recoverable purchase", async () => {
+  const f = fixture();
+  const later = {
+    ...proof,
+    id: "fixture-recoverable",
+    receipt: "fixture-recoverable-proof",
+  };
+  f.setUnfinished(proof, later);
+  let attempts = 0;
+  f.onVerify(async () => {
+    if (++attempts === 1) throw new Error("Store verification unavailable");
+    return true;
+  });
+  const finished: string[] = [];
+  f.onFinish(async (value) => {
+    finished.push(value);
+  });
+  expect(await f.flow.restore()).toBe("verified");
+  expect(attempts).toBe(2);
+  expect(finished).toEqual([later.id]);
+  expect(f.events).not.toContain("purchase");
+});
+
+test("checkout stays closed when all unfinished proof checks fail", async () => {
+  const f = fixture();
+  f.onVerify(async () => {
+    throw new Error("Store verification unavailable");
+  });
+  await expect(f.flow.purchase("monthly")).rejects.toThrow(
+    "Store verification unavailable",
+  );
+  expect(f.events).toEqual(["unfinished", "verify restore"]);
+});
