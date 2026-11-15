@@ -164,7 +164,11 @@ class Fixture:
         if op == 'foreign-export':
             # This endpoint accepts only the signed-in actor. Supplying another
             # account selector must be refused by the actual strict decoder.
-            status, _, _ = self.call('POST', 'account/export', dict(currentPassword=self.account['password'], accountId='999999'))
+            with sqlite3.connect('file:' + str(self.state / 'app.db') + '?mode=ro', uri=True) as db:
+                foreign = db.execute('SELECT user_id FROM users WHERE email=?', ('analyticsassessed@example.test',)).fetchone()
+            if not foreign:
+                raise RuntimeError('Expected the other completed fictional account')
+            status, _, _ = self.call('POST', 'account/export', dict(currentPassword=self.account['password'], accountId=str(foreign[0])))
             if status != 400:
                 raise RuntimeError('Foreign export selector was not refused')
             return {'passed': True}
@@ -174,7 +178,7 @@ class Fixture:
                 enabled = db.execute('SELECT count(*) FROM analytics_preferences WHERE enabled<>0').fetchone()[0]
                 forbidden = db.execute("SELECT count(*) FROM analytics_outbox WHERE name NOT IN ('preferences_saved','meal_plan_saved','shopping_list_edited','favorite_saved','feedback_submitted','personal_recipe_saved','recipe_import_saved')").fetchone()[0]
                 shopping = sum(item.get('name') == 'Analytics queued oats' for row in db.execute('SELECT body FROM shopping_lists')
-                               for item in json.loads(row[0]).get('items', []))
+                               for item in (json.loads(row[0]).get('items') or []))
             with sqlite3.connect('file:' + str(self.state / 'analytics-data/journal.sqlite') + '?mode=ro', uri=True) as db:
                 delivered = db.execute('SELECT count(*) FROM facts').fetchone()[0]
             return dict(queued=queued, delivered=delivered, enabled=enabled, forbidden=forbidden, queuedProductItems=shopping)

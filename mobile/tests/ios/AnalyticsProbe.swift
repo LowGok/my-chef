@@ -6,6 +6,7 @@ final class AnalyticsProbe: XCTestCase {
     let app = XCUIApplication(bundleIdentifier: "com.gkldevelopment.mychef.preview")
     var configuration: [String: String] = [:]
     var observations: [String: [String: Bool]] = [:]
+    var hasEnteredData = false
 
     override func setUpWithError() throws {
         continueAfterFailure = false
@@ -60,6 +61,22 @@ final class AnalyticsProbe: XCTestCase {
     func reveal(_ element: XCUIElement) {
         let exists = element.waitForExistence(timeout: 30)
         if !exists {
+            // Only the empty anonymous screen can be retained. After the first
+            // field is touched, screenshots and arbitrary AX labels stay private.
+            if !hasEnteredData, let output = configuration["anonymousScreenshot"] {
+                let image = XCUIScreen.main.screenshot().pngRepresentation
+                if image.count <= 2 * 1024 * 1024 {
+                    try? image.write(to: URL(fileURLWithPath: output), options: .atomic)
+                }
+                let known = ["Create an account", "Sign in to MyChef", "Help improve MyChef", "Privacy", "First name", "Last name", "Username", "Email", "Password", "Create my account", "Create account", "Welcome back."]
+                let rows = known.map { label -> [String: Any] in
+                    let matches = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", label)).allElementsBoundByIndex
+                    return ["control": label, "types": matches.prefix(8).map { Int($0.elementType.rawValue) }]
+                }
+                if let data = try? JSONSerialization.data(withJSONObject: rows) {
+                    try? data.write(to: URL(fileURLWithPath: output).deletingPathExtension().appendingPathExtension("json"), options: .atomic)
+                }
+            }
             let candidates = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Help improve MyChef")).allElementsBoundByIndex
             for node in candidates.prefix(8) {
                 let value = node.value as? String
@@ -80,6 +97,7 @@ final class AnalyticsProbe: XCTestCase {
         reveal(element); element.tap()
     }
     func fill(_ label: String, _ text: String, secure: Bool = false) {
+        hasEnteredData = true
         let ordinary = app.textFields[label].firstMatch
         let element = secure ? app.secureTextFields[label].firstMatch : (ordinary.exists ? ordinary : app.textViews[label].firstMatch)
         reveal(element); element.tap()

@@ -95,7 +95,8 @@ def run(state, control, account, identifier, container):
     output = root / 'analytics-ios-observations.json'
     input_path = root / 'analytics-ios-input.json'
     input_path.write_text(json.dumps({**control, **account, 'appContainer': str(container),
-                                     'contract': str(ROOT / 'mobile/tests/analytics-contract.json'), 'output': str(output)}))
+                                     'contract': str(ROOT / 'mobile/tests/analytics-contract.json'), 'output': str(output),
+                                     'anonymousScreenshot': str(native.ARTIFACTS / 'analytics-anonymous.png')}))
     input_path.chmod(0o600)
     source = project(root)
     derived = root / 'ios-probe-build'

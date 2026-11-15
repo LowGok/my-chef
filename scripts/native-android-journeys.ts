@@ -173,8 +173,13 @@ async function probeAction(
   await expect
     .poll(
       async () => {
-        const log = await readFile(join(state, "probe-private.log"), "utf8").catch(() => "");
-        const reason = log.match(/INSTRUMENTATION_RESULT: probeReason=([a-z-]{1,50})\b/)?.[1];
+        const log = await readFile(
+          join(state, "probe-private.log"),
+          "utf8",
+        ).catch(() => "");
+        const reason = log.match(
+          /INSTRUMENTATION_RESULT: probeReason=([a-z-]{1,50})\b/,
+        )?.[1];
         if (reason) throw Error("Disposable OS probe refused: " + reason);
         try {
           return adb("shell", "run-as", app, "cat", "cache/native-check-done");
@@ -1123,10 +1128,27 @@ async function analyticsJourneys() {
     throw Error("Disposable analytics controller invalid");
   privateValues.push(control.token);
   type FixtureReplies = {
-    counts: { queued: number; delivered: number; enabled: number; forbidden: number; queuedProductItems: number };
+    counts: {
+      queued: number;
+      delivered: number;
+      enabled: number;
+      forbidden: number;
+      queuedProductItems: number;
+    };
     preference: { enabled: boolean };
     proof: { url: string };
-  } & Record<"approved" | "tick" | "maintenance" | "backup" | "other-session-choice" | "offline" | "online" | "verify-native-export" | "foreign-export", { passed: boolean }>;
+  } & Record<
+    | "approved"
+    | "tick"
+    | "maintenance"
+    | "backup"
+    | "other-session-choice"
+    | "offline"
+    | "online"
+    | "verify-native-export"
+    | "foreign-export",
+    { passed: boolean }
+  >;
   async function fixture<K extends keyof FixtureReplies>(
     operation: K,
     fields: Record<string, unknown> = {},
@@ -1143,15 +1165,32 @@ async function analyticsJourneys() {
     if (response.status !== 200)
       throw Error("Disposable analytics operation refused");
     const value: unknown = await response.json();
-    if (!value || typeof value !== "object" || Array.isArray(value)) throw Error("Invalid fixture response");
+    if (!value || typeof value !== "object" || Array.isArray(value))
+      throw Error("Invalid fixture response");
     const record = value as Record<string, unknown>;
-    const shape = operation === "counts"
-      ? { queued: "number", delivered: "number", enabled: "number", forbidden: "number", queuedProductItems: "number" }
-      : operation === "proof" ? { url: "string" }
-      : operation === "preference" ? { enabled: "boolean" } : { passed: "boolean" };
-    if (Object.keys(record).length !== Object.keys(shape).length ||
-        !Object.entries(shape).every(([name, kind]) => typeof record[name] === kind &&
-          (kind !== "number" || (Number.isSafeInteger(record[name]) && Number(record[name]) >= 0))))
+    const shape =
+      operation === "counts"
+        ? {
+            queued: "number",
+            delivered: "number",
+            enabled: "number",
+            forbidden: "number",
+            queuedProductItems: "number",
+          }
+        : operation === "proof"
+          ? { url: "string" }
+          : operation === "preference"
+            ? { enabled: "boolean" }
+            : { passed: "boolean" };
+    if (
+      Object.keys(record).length !== Object.keys(shape).length ||
+      !Object.entries(shape).every(
+        ([name, kind]) =>
+          typeof record[name] === kind &&
+          (kind !== "number" ||
+            (Number.isSafeInteger(record[name]) && Number(record[name]) >= 0)),
+      )
+    )
       throw Error("Invalid fixture response");
     return value as FixtureReplies[K];
   }
@@ -1164,6 +1203,14 @@ async function analyticsJourneys() {
   };
   const toggle = () =>
     page.getByRole("checkbox", { name: "Help improve MyChef", exact: true });
+  async function chooseOn() {
+    await expect(toggle()).toBeEnabled();
+    await toggle().click();
+    await expect(toggle()).toBeChecked();
+    await expect
+      .poll(async () => (await fixture("preference")).enabled)
+      .toBe(true);
+  }
   async function relaunch() {
     adb("shell", "am", "force-stop", app);
     await device?.close().catch(() => undefined);
@@ -1252,10 +1299,7 @@ async function analyticsJourneys() {
       await expect(toggle()).not.toBeChecked();
       expect((await fixture("preference")).enabled).toBe(false);
       remember("participation", "existingOff");
-      await toggle().check();
-      await expect
-        .poll(async () => (await fixture("preference")).enabled)
-        .toBe(true);
+      await chooseOn();
       remember("participation", "explicitEnable");
       await page.getByLabel("Diet", { exact: true }).fill("Vegetarian");
       await activate("Save preferences");
@@ -1328,26 +1372,23 @@ async function analyticsJourneys() {
     "analytics stale session and interrupted Off remain truthful",
     async () => {
       await fixture("other-session-choice", { enabled: false });
-      await toggle().uncheck();
+      await toggle().click();
       await expect(page.getByRole("alert")).toContainText(
         "Your setting changed elsewhere",
       );
       await expect(toggle()).not.toBeChecked();
       remember("conflict", "staleConflict", "currentState");
       await fixture("maintenance");
-      await toggle().check();
-      await expect
-        .poll(async () => (await fixture("preference")).enabled)
-        .toBe(true);
+      await chooseOn();
       await fixture("offline");
-      await toggle().uncheck();
+      await toggle().click();
       await expect(page.getByRole("alert")).toContainText(
         "Turning off was not confirmed",
       );
       await expect(toggle()).toBeChecked();
       remember("conflict", "offlineOffUnconfirmed");
       await fixture("online");
-      await toggle().uncheck();
+      await toggle().click();
       await expect(toggle()).not.toBeChecked();
       expect((await fixture("preference")).enabled).toBe(false);
       await expect(
@@ -1363,10 +1404,7 @@ async function analyticsJourneys() {
   await check(
     "analytics queued shopping retains its original admission revision",
     async () => {
-      await toggle().check();
-      await expect
-        .poll(async () => (await fixture("preference")).enabled)
-        .toBe(true);
+      await chooseOn();
       await button("Shopping list").click();
       await expect(page.locator(".shopping-progress [role=status]")).toHaveText(
         "Saved",
@@ -1419,7 +1457,7 @@ async function analyticsJourneys() {
       await expect.poll(async () => (await fixture("counts")).queued).toBe(1);
       await fixture("backup");
       await accountDetails();
-      await toggle().uncheck();
+      await toggle().click();
       await expect(toggle()).not.toBeChecked();
       await fixture("maintenance");
       await button("Refresh analytics setting").click();
