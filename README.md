@@ -199,6 +199,49 @@ Confirmed contacts and promoted app users remain governed by their own request
 process. Explicit verified erasure remains available under every policy.
 Expired queued requests are removed. Routine tests use fake delivery.
 
+### Production readiness and sender setup
+
+Keep website `NEWSLETTER_COLLECTION_ENABLED=0` and backend collection paused
+until the separate launch decision. The production compatibility guard remains
+false in this feature. A fake fixture's readiness and captured headers do not
+prove production hosting, domain verification, mailbox delivery or legal approval.
+
+For sending from `newsletter@mychef.dev`, use the existing Resend account to
+retrieve the `mychef.dev` domain, its sending capability/status, region and exact
+generated DNS records. Under the later approved provider operation, add only
+its sending DKIM TXT, SPF TXT and return-path/bounce MX in Cloudflare. The usual
+names are `resend._domainkey` and `send`; use the retrieved values, never example
+keys or a guessed region. Keep receiving and tracking disabled and preserve
+website, existing MX, SPF/DMARC and other-provider records. A return-path MX
+handles delivery feedback; it does not require an inbound newsletter mailbox.
+See [Resend domain setup](https://resend.com/docs/guides/dns/cloudflare).
+
+The selected newsletter Reply-To is `feedback@gkldevelopment.com`. Public Zoho
+MX records and the completed app-feedback specification establish a documented
+destination, not an independently verified mailbox or ingestion automation.
+`MYCHEF_FEEDBACK_TO` routes app-form reports outward. The current email webhook
+processes outbound delivery events and does not ingest received messages. Verify
+the existing mailbox/alias, monitoring and any ingestion route through the Hub's
+authorized provider access; do not create a new inbox or send a real-recipient
+test as part of local verification.
+
+Before collecting real contacts, the controller must approve and document the
+purposes, lawful bases, necessity and objective retention/review criteria for
+keeping pending and withdrawn email/contact IDs, including whether a smaller
+suppression record would suffice. Approve the public controller/rights contact,
+localized notice, processor/transfer information, backup/recovery and verified
+export/erasure procedure. `none` disables automatic age deletion; it is not a
+legal determination that indefinite retention is permitted. Newsletter withdrawal
+does not change analytics consent. Sending campaigns, production configuration,
+real-recipient testing and activation remain separate approvals.
+
+For rollback, pause capture and stop the owned newsletter worker before changing
+policy or release. Version 0.20.0 rejects `none`; keep newsletter mode disabled
+when reverting to it. Do not replace `none` with positive ages to make an old
+release ready, run an older finite sweeper on retained contacts, restore consent
+from a backup or change shared beta mail settings. Preserve the schema-24 data,
+independent journal and verified backup throughout.
+
 ### Transfer recovery and restored subscriptions
 
 Withdrawal commits `newsletter_subscriptions.status='unsubscribed'`, invalidates

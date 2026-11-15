@@ -11,6 +11,11 @@ func TestNewsletterExecutableReadiness(t *testing.T) {
 	if !newsletterReady(settings, true, true, true, false) {
 		t.Fatal("fixture did not become ready")
 	}
+	settings.PendingDays = config.NewsletterRetention{NoExpiry: true}
+	settings.WithdrawnDays = config.NewsletterRetention{NoExpiry: true}
+	if !newsletterReady(settings, true, true, true, false) {
+		t.Fatal("explicit no-expiry fixture did not become ready")
+	}
 	for _, input := range []struct{ storage, email, keys, failed bool }{{false, true, true, false}, {true, false, true, false}, {true, true, false, false}, {true, true, true, true}} {
 		if newsletterReady(settings, input.storage, input.email, input.keys, input.failed) {
 			t.Fatal("unavailable prerequisite accepted")

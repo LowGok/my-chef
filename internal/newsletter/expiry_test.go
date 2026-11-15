@@ -81,7 +81,7 @@ func TestNewsletterRetentionPoliciesAreIndependent(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer j.Close()
+			defer func() { _ = j.Close() }()
 			*now = now.Add(90 * 24 * time.Hour)
 			for range 2 {
 				if err := s.Sweep(t.Context(), j, tc.pending, tc.withdrawn, store.AccountDeletionOptions{}); err != nil {
@@ -120,7 +120,7 @@ func TestNoExpiryDoesNotExtendConfirmationOrExpireWithdrawal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer j.Close()
+	defer func() { _ = j.Close() }()
 	*now = now.Add(90 * 24 * time.Hour)
 	if err := s.Sweep(t.Context(), j, config.NewsletterRetention{NoExpiry: true}, config.NewsletterRetention{NoExpiry: true}, store.AccountDeletionOptions{}); err != nil {
 		t.Fatal(err)

@@ -140,7 +140,7 @@ func TestAgedRetainedNewsletterContactsPromoteWithoutChangingConsent(t *testing.
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer journal.Close()
+			defer func() { _ = journal.Close() }()
 			n.Lifecycle, signup.Lifecycle = journal, journal
 			*now = now.Add(90 * 24 * time.Hour)
 			if err := n.Sweep(t.Context(), journal, config.NewsletterRetention{NoExpiry: true}, config.NewsletterRetention{NoExpiry: true}, store.AccountDeletionOptions{}); err != nil {

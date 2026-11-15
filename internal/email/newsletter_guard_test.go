@@ -22,7 +22,7 @@ func TestNewsletterDispatchWaitsForJournalReconciliation(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer j.Close()
+			defer func() { _ = j.Close() }()
 
 			operation, incarnation := strings.Repeat("a", 32), strings.Repeat("b", 32)
 			if err := j.PrepareDeletion(t.Context(), operation, incarnation); err != nil {
