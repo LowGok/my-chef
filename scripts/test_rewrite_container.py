@@ -117,6 +117,14 @@ def main() -> None:
             assert required_billing_inputs.issubset(paths), "billing runtime inputs were excluded"
             assert excluded_billing_fixtures.isdisjoint(paths), "simulated purchase code entered the release context"
             assert not any(p.startswith("docs/") for p in paths), "private planning documents entered the app container context"
+            # Every production billing source must reach the build, without
+            # widening the explicit allowlist to include simulator code.
+            production_billing = {
+                p.relative_to(ROOT).as_posix() for p in (ROOT / "internal/billing").glob("*.go")
+                if p.name != "fixture_provider.go" and not p.name.endswith("_test.go")
+            }
+            missing_billing = production_billing.difference(paths)
+            assert not missing_billing, f"billing files excluded from the production context: {sorted(missing_billing)}"
             assert not any(p.startswith("mobile/") for p in paths), "native projects entered the app container context"
             assert not any(any(word in p for word in ("secret", "canary", "node_modules", "test-results", ".streamlit", ".git/", "mychefApp", "_test.go")) for p in paths), "private or generated file entered the build context"
         if "MYCHEF_CONTAINER_IMAGE" not in env:

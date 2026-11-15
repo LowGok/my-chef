@@ -341,6 +341,7 @@ internal/billing/**
 !internal/billing/play_inbox.go
 !internal/billing/play_worker.go
 !internal/billing/play_poll.go
+!internal/billing/play_signup.go
 !internal/billing/play_service.go
 !internal/billing/play_ack.go
 !internal/billing/play_replacement.go
