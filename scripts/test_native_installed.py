@@ -552,7 +552,7 @@ def android_journeys(state, receipt, metadata, events, reminders=False):
         probe = state / "probe-private.log"
         if probe.is_file():
             safe = [line for line in probe.read_text(errors="replace").splitlines()
-                    if re.fullmatch(r"INSTRUMENTATION_(?:STATUS|RESULT): (?:probe=(?:ready|failed)|probeReason=(?:launch|webview|pinch-disabled|probe-timeout|instrumentation|native-control|native-window-(?:unfocused|bounds)|control-timeout|input-denied|picker-(?:window|target|activation|confirmation|return)|accessibility-controls))|INSTRUMENTATION_CODE: -?[0-9]+", line)]
+                    if re.fullmatch(r"INSTRUMENTATION_(?:STATUS|RESULT): (?:probe=(?:ready|failed)|probeReason=(?:launch|webview|pinch-disabled|probe-timeout|instrumentation|native-control|native-window-(?:unfocused|bounds)|control-timeout|input-denied|picker-(?:window|target|activation|confirmation|return)|accessibility-controls|permission-dialog-deny))|INSTRUMENTATION_CODE: -?[0-9]+", line)]
             print("Disposable probe status: " + "; ".join(safe[-8:]), flush=True)
 
     groups = (("reminders", 3),) if reminders else (("core", 7), ("media", 5), ("pages", 1), ("account", 4))

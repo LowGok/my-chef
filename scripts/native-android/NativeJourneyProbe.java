@@ -160,6 +160,30 @@ public final class NativeJourneyProbe extends Instrumentation {
         return documents(root) ? root : null;
     }
 
+    private void denyNotificationPermission() {
+        // Use the probe's existing accessibility session. A separate
+        // uiautomator dump competes for Android's UiAutomation connection.
+        UiAutomation automation = interactiveWindows();
+        long deadline = SystemClock.uptimeMillis() + 25_000;
+        while (SystemClock.uptimeMillis() < deadline) {
+            AccessibilityNodeInfo root = automation.getRootInActiveWindow();
+            if (root != null) {
+                String owner = String.valueOf(root.getPackageName());
+                if (owner.equals("com.android.permissioncontroller")
+                        || owner.equals("com.google.android.permissioncontroller")) {
+                    for (AccessibilityNodeInfo control : root.findAccessibilityNodeInfosByViewId(
+                            owner + ":id/permission_deny_button")) {
+                        if (owner.contentEquals(control.getPackageName()) && control.isVisibleToUser()
+                                && control.isEnabled() && control.isClickable()
+                                && control.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return;
+                    }
+                }
+            }
+            SystemClock.sleep(100);
+        }
+        throw new IllegalStateException("permission-dialog-deny");
+    }
+
     private static boolean labelMatches(CharSequence actual, String expected) {
         if (actual == null) return false;
         String label = actual.toString().strip().toLowerCase(Locale.ROOT);
@@ -374,6 +398,9 @@ public final class NativeJourneyProbe extends Instrumentation {
                         String[] parts = value.split(":", 3);
                         checkAccessibility(parts[2]);
                         Files.write(done.toPath(), parts[1].getBytes(StandardCharsets.UTF_8));
+                    } else if (value.matches("permission:[1-9][0-9]{0,3}:deny")) {
+                        denyNotificationPermission();
+                        Files.write(done.toPath(), value.split(":", 3)[1].getBytes(StandardCharsets.UTF_8));
                     } else throw new IllegalStateException("native-control");
                 }
                 SystemClock.sleep(100);
@@ -383,7 +410,7 @@ public final class NativeJourneyProbe extends Instrumentation {
         } catch (Exception error) {
             Bundle failure = new Bundle(); failure.putString("probe", "failed");
             String reason = error.getMessage();
-            failure.putString("probeReason", reason != null && reason.matches("launch|webview|pinch-disabled|probe-timeout|native-control|native-window-(?:unfocused|bounds)|control-timeout|input-denied|picker-(?:window|target|activation|confirmation|return)|accessibility-controls") ? reason : "instrumentation");
+            failure.putString("probeReason", reason != null && reason.matches("launch|webview|pinch-disabled|probe-timeout|native-control|native-window-(?:unfocused|bounds)|control-timeout|input-denied|picker-(?:window|target|activation|confirmation|return)|accessibility-controls|permission-dialog-deny") ? reason : "instrumentation");
             finish(Activity.RESULT_CANCELED, failure);
         } finally {
             runOnMainSync(() -> WebView.setWebContentsDebuggingEnabled(false));

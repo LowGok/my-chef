@@ -125,7 +125,7 @@ const button = (name: string) =>
 let controlSequence = 0;
 function probeCommand(value: string) {
   if (
-    !/^(pinch|activate:[1-9][0-9]{0,3}:[A-Za-z -]{1,50}|document:[1-9][0-9]{0,3}:(?:SAVE|native-(?:dish|page)\.png)|accessibility:[1-9][0-9]{0,3}:(?:nav|export-dialog|reminder-opt-in|reminder-save))$/.test(
+    !/^(pinch|activate:[1-9][0-9]{0,3}:[A-Za-z -]{1,50}|document:[1-9][0-9]{0,3}:(?:SAVE|native-(?:dish|page)\.png)|accessibility:[1-9][0-9]{0,3}:(?:nav|export-dialog|reminder-opt-in|reminder-save)|permission:[1-9][0-9]{0,3}:deny)$/.test(
       value,
     )
   )
@@ -156,7 +156,7 @@ function probeCommand(value: string) {
   );
 }
 async function probeAction(
-  kind: "activate" | "document" | "accessibility",
+  kind: "activate" | "document" | "accessibility" | "permission",
   name: string,
 ) {
   const sequence = String(++controlSequence);
@@ -1108,18 +1108,7 @@ async function reminderJourney() {
   });
   await check("installed app registers only after notification permission and removes on opt out", async () => {
     await button("Turn on for this device").click();
-    const denyButton = /resource-id="com\.(?:google\.)?android\.permissioncontroller:id\/permission_deny_button"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/;
-    let denied = false;
-    await expect.poll(() => {
-      if (denied) return true;
-      adb("shell", "uiautomator", "dump", "/data/local/tmp/mychef-reminder-dialog.xml");
-      const match = adb("shell", "cat", "/data/local/tmp/mychef-reminder-dialog.xml").match(denyButton);
-      if (!match) return false;
-      const [, x1, y1, x2, y2] = match.map(Number);
-      adb("shell", "input", "tap", String(Math.floor((x1 + x2) / 2)), String(Math.floor((y1 + y2) / 2)));
-      denied = true;
-      return true;
-    }).toBe(true);
+    await probeAction("permission", "deny");
     await expect(button("Open notification settings")).toBeVisible();
     adb("shell", "pm", "grant", app, "android.permission.POST_NOTIFICATIONS");
     await button("Turn on for this device").click();
