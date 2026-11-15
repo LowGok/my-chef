@@ -1,5 +1,6 @@
 """Guarded installed verification with explicit limits for incomplete proof."""
 from contextlib import ExitStack
+from collections.abc import Mapping
 import hashlib
 import json
 import os
@@ -20,7 +21,7 @@ import analytics_ios
 
 
 def authorized(event, environment):
-    if not isinstance(event, dict) or not isinstance(environment, dict):
+    if not isinstance(event, dict) or not isinstance(environment, Mapping):
         return False
     repository, sender = event.get('repository'), event.get('sender')
     revision = environment.get('GITHUB_SHA')

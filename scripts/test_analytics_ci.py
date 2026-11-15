@@ -1,5 +1,7 @@
 """Exercise the actual analytics authorization predicate without opening a device."""
 import ast
+from collections.abc import Mapping
+from types import MappingProxyType
 import copy
 from pathlib import Path
 import re
@@ -11,7 +13,7 @@ ROOT = Path(__file__).resolve().parent.parent
 def authorization():
     source = ast.parse((ROOT / 'mobile/tests/analytics_installed.py').read_text())
     function = next(node for node in source.body if isinstance(node, ast.FunctionDef) and node.name == 'authorized')
-    scope = {'re': re}
+    scope = {'re': re, 'Mapping': Mapping}
     exec(compile(ast.Module(body=[function], type_ignores=[]), '<analytics-authorization>', 'exec'), scope)
     return scope['authorized']
 
@@ -30,6 +32,9 @@ class AnalyticsAuthorizationTest(unittest.TestCase):
     def test_exact_push_is_allowed_for_only_the_two_unsigned_platforms(self):
         for platform in ('android', 'ios-simulator'):
             self.assertTrue(self.authorized(self.event, dict(self.environment, NATIVE_PLATFORM=platform)))
+
+    def test_runner_environment_is_a_mapping_not_a_plain_dictionary(self):
+        self.assertTrue(self.authorized(self.event, MappingProxyType(self.environment)))
 
     def test_foreign_event_environment_or_mismatched_revision_is_refused(self):
         cases = [('GITHUB_ACTIONS', 'false'), ('GITHUB_EVENT_NAME', 'pull_request_target'),
