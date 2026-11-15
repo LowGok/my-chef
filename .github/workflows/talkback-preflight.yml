@@ -28,13 +28,19 @@ jobs:
           export PATH="$ANDROID_HOME/platform-tools:$PATH"
           adb version
           adb start-server
-          echo no | "$sdk/avdmanager" create avd --name screen-reader --package "$image"
+          export ANDROID_AVD_HOME="$RUNNER_TEMP/screen-reader-avd"
+          mkdir -p "$ANDROID_AVD_HOME"
+          "$sdk/avdmanager" create avd --name screen_reader --package "$image" --abi x86_64 --device pixel_6 --path "$ANDROID_AVD_HOME/screen_reader.avd"
+          "$sdk/avdmanager" list avd
+          test -s "$ANDROID_AVD_HOME/screen_reader.ini"
+          "$ANDROID_HOME/emulator/emulator" -list-avds | grep -Fx screen_reader
           sudo chmod a+rw /dev/kvm
-          "$ANDROID_HOME/emulator/emulator" -avd screen-reader -no-window -no-audio -no-snapshot -no-boot-anim -gpu software >"$RUNNER_TEMP/emulator.log" 2>&1 &
-          echo "$!" >"$RUNNER_TEMP/emulator.pid"
+          "$ANDROID_HOME/emulator/emulator" -avd screen_reader -port 5554 -no-window -no-audio -no-snapshot -no-boot-anim -gpu software >"$RUNNER_TEMP/emulator.log" 2>&1 &
+          emulator_pid=$!
+          echo "$emulator_pid" >"$RUNNER_TEMP/emulator.pid"
           trap 'tail -35 "$RUNNER_TEMP/emulator.log"' ERR
-          timeout 240 adb wait-for-device
-          timeout 120 bash -c 'until [ "$(adb shell getprop sys.boot_completed | tr -d "\r")" = 1 ]; do sleep 3; done'
+          timeout 150 bash -c 'until adb devices | grep -q "^emulator-5554[[:space:]]*device$"; do kill -0 "$1" || exit 1; sleep 3; done' bash "$emulator_pid"
+          timeout 120 bash -c 'until [ "$(adb shell getprop sys.boot_completed | tr -d "\r")" = 1 ]; do kill -0 "$1" || exit 1; sleep 3; done' bash "$emulator_pid"
           test "$(adb shell getprop ro.build.version.sdk | tr -d '\r')" = 33
       - name: Identify the installed TalkBack and text-to-speech services
         env:
