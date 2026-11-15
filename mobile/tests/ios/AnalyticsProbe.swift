@@ -52,7 +52,7 @@ final class AnalyticsProbe: XCTestCase {
     }
     func screenState() {
         print("Analytics iOS app state: \(app.state.rawValue) webview=\(app.webViews.count) alert=\(app.alerts.count)")
-        for (name, phrase) in [("signed out", "Welcome back."), ("profile", "Your profile."), ("shopping", "Shopping list."), ("startup", "Loading MyChef"), ("inbox", "Check your inbox")] {
+        for (name, phrase) in [("signed out", "Welcome back."), ("profile", "Your profile."), ("shopping", "Shopping list."), ("startup", "Loading MyChef"), ("inbox", "Check your inbox"), ("secure failure", "MyChef couldn’t open securely"), ("configuration failure", "Reference: MYC-01"), ("storage failure", "Reference: MYC-02"), ("shopping failure", "Reference: MYC-03"), ("device failure", "Reference: MYC-04")] {
             let present = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", phrase)).firstMatch.exists
             print("Analytics iOS screen state: " + name + " present=\(present)")
         }

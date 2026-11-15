@@ -60,12 +60,6 @@ def gesture(kind, native):
         raise ValueError('Closed hardware gesture required')
     adb = str(Path(native.ENV['ANDROID_HOME']) / 'platform-tools/adb')
     touch = axes(native.command(adb, '-s', 'emulator-5554', 'shell', 'getevent', '-lp', timeout=15), diagnostics=True)
-    token_path = Path(native.ENV['HOME']) / '.emulator_console_auth_token'
-    if token_path.stat().st_size > 256:
-        raise RuntimeError('Emulator console authentication refused')
-    token = token_path.read_text().strip()
-    if not re.fullmatch(r'[A-Za-z0-9_-]{16,128}', token):
-        raise RuntimeError('Emulator console authentication refused')
     # Port/commands are fixed to this CI fixture. Never emit the console
     # banner, token, raw device capabilities, command output or private paths.
     with socket.create_connection(('127.0.0.1', 5554), timeout=5) as connection:
@@ -73,17 +67,30 @@ def gesture(kind, native):
         with connection.makefile('rb') as reader:
             def response():
                 size = 0
+                required = False
                 while size < 16384:
                     line = reader.readline(1024)
                     size += len(line)
+                    required |= b'authentication required' in line.lower() or b"type 'auth " in line.lower()
                     if line.strip() == b'OK':
-                        return
+                        return required
                     if not line or line.startswith(b'KO'):
                         break
                 raise RuntimeError('Emulator hardware command refused')
-            response()
-            connection.sendall(('auth ' + token + '\n').encode('ascii'))
-            response()
+            required = response()
+            print('Analytics hardware console authentication: ' + ('required' if required else 'not-required'), flush=True)
+            if required:
+                token_path = Path(native.ENV['HOME']) / '.emulator_console_auth_token'
+                try:
+                    if token_path.stat().st_size > 4096:
+                        raise RuntimeError('Emulator console authentication refused')
+                    token = token_path.read_text().strip()
+                except OSError:
+                    raise RuntimeError('Emulator console authentication refused') from None
+                if not re.fullmatch(r'[\x21-\x7e]{1,4096}', token):
+                    raise RuntimeError('Emulator console authentication refused')
+                connection.sendall(('auth ' + token + '\n').encode('ascii'))
+                response()
             for delay, events in frames(kind, touch):
                 time.sleep(delay)
                 connection.sendall(('event send ' + ' '.join(events) + '\n').encode('ascii'))

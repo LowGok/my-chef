@@ -789,7 +789,9 @@ stock TalkBack speaker output with checksum-pinned local recognition;
 raw audio and transcripts stay on the disposable runner. Missing speech can be
 refocused at most three times per unchanged control, with attempt counts retained.
 TalkBack taps/swipes use the emulator hardware-event console so Android processes
-its accessibility input filter; native focus order and UI/server acknowledgement
+its accessibility input filter. The helper follows the run-owned console’s
+authentication handshake and keeps its token private. Native focus order and
+UI/server acknowledgement
 remain required. An accessibility node alone never sets speech
 flags. Record exact runtimes and results before closing the criterion. These
 checks authorize no device signing, store distribution, beta operation, live
