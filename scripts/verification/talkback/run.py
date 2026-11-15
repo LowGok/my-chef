@@ -128,7 +128,7 @@ with tempfile.TemporaryDirectory(prefix="mychef-installed-") as directory, ExitS
                 raise RuntimeError("Installed app did not reach TalkBack setup")
             recording_started = time.time()
             capture = subprocess.Popen([str(scrcpy), "--serial=emulator-5554", "--no-window", "--no-control",
-                                        "--require-audio", "--audio-source=output", "--audio-codec=flac",
+                                        "--require-audio", "--no-playback", "--audio-source=output", "--audio-codec=flac",
                                         "--record=" + str(recording)],
                                        env=dict(os.environ, ADB=adb_path, SCRCPY_SERVER_PATH=str(scrcpy.with_name("scrcpy-server"))), stdout=audio_log, stderr=audio_log)
             stack.callback(f.terminate, capture)
@@ -188,6 +188,22 @@ with tempfile.TemporaryDirectory(prefix="mychef-installed-") as directory, ExitS
         # allowlisted stage names, not diagnostics from login or notification.
         statuses = re.findall(r"Installed Android check passed: OS accessibility focus with TalkBack on (opt-in|save|device-off)",
                               (state / "talkback-journey.log").read_text(errors="replace"))
+        checkpoint = state / "talkback-setup-stage"
+        checkpoints = {"driver-connected", "signed-in", "profile", "panel-open", "time-zone-entered",
+                       "opt-in-checked", "save-clicked", "preferences-saved", "permission-granted",
+                       "register-clicked", "device-registered", "large-text-fits", "talkback-requested",
+                       "talkback-bound", "app-foregrounded"}
+        last = checkpoint.read_text() if checkpoint.exists() else ""
+        print("TalkBack setup stage:", last if last in checkpoints else "before-driver-ready", flush=True)
+        probe_log = state / "probe-private.log"
+        if probe_log.exists():
+            diagnostic = probe_log.read_text(errors="replace")
+            for name in ("probe-ready", "probe-failed", "native-window-unfocused", "accessibility-controls"):
+                if name.replace("probe-", "probe=") in diagnostic:
+                    print("Native probe diagnostic:", name, flush=True)
+        print("Reminder route statuses:",
+              [(verb, route, status) for verb, route, status in events if route in
+               ("planning-reminders", "planning-reminders/installation")], flush=True)
         f.android_request_diagnostics(adb_path)
         print("Focus stages completed:", statuses, flush=True)
         raise
