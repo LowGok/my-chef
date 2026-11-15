@@ -81,7 +81,11 @@ def stage(source, output):
     ["opt-in", optIn], ["save", save], ["device-off", off],
   ] as const) {
     await check("OS accessibility focus with TalkBack on " + target, async () => {
-      await control.scrollIntoViewIfNeeded();
+      await expect(control).toBeEnabled();
+      await control.evaluate((element) =>
+        element.scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" }),
+      );
+      await Bun.sleep(350);
       await probeAction("speech-focus", target);
       await writeFile(join(state, "talkback-focused-" + target), "focused\\n");
       await Bun.sleep(4500);

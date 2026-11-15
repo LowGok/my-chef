@@ -201,6 +201,8 @@ with tempfile.TemporaryDirectory(prefix="mychef-installed-") as directory, ExitS
             for name in ("probe-ready", "probe-failed", "native-window-unfocused", "accessibility-controls"):
                 if name.replace("probe-", "probe=") in diagnostic:
                     print("Native probe diagnostic:", name, flush=True)
+            for stage in re.findall(r"speechStage=(scale-not-applied|app-window-missing|control-not-visible|focus-event-missing)\b", diagnostic):
+                print("Speech probe diagnostic:", stage, flush=True)
         print("Reminder route statuses:",
               [(verb, route, status) for verb, route, status in events if route in
                ("planning-reminders", "planning-reminders/installation")], flush=True)
