@@ -203,13 +203,16 @@ with tempfile.TemporaryDirectory(prefix="mychef-installed-") as directory, ExitS
             return " " + " ".join(re.findall(r"[a-z]+", text.lower())) + " "
 
         for target, phrase in phrases.items():
-            when = (state / ("talkback-focused-" + target)).stat().st_mtime
-            if not 0 < when - recording_started < 90:
+            start = (state / ("talkback-listen-" + target)).stat().st_mtime
+            focused = (state / ("talkback-focused-" + target)).stat().st_mtime
+            end = (state / ("talkback-spoken-window-" + target)).stat().st_mtime
+            if not recording_started < start <= focused < end < recording_started + 100:
                 raise RuntimeError("Invalid focus and audio timeline")
             clip = state / (target + ".wav")
-            offset = max(0, when - recording_started - 1.8)
+            offset = max(0, start - recording_started - 0.3)
+            duration = end - recording_started - offset
             subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-ss", f"{offset:.3f}", "-i", str(recording),
-                            "-t", "4.2", "-vn", "-map", "0:a:0", "-ac", "1", "-ar", "16000",
+                            "-t", f"{duration:.3f}", "-vn", "-map", "0:a:0", "-ac", "1", "-ar", "16000",
                             "-c:a", "pcm_s16le", str(clip)], check=True, timeout=15)
             if not 1000 < clip.stat().st_size < 2_000_000:
                 raise RuntimeError("Invalid control audio clip")

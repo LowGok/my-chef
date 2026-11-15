@@ -105,9 +105,12 @@ def stage(source, output):
       );
       await Bun.sleep(350);
       await ensureAppForeground();
+      await writeFile(join(state, "talkback-listen-" + target), "listen");
       await probeAction("speech-focus", target);
       await writeFile(join(state, "talkback-focused-" + target), "focused\\n");
-      await Bun.sleep(4500);
+      // Leave space for the full announcement before changing focus.
+      await Bun.sleep(7600);
+      await writeFile(join(state, "talkback-spoken-window-" + target), "end");
     });
   }
   await off.click();
