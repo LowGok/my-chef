@@ -97,3 +97,39 @@ test("runtime sanitizes bridge failures and suppresses replies after shutdown", 
   await broken.wake();
   expect(events).toEqual([{ type: "unavailable" }]);
 });
+
+test("OS text size reaches the app once per change and rejects invalid scales", async () => {
+  let textScale: unknown = 1;
+  const events: unknown[] = [];
+  const runtime = createNativeRuntime(
+    {
+      async readRuntime() {
+        return {
+          active: true,
+          online: true,
+          back: false,
+          textScale,
+        } as RuntimeSnapshot;
+      },
+    },
+    origin,
+    (event) => events.push(event),
+  );
+  await runtime.wake();
+  textScale = 1.5;
+  await runtime.wake();
+  await runtime.wake();
+  for (const invalid of [0, -1, 5, NaN, Infinity, "1.5", null]) {
+    textScale = invalid;
+    await runtime.wake();
+  }
+  textScale = 2;
+  await runtime.wake();
+  expect(events).toEqual([
+    { type: "connection", active: true, online: true },
+    { type: "text-size", percent: 100 },
+    { type: "text-size", percent: 150 },
+    { type: "text-size", percent: 200 },
+  ]);
+  runtime.stop();
+});

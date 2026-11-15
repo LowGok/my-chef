@@ -81,6 +81,7 @@ public class MyChefNativePlugin extends Plugin {
             result.put("active",activity.active);
             result.put("online",connectivity != null && connectivity.getActiveNetwork() != null);
             result.put("back",activity.runtime.takeBack());
+            result.put("textScale", (double)getContext().getResources().getConfiguration().fontScale);
             String link = activity.runtime.takeLink(SystemClock.elapsedRealtime());
             if (link != null) {
                 try { result.put("link",NativeBoundary.accountLink(origin,link)); }

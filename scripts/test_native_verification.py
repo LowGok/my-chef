@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import ast
+import copy
 import http.server
 import json
 import re
@@ -27,6 +28,112 @@ spec.loader.exec_module(menu)
 import test_native_installed as installed
 import native_android_probe as probe
 import native_fixture_account
+
+
+class AnalyticsFullReceiptTest(unittest.TestCase):
+    """A JSON claim is bounded evidence, never a substitute for an installed run."""
+
+    def setUp(self):
+        self.checks = {
+            'signup': ['disabledNotice', 'disabledNoCapture', 'assessedNotice', 'offBeforeCompletion', 'completedOffNoCapture'],
+            'participation': ['existingOff', 'explicitEnable', 'committedCoreAction', 'restarted', 'exactlyOneEvent', 'noClientAnalyticsIdentifiers'],
+            'conflict': ['staleConflict', 'currentState', 'offlineOffUnconfirmed', 'reconnectFenceAcknowledged'],
+            'queue': ['originalRevision', 'productEditCommitted', 'noOldEpochEvent', 'retryNoDuplicate', 'relaunchNoDuplicate'],
+            'lifecycle': ['activeCleanup', 'isolatedBackupPending', 'nativeSave', 'nativeCancel', 'ownExportOnly', 'foreignExportRefused', 'accountDeleted', 'relaunchSessionCacheCleared'],
+            'accessibility': ['platformScreenReader', 'spokenStatesAndErrors', 'focusOrder', 'enlargedOSText', 'textScalePropagated', 'phoneWidths', 'keyboardUnobstructed', 'noClipping'],
+        }
+        self.expected = {}
+        self.receipts = []
+        for platform, artifact in (('android', 'd'), ('ios-simulator', 'f')):
+            binding = dict(sourceCommit='a' * 40, apiSha256='b' * 64, bundleSha256='c' * 64,
+                           artifactSha256=artifact * 64, fixtureConfigSha256='e' * 64, contractVersion=1)
+            self.expected[platform] = binding
+            self.receipts.append(dict(schemaVersion=1, platform=platform, binding=dict(binding),
+                                      checks={group: dict.fromkeys(names, True) for group, names in self.checks.items()}))
+
+    def test_both_platforms_and_all_six_journeys_are_required(self):
+        self.assertTrue(installed.validate_analytics_receipts(self.receipts, self.expected))
+        for platform in range(2):
+            self.assertFalse(installed.validate_analytics_receipts([self.receipts[platform]], self.expected))
+            for group, names in self.checks.items():
+                for name in names:
+                    receipts = copy.deepcopy(self.receipts)
+                    receipts[platform]['checks'][group][name] = False
+                    with self.subTest(platform=platform, group=group, name=name):
+                        self.assertFalse(installed.validate_analytics_receipts(receipts, self.expected))
+        self.assertFalse(installed.validate_analytics_receipts([self.receipts[0]] * 2, self.expected))
+
+    def test_candidate_api_bundle_artifact_configuration_and_contract_must_match(self):
+        for platform in range(2):
+            for key in self.expected['android']:
+                receipts = copy.deepcopy(self.receipts)
+                receipts[platform]['binding'][key] = 2 if key == 'contractVersion' else '0' * (40 if key == 'sourceCommit' else 64)
+                with self.subTest(platform=platform, key=key):
+                    self.assertFalse(installed.validate_analytics_receipts(receipts, self.expected))
+
+    def test_platform_specific_private_fixture_paths_have_their_own_bound_configuration(self):
+        expected = copy.deepcopy(self.expected)
+        receipts = copy.deepcopy(self.receipts)
+        expected['ios-simulator']['fixtureConfigSha256'] = '0' * 64
+        receipts[1]['binding']['fixtureConfigSha256'] = '0' * 64
+        self.assertTrue(installed.validate_analytics_receipts(receipts, expected))
+        expected['ios-simulator']['sourceCommit'] = '1' * 40
+        receipts[1]['binding']['sourceCommit'] = '1' * 40
+        self.assertFalse(installed.validate_analytics_receipts(receipts, expected))
+
+    def test_incomplete_coerced_private_or_invented_probe_receipts_are_refused(self):
+        for payload in (None, {}, [], [True], self.receipts + [self.receipts[0]]):
+            self.assertFalse(installed.validate_analytics_receipts(payload, self.expected))
+        for field, value in (('email', 'fixture@example.test'), ('subject', 'private'),
+                             ('path', '/private/operator'), ('token', 'Bearer private')):
+            receipts = copy.deepcopy(self.receipts)
+            receipts[0][field] = value
+            self.assertFalse(installed.validate_analytics_receipts(receipts, self.expected))
+        for value in (1, 'true', None, {'passed': True}):
+            receipts = copy.deepcopy(self.receipts)
+            receipts[0]['checks']['signup']['disabledNoCapture'] = value
+            self.assertFalse(installed.validate_analytics_receipts(receipts, self.expected))
+        receipts = copy.deepcopy(self.receipts)
+        receipts[0]['checks']['accessibility'].pop('spokenStatesAndErrors')
+        self.assertFalse(installed.validate_analytics_receipts(receipts, self.expected))
+
+
+class AnalyticsFixtureTest(unittest.TestCase):
+    def test_assessed_fixture_has_separate_fresh_private_paths_and_no_external_provider(self):
+        with tempfile.TemporaryDirectory(prefix='mychef-installed-') as directory:
+            root = Path(directory)
+            config = installed.analytics_fixture_configuration(root, True)
+            document = json.loads(config.read_text())
+            self.assertTrue(document['collection']['Enabled'])
+            self.assertEqual(document['collection']['Assessment']['audience'], 'fictional@example.test')
+            self.assertEqual(document['collection']['Assessment']['jurisdiction'], 'BE-fictional')
+            self.assertEqual(len((root / 'analytics.key').read_bytes()), 32)
+            self.assertFalse(Path(document['root']).exists())
+            self.assertEqual(set(document), {'root', 'privacyPath', 'anchorPath', 'backupKeyFile', 'collection'})
+            for file in root.iterdir():
+                self.assertEqual(file.stat().st_mode & 0o077, 0)
+            with self.assertRaises(FileExistsError):
+                installed.analytics_fixture_configuration(root, True)
+
+    def test_external_nonprivate_or_invalid_fixture_requests_are_refused(self):
+        with tempfile.TemporaryDirectory(prefix='mychef-installed-') as directory:
+            root = Path(directory)
+            for path, enabled in ((Path('/outside'), True), (Path('relative'), True), (root, 'approved')):
+                with self.assertRaises((ValueError, FileNotFoundError)):
+                    installed.analytics_fixture_configuration(path, enabled)
+            root.chmod(0o755)
+            with self.assertRaises(ValueError):
+                installed.analytics_fixture_configuration(root, True)
+            root.chmod(0o700)
+
+    def test_fictional_approval_cannot_be_applied_to_existing_storage(self):
+        with tempfile.TemporaryDirectory(prefix='mychef-installed-') as directory:
+            root = Path(directory)
+            (root / 'app.db').write_bytes(b'existing storage must not be touched')
+            before = {path.name: path.read_bytes() for path in root.iterdir()}
+            with self.assertRaises(FileExistsError):
+                installed.analytics_fixture_configuration(root, True)
+            self.assertEqual(before, {path.name: path.read_bytes() for path in root.iterdir()})
 
 
 class NativeVerificationTest(unittest.TestCase):

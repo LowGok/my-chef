@@ -1,0 +1,44 @@
+// Test-only Go overlay appended to internal/analytics/worker.go. It is never
+// copied into app/native assets or a release build. The private fixture clock
+// and command files control only the disposable test service.
+func nativeFixtureRun(ctx context.Context, s *Service) error {
+    timer := time.NewTicker(100 * time.Millisecond)
+    defer timer.Stop()
+    root := filepath.Dir(s.privacyPath)
+    command := filepath.Join(root, "analytics-command.json")
+    response := filepath.Join(root, "analytics-response.json")
+    var previous int64
+    for {
+        select {
+        case <-ctx.Done():
+            return nil
+        case <-timer.C:
+            raw, err := os.ReadFile(command)
+            if err != nil { continue }
+            var request struct { Sequence int64 `json:"sequence"`; Operation string `json:"operation"` }
+            if len(raw) > 1024 || json.Unmarshal(raw, &request) != nil || request.Sequence <= previous { continue }
+            previous = request.Sequence
+            call, cancel := context.WithTimeout(ctx, 20 * time.Second)
+            switch request.Operation {
+            case "tick":
+                err = s.Tick(call)
+            case "maintenance":
+                err = s.Maintain(call)
+            case "backup":
+                err = s.Deliver(call, nil)
+                if err == nil {
+                    var path string
+                    path, err = s.Refresh(call)
+                    if err == nil { err = s.Backup(call, path, filepath.Join(s.root, "native-recovery.enc")) }
+                }
+            default:
+                err = ErrInput
+            }
+            cancel()
+            // A coarse status only. Never copy database errors or identifiers.
+            raw, _ = json.Marshal(struct { Sequence int64 `json:"sequence"`; Passed bool `json:"passed"` }{request.Sequence, err == nil})
+            pending := response + ".pending"
+            if os.WriteFile(pending, raw, 0600) == nil { _ = os.Rename(pending, response) }
+        }
+    }
+}

@@ -11,6 +11,7 @@ import {
 import { join } from "node:path";
 import { readFile, unlink, writeFile } from "node:fs/promises";
 import { safeJourneyError } from "./native-android-report";
+import analyticsContract from "../mobile/tests/analytics-contract.json";
 import { addDays, monday } from "../web/src/dates";
 import {
   fillPersonalDraft,
@@ -32,7 +33,8 @@ if (
     group !== "media" &&
     group !== "pages" &&
     group !== "account" &&
-    group !== "analytics-disabled") ||
+    group !== "analytics-disabled" &&
+    group !== "analytics") ||
   !state ||
   !/^\/.*mychef-installed-[A-Za-z0-9_-]+$/.test(state)
 )
@@ -62,6 +64,12 @@ let device: AndroidDevice | undefined;
 let page: Page;
 let stage = "connect";
 const passed: string[] = [];
+const analyticsChecks = Object.fromEntries(
+  Object.entries(analyticsContract.checks).map(([group, names]) => [
+    group,
+    Object.fromEntries(names.map((name) => [name, false])),
+  ]),
+);
 const browserErrors: string[] = [];
 async function connect() {
   stage = "wake disposable Android emulator";
@@ -1101,6 +1109,428 @@ async function disabledAnalyticsJourney() {
   );
 }
 
+async function analyticsJourneys() {
+  const control = JSON.parse(
+    await readFile(join(state, "analytics-control.json"), "utf8"),
+  );
+  if (
+    !/^http:\/\/127\.0\.0\.1:[0-9]{1,5}\/control$/.test(control.url) ||
+    !/^[A-Za-z0-9_-]{43}$/.test(control.token)
+  )
+    throw Error("Disposable analytics controller invalid");
+  privateValues.push(control.token);
+  type FixtureReplies = {
+    counts: { queued: number; delivered: number; enabled: number; forbidden: number; queuedProductItems: number };
+    preference: { enabled: boolean };
+    proof: { url: string };
+  } & Record<"approved" | "tick" | "maintenance" | "backup" | "other-session-choice" | "offline" | "online" | "verify-native-export" | "foreign-export", { passed: boolean }>;
+  async function fixture<K extends keyof FixtureReplies>(
+    operation: K,
+    fields: Record<string, unknown> = {},
+  ): Promise<FixtureReplies[K]> {
+    const response = await fetch(control.url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + control.token,
+      },
+      body: JSON.stringify({ operation, ...fields }),
+      signal: AbortSignal.timeout(40_000),
+    });
+    if (response.status !== 200)
+      throw Error("Disposable analytics operation refused");
+    const value: unknown = await response.json();
+    if (!value || typeof value !== "object" || Array.isArray(value)) throw Error("Invalid fixture response");
+    const record = value as Record<string, unknown>;
+    const shape = operation === "counts"
+      ? { queued: "number", delivered: "number", enabled: "number", forbidden: "number", queuedProductItems: "number" }
+      : operation === "proof" ? { url: "string" }
+      : operation === "preference" ? { enabled: "boolean" } : { passed: "boolean" };
+    if (Object.keys(record).length !== Object.keys(shape).length ||
+        !Object.entries(shape).every(([name, kind]) => typeof record[name] === kind &&
+          (kind !== "number" || (Number.isSafeInteger(record[name]) && Number(record[name]) >= 0))))
+      throw Error("Invalid fixture response");
+    return value as FixtureReplies[K];
+  }
+  const remember = (group: string, ...names: string[]) => {
+    for (const name of names) {
+      if (!Object.hasOwn(analyticsChecks[group] ?? {}, name))
+        throw Error("Unknown analytics observation");
+      analyticsChecks[group]![name] = true;
+    }
+  };
+  const toggle = () =>
+    page.getByRole("checkbox", { name: "Help improve MyChef", exact: true });
+  async function relaunch() {
+    adb("shell", "am", "force-stop", app);
+    await device?.close().catch(() => undefined);
+    await connect();
+  }
+  async function signup(recipient: string, assessed: boolean) {
+    await button("Create an account").click();
+    if (assessed) {
+      await expect(toggle()).toBeEnabled();
+      await expect(toggle()).toBeChecked();
+      await expect(
+        page.getByText(
+          "These limited product metrics use assessed legitimate interests.",
+          { exact: false },
+        ),
+      ).toBeVisible();
+      await toggle().uncheck();
+      remember("signup", "assessedNotice", "offBeforeCompletion");
+    } else {
+      await expect(toggle()).toBeDisabled();
+      await expect(toggle()).not.toBeChecked();
+      remember("signup", "disabledNotice");
+    }
+    await page.getByLabel("First name", { exact: true }).fill("Analytics");
+    await page.getByLabel("Last name", { exact: true }).fill("Fixture");
+    await page
+      .getByLabel("Username", { exact: true })
+      .fill(recipient.split("@")[0]!);
+    await page.getByLabel("Email", { exact: true }).fill(recipient);
+    await activate("Create my account");
+    const proof = await fixture("proof", { recipient });
+    if (
+      !/^https:\/\/localhost:8977\/app\/signup#[A-Za-z0-9_-]{43}$/.test(
+        proof.url,
+      )
+    )
+      throw Error("Fixture signup proof invalid");
+    privateValues.push(proof.url);
+    adb(
+      "shell",
+      "am",
+      "start",
+      "-n",
+      app + "/.MainActivity",
+      "-a",
+      "android.intent.action.VIEW",
+      "-d",
+      proof.url,
+    );
+    await expect(
+      page.getByRole("heading", { name: "Finish signing up", exact: true }),
+    ).toBeVisible();
+    await expect(toggle()).not.toBeChecked();
+    await page.getByLabel("Password", { exact: true }).fill(account.password);
+    await page
+      .getByLabel("Confirm password", { exact: true })
+      .fill(account.password);
+    await activate("Create account");
+    await expect(
+      page.getByText("Account created. Sign in to MyChef.", { exact: true }),
+    ).toBeVisible();
+    const counts = await fixture("counts");
+    expect(counts.enabled).toBe(0);
+    expect(counts.queued + counts.delivered).toBe(0);
+    remember(
+      "signup",
+      assessed ? "completedOffNoCapture" : "disabledNoCapture",
+    );
+    await button("Back to MyChef").click();
+  }
+  await check(
+    "analytics disabled and assessed signup complete Off",
+    async () => {
+      await signup("analyticsdisabled@example.test", false);
+      await fixture("approved");
+      await relaunch();
+      await signup("analyticsassessed@example.test", true);
+    },
+  );
+  await check(
+    "analytics explicit participation survives process relaunch with one event",
+    async () => {
+      await login();
+      await profile();
+      await accountDetails();
+      await expect(toggle()).not.toBeChecked();
+      expect((await fixture("preference")).enabled).toBe(false);
+      remember("participation", "existingOff");
+      await toggle().check();
+      await expect
+        .poll(async () => (await fixture("preference")).enabled)
+        .toBe(true);
+      remember("participation", "explicitEnable");
+      await page.getByLabel("Diet", { exact: true }).fill("Vegetarian");
+      await activate("Save preferences");
+      await expect.poll(async () => (await fixture("counts")).queued).toBe(1);
+      remember("participation", "committedCoreAction");
+      await relaunch();
+      await profile();
+      await accountDetails();
+      await expect(toggle()).toBeChecked();
+      await fixture("tick");
+      const counts = await fixture("counts");
+      expect(counts.queued).toBe(0);
+      expect(counts.delivered).toBe(1);
+      expect(counts.forbidden).toBe(0);
+      remember("participation", "restarted", "exactlyOneEvent");
+      expect(
+        await page.evaluate(
+          () =>
+            !/\b(?:sub|evt|per)_[a-f0-9]{32}\b/.test(
+              JSON.stringify({ ...localStorage, ...sessionStorage }),
+            ),
+        ),
+      ).toBe(true);
+      const boundary = JSON.parse(
+        await readFile(join(state, "analytics-client-boundary.json"), "utf8"),
+      );
+      expect(boundary.observed).toBeGreaterThan(0);
+      expect(boundary.passed).toBe(true);
+      remember("participation", "noClientAnalyticsIdentifiers");
+      const normalWidth = await page.evaluate(() => innerWidth);
+      expect(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth <= innerWidth + 1,
+        ),
+      ).toBe(true);
+      adb("shell", "settings", "put", "system", "font_scale", "1.5");
+      adb("shell", "wm", "size", "720x1280");
+      adb("shell", "wm", "density", "360");
+      await relaunch();
+      await profile();
+      await accountDetails();
+      await expect
+        .poll(() =>
+          page.evaluate(() =>
+            parseFloat(getComputedStyle(document.documentElement).fontSize),
+          ),
+        )
+        .toBeGreaterThan(23);
+      expect(
+        await toggle().evaluate((node) =>
+          parseFloat(getComputedStyle(node.closest("label")!).fontSize),
+        ),
+      ).toBeGreaterThan(23);
+      expect(await page.evaluate(() => innerWidth)).toBeLessThan(normalWidth);
+      expect(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth <= innerWidth + 1,
+        ),
+      ).toBe(true);
+      remember(
+        "accessibility",
+        "enlargedOSText",
+        "textScalePropagated",
+        "phoneWidths",
+        "noClipping",
+      );
+    },
+  );
+  await check(
+    "analytics stale session and interrupted Off remain truthful",
+    async () => {
+      await fixture("other-session-choice", { enabled: false });
+      await toggle().uncheck();
+      await expect(page.getByRole("alert")).toContainText(
+        "Your setting changed elsewhere",
+      );
+      await expect(toggle()).not.toBeChecked();
+      remember("conflict", "staleConflict", "currentState");
+      await fixture("maintenance");
+      await toggle().check();
+      await expect
+        .poll(async () => (await fixture("preference")).enabled)
+        .toBe(true);
+      await fixture("offline");
+      await toggle().uncheck();
+      await expect(page.getByRole("alert")).toContainText(
+        "Turning off was not confirmed",
+      );
+      await expect(toggle()).toBeChecked();
+      remember("conflict", "offlineOffUnconfirmed");
+      await fixture("online");
+      await toggle().uncheck();
+      await expect(toggle()).not.toBeChecked();
+      expect((await fixture("preference")).enabled).toBe(false);
+      await expect(
+        page
+          .getByRole("status")
+          .filter({ hasText: "Active deletion is in progress" }),
+      ).toBeVisible();
+      remember("conflict", "reconnectFenceAcknowledged");
+      remember("lifecycle", "activeCleanup");
+      await fixture("maintenance");
+    },
+  );
+  await check(
+    "analytics queued shopping retains its original admission revision",
+    async () => {
+      await toggle().check();
+      await expect
+        .poll(async () => (await fixture("preference")).enabled)
+        .toBe(true);
+      await button("Shopping list").click();
+      await expect(page.locator(".shopping-progress [role=status]")).toHaveText(
+        "Saved",
+      );
+      await fixture("offline");
+      await extras("Analytics queued oats");
+      await expect(
+        page.locator(".shopping-progress [role=status]"),
+      ).toContainText("Pending sync");
+      await fixture("other-session-choice", { enabled: false });
+      await fixture("maintenance");
+      await fixture("other-session-choice", { enabled: true });
+      await fixture("online");
+      // A process restart also tests durable queue recovery. The old revision
+      // must survive the app's fresh preference read on reconnect.
+      await relaunch();
+      await button("Shopping list").click();
+      await expect(page.locator(".shopping-progress [role=status]")).toHaveText(
+        "Saved",
+      );
+      await expect
+        .poll(async () => (await fixture("counts")).queuedProductItems)
+        .toBe(1);
+      await fixture("tick");
+      let counts = await fixture("counts");
+      expect(counts.queued + counts.delivered).toBe(0);
+      remember(
+        "queue",
+        "originalRevision",
+        "productEditCommitted",
+        "noOldEpochEvent",
+      );
+      await relaunch();
+      await button("Shopping list").click();
+      await expect(page.locator(".shopping-progress [role=status]")).toHaveText(
+        "Saved",
+      );
+      counts = await fixture("counts");
+      expect(counts.queuedProductItems).toBe(1);
+      expect(counts.queued + counts.delivered).toBe(0);
+      remember("queue", "retryNoDuplicate", "relaunchNoDuplicate");
+    },
+  );
+  await check(
+    "analytics isolated backup cleanup and native export controls",
+    async () => {
+      await profile();
+      await page.getByLabel("Diet", { exact: true }).fill("Mediterranean");
+      await activate("Save preferences");
+      await expect.poll(async () => (await fixture("counts")).queued).toBe(1);
+      await fixture("backup");
+      await accountDetails();
+      await toggle().uncheck();
+      await expect(toggle()).not.toBeChecked();
+      await fixture("maintenance");
+      await button("Refresh analytics setting").click();
+      await expect(
+        page
+          .getByRole("status")
+          .filter({ hasText: "isolated backup cleanup is pending" }),
+      ).toBeVisible();
+      remember("lifecycle", "isolatedBackupPending");
+      for (const save of [false, true]) {
+        await button("Download my data").click();
+        const dialog = page.getByRole("dialog", {
+          name: "Download my data",
+          exact: true,
+        });
+        await dialog
+          .getByLabel("Current password", { exact: true })
+          .fill(account.password);
+        const field = dialog.getByLabel("Current password", { exact: true });
+        await activateControl(field, "Current password");
+        await expect.poll(keyboardShown).toBe(true);
+        expect(
+          await field.evaluate((node) => {
+            const bounds = node.getBoundingClientRect();
+            return (
+              bounds.top >= 0 &&
+              bounds.bottom <= (visualViewport?.height ?? innerHeight) + 1
+            );
+          }),
+        ).toBe(true);
+        remember("accessibility", "keyboardUnobstructed");
+        await activate("Download ZIP");
+        await picker(save ? "SAVE" : "CANCEL");
+        await expect(
+          page.getByText(
+            save
+              ? "Your download is ready. Keep the ZIP private."
+              : "Download cancelled.",
+            { exact: true },
+          ),
+        ).toBeVisible();
+        remember("lifecycle", save ? "nativeSave" : "nativeCancel");
+      }
+      const exports = adb("shell", "ls", "/sdcard/Download")
+        .split(/\r?\n/)
+        .filter((name) => /^mychef-data-[a-f0-9]{32}\.zip$/.test(name));
+      expect(exports.length).toBe(1);
+      const exported = Bun.spawnSync(
+        [
+          adbBinary,
+          "-s",
+          "emulator-5554",
+          "exec-out",
+          "cat",
+          "/sdcard/Download/" + exports[0],
+        ],
+        { stdout: "pipe", stderr: "ignore" },
+      );
+      if (exported.exitCode || exported.stdout.length > 32 * 1024 * 1024)
+        throw Error("Saved native export unavailable");
+      await writeFile(join(state, "native-export.zip"), exported.stdout);
+      expect((await fixture("verify-native-export")).passed).toBe(true);
+      expect((await fixture("foreign-export")).passed).toBe(true);
+      remember("lifecycle", "ownExportOnly", "foreignExportRefused");
+      // OS tree inspection is narrower than spoken accessibility verification.
+      await probeAction("accessibility", "nav");
+      expect(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth <= innerWidth + 1,
+        ),
+      ).toBe(true);
+      remember("accessibility", "noClipping");
+      await button("Delete my account").click();
+      const dialog = page.getByRole("dialog", {
+        name: "Delete my account",
+        exact: true,
+      });
+      await dialog
+        .getByLabel("Current password", { exact: true })
+        .fill(account.password);
+      await dialog
+        .getByLabel("Type DELETE to confirm", { exact: true })
+        .fill("DELETE");
+      await activate("Permanently delete account");
+      await expect(
+        page.getByRole("heading", { name: "Welcome back.", exact: true }),
+      ).toBeVisible();
+      remember("lifecycle", "accountDeleted");
+      await relaunch();
+      await expect(
+        page.getByRole("heading", { name: "Welcome back.", exact: true }),
+      ).toBeVisible();
+      expect(
+        await page.evaluate(
+          () =>
+            !Object.keys(localStorage).some((key) =>
+              /^mychef\.shopping\.(?:owner|list\.)/.test(key),
+            ),
+        ),
+      ).toBe(true);
+      adb(
+        "shell",
+        "run-as",
+        app,
+        "test",
+        "!",
+        "-f",
+        "no_backup/native-shopping.v1",
+      );
+      remember("lifecycle", "relaunchSessionCacheCleared");
+    },
+  );
+}
+
 try {
   await connect();
   await {
@@ -1109,6 +1539,7 @@ try {
     pages: pageImportJourney,
     account: accountJourneys,
     "analytics-disabled": disabledAnalyticsJourney,
+    analytics: analyticsJourneys,
   }[group]();
   await writeFile(
     join(state, `native-android-journeys-${group}.json`),
@@ -1116,6 +1547,7 @@ try {
       {
         group,
         passed,
+        ...(group === "analytics" ? { checks: analyticsChecks } : {}),
       },
       null,
       2,

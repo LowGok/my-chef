@@ -20,6 +20,9 @@ public class MainActivity extends BridgeActivity {
         accept(getIntent());
         registerPlugin(MyChefNativePlugin.class);
         super.onCreate(savedInstanceState);
+        // The shared UI applies the OS scale through the verified runtime
+        // snapshot. Keep WebView textZoom neutral so it is not applied twice.
+        getBridge().getWebView().getSettings().setTextZoom(100);
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
             @Override public void handleOnBackPressed() { runtime.back(); signalRuntime(); }
         });

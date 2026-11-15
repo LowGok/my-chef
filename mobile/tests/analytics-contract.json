@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "contractVersion": 1,
+  "checks": {
+    "signup": [
+      "disabledNotice",
+      "disabledNoCapture",
+      "assessedNotice",
+      "offBeforeCompletion",
+      "completedOffNoCapture"
+    ],
+    "participation": [
+      "existingOff",
+      "explicitEnable",
+      "committedCoreAction",
+      "restarted",
+      "exactlyOneEvent",
+      "noClientAnalyticsIdentifiers"
+    ],
+    "conflict": [
+      "staleConflict",
+      "currentState",
+      "offlineOffUnconfirmed",
+      "reconnectFenceAcknowledged"
+    ],
+    "queue": [
+      "originalRevision",
+      "productEditCommitted",
+      "noOldEpochEvent",
+      "retryNoDuplicate",
+      "relaunchNoDuplicate"
+    ],
+    "lifecycle": [
+      "activeCleanup",
+      "isolatedBackupPending",
+      "nativeSave",
+      "nativeCancel",
+      "ownExportOnly",
+      "foreignExportRefused",
+      "accountDeleted",
+      "relaunchSessionCacheCleared"
+    ],
+    "accessibility": [
+      "platformScreenReader",
+      "spokenStatesAndErrors",
+      "focusOrder",
+      "enlargedOSText",
+      "textScalePropagated",
+      "phoneWidths",
+      "keyboardUnobstructed",
+      "noClipping"
+    ]
+  }
+}

@@ -30,6 +30,54 @@ ENV = {k: v for k, v in os.environ.items() if k in {
 ENV.update(DEVELOPER_DIR="/Applications/Xcode_26.3.app/Contents/Developer", GOTOOLCHAIN="go1.27.4", CGO_ENABLED="0")
 
 
+def validate_analytics_probe(value, platform, expected):
+    """Strict shape/binding check, not authentication of untrusted JSON claims."""
+    contract = json.loads((ROOT / 'mobile/tests/analytics-contract.json').read_text())
+    binding_keys = {'sourceCommit', 'apiSha256', 'bundleSha256', 'artifactSha256', 'fixtureConfigSha256', 'contractVersion'}
+    if (type(value) is not dict or set(value) != {'schemaVersion', 'platform', 'binding', 'checks'}
+            or type(value['schemaVersion']) is not int or value['schemaVersion'] != contract['schemaVersion']
+            or platform not in ('android', 'ios-simulator') or value['platform'] != platform
+            or type(value['binding']) is not dict or set(value['binding']) != binding_keys
+            or type(expected) is not dict or set(expected) != binding_keys):
+        return False
+    binding = value['binding']
+    for key in binding_keys:
+        actual = binding[key]
+        if actual != expected[key]:
+            return False
+        if key == 'contractVersion':
+            if type(actual) is not int or actual != contract['contractVersion']:
+                return False
+        elif type(actual) is not str or not re.fullmatch('[a-f0-9]{40}' if key == 'sourceCommit' else '[a-f0-9]{64}', actual):
+            return False
+    checks = value['checks']
+    if type(checks) is not dict or set(checks) != set(contract['checks']):
+        return False
+    return all(type(checks[group]) is dict and set(checks[group]) == set(names)
+               and all(checks[group][name] is True for name in names)
+               for group, names in contract['checks'].items())
+
+
+def validate_analytics_receipts(receipts, expected):
+    platforms = {'android', 'ios-simulator'}
+    if (type(receipts) is not list or len(receipts) != 2 or type(expected) is not dict
+            or set(expected) != platforms):
+        return False
+    seen = set()
+    for receipt in receipts:
+        if type(receipt) is not dict or type(receipt.get('platform')) is not str:
+            return False
+        platform = receipt['platform']
+        if platform not in platforms or platform in seen or not validate_analytics_probe(receipt, platform, expected[platform]):
+            return False
+        seen.add(platform)
+    # Artifacts, bundles and private fixture paths differ by platform. Their
+    # measured hashes must match each runner's expected binding, while source
+    # and API must still identify the same candidate across both OS runs.
+    shared = ('sourceCommit', 'apiSha256', 'contractVersion')
+    return all(expected['android'][key] == expected['ios-simulator'][key] for key in shared)
+
+
 def command(*argv, timeout=90, data=None):
     result = subprocess.run(argv, cwd=ROOT, env=ENV, input=data, text=True,
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=timeout)
@@ -82,9 +130,78 @@ def android_request_diagnostics(adb_path):
     print(f"Disposable Android bridge stages: {stages[-24:]}", flush=True)
 
 
-def fixture(state, stack, journeys=False):
+def analytics_fixture_configuration(state, enabled):
+    """Fictional assessment, bound to fresh loopback-only storage, never live."""
+    state = Path(state)
+    if (type(enabled) is not bool or not state.is_absolute() or state.is_symlink()
+            or not re.fullmatch(r'mychef-installed-[A-Za-z0-9_-]+', state.name)
+            or state.stat().st_mode & 0o077):
+        raise ValueError('Expected a private disposable native fixture')
+    if any(state.iterdir()):
+        raise FileExistsError('Fictional analytics requires a fresh empty fixture')
+    contract = (ROOT / 'internal/analytics/contract.go').read_text()
+    notice = (ROOT / 'internal/analytics/notice.go').read_text()
+    scope = re.search(r'^const Scope = ("[^\n]+")$', contract, re.M)
+    text = re.search(r'^const NoticeText = ("[^\n]+")$', notice, re.M)
+    if not scope or not text:
+        raise RuntimeError('Fixture contract constants changed')
+    now = int(time.time())
+    config = dict(root=str(state / 'analytics-data'), privacyPath=str(state / 'privacy.sqlite'),
+                  anchorPath=str(state / 'privacy.anchor'), backupKeyFile=str(state / 'analytics.key'),
+                  collection=dict(Enabled=enabled, NoticeVersion='fictional-native-v1',
+                                  NoticeHash=hashlib.sha256(json.loads(text[1]).encode()).hexdigest(), OutboxCap=100,
+                                  Assessment=dict(status='approved', basis='legitimate_interest', version='fictional-native-v1',
+                                                  scope=hashlib.sha256(json.loads(scope[1]).encode()).hexdigest(),
+                                                  noticeVersion='fictional-native-v1', jurisdiction='BE-fictional',
+                                                  audience='fictional@example.test', deviceAccess='fictional-native-fixture',
+                                                  validUntil=now + 30 * 86400)))
+    for path, data in ((state / 'analytics.key', os.urandom(32)),
+                       (state / 'analytics-clock', str(now).encode()),
+                       (state / 'analytics-config.json', json.dumps(config, sort_keys=True).encode())):
+        with path.open('xb') as output:
+            output.write(data)
+        path.chmod(0o600)
+    return state / 'analytics-config.json'
+
+
+def analytics_fixture_overlays(state):
+    """Clock/scheduler replacement for tests only; no production test endpoint."""
+    runtime = ROOT / 'internal/analytics/runtime_config.go'
+    source = runtime.read_text().replace('"os"', '"os"\n"path/filepath"\n"strconv"\n"strings"\n"time"')
+    anchor = 'o := OpenOptions{Root: r.Root, PrivacyPath: r.PrivacyPath, AnchorPath: r.AnchorPath, Config: r.Collection}'
+    if source.count(anchor) != 1:
+        raise RuntimeError('Fixture runtime injection point changed')
+    source = source.replace(anchor, anchor + '''
+    clockPath := filepath.Join(filepath.Dir(path), "analytics-clock")
+    o.Now = func() time.Time {
+        raw, err := os.ReadFile(clockPath)
+        if err != nil { return time.Time{} }
+        unix, err := strconv.ParseInt(strings.TrimSpace(string(raw)), 10, 64)
+        if err != nil { return time.Time{} }
+        return time.Unix(unix, 0).UTC()
+    }
+''')
+    runtime_overlay = state / 'analytics-runtime-fixture.go'
+    runtime_overlay.write_text(source)
+    worker = ROOT / 'internal/analytics/worker.go'
+    source = worker.read_text().replace('"database/sql"', '"database/sql"\n"encoding/json"')
+    start, end = source.index('func (s *Service) Run('), source.index('func (s *Service) Tick(')
+    source = source[:start] + 'func (s *Service) Run(ctx context.Context, observe func(Health)) error { return nativeFixtureRun(ctx, s) }\n' + source[end:]
+    source += '\n' + (ROOT / 'mobile/tests/analytics-fixture-worker.go.txt').read_text()
+    worker_overlay = state / 'analytics-worker-fixture.go'
+    worker_overlay.write_text(source)
+    return {str(runtime): str(runtime_overlay), str(worker): str(worker_overlay)}
+
+
+def fixture(state, stack, journeys=False, analytics=None, controls=None):
     print("Building disposable Go fixture", flush=True)
     flags = []
+    replacements = {}
+    if analytics not in (None, 'disabled', 'approved'):
+        raise ValueError('Unknown analytics fixture mode')
+    if analytics is not None:
+        config_path = analytics_fixture_configuration(state, analytics == 'approved')
+        replacements.update(analytics_fixture_overlays(state))
     if sys.platform == "darwin":
         # This fixture deliberately never runs the Linux-only import worker.
         # Refuse its listener on macOS; leave the real source and UID checks alone.
@@ -92,10 +209,12 @@ def fixture(state, stack, journeys=False):
         stub.write_text('package imports\nimport "net"\n'
                         'func ListenPrivateWorker(string, uint32) (net.Listener, error) {\n'
                         'return nil, ErrExtractionUnavailable\n}\n')
+        replacements[str(ROOT / "internal/imports/worker_socket.go")] = str(stub)
+    if replacements:
         overlay = state / "go-overlay.json"
-        overlay.write_text(json.dumps({"Replace": {str(ROOT / "internal/imports/worker_socket.go"): str(stub)}}))
+        overlay.write_text(json.dumps({"Replace": replacements}))
         flags = ["-overlay", str(overlay)]
-    for binary in ("mychef", "mychef-migrate"):
+    for binary in (("mychef", "mychef-migrate", "mychef-analytics") if analytics is not None else ("mychef", "mychef-migrate")):
         command("go", "build", *flags, "-trimpath", "-o", str(state / binary), "./cmd/" + binary, timeout=450)
     email, _ = fixture_email(state)
     db = str(state / "app.db")
@@ -105,9 +224,13 @@ def fixture(state, stack, journeys=False):
     if journeys:
         app_env.update(stack.enter_context(fixture_imports(ROOT, state, app_env)))
     subprocess.run([str(state / "mychef-migrate"), "up", "--db", db], env=app_env, check=True, timeout=60)
+    if analytics is not None:
+        subprocess.run([str(state / 'mychef-analytics'), 'live', 'init', '--app', db, '--config', str(config_path)],
+                       env=app_env, check=True, timeout=60, stdout=subprocess.DEVNULL)
+        app_env['MYCHEF_ANALYTICS_CONFIG'] = str(config_path)
     log = stack.enter_context((state / "server.log").open("w"))
     app = subprocess.Popen([str(state / "mychef")], cwd=ROOT, env=app_env, stdout=log, stderr=log)
-    stack.callback(terminate, app)
+    stack.callback(lambda: terminate(app))
 
     def ready():
         if app.poll() is not None:
@@ -128,7 +251,16 @@ def fixture(state, stack, journeys=False):
         except OSError:
             return False
     wait_for(ready, "disposable Go backend", 35)
+    if controls is not None:
+        def restart():
+            nonlocal app
+            terminate(app)
+            app = subprocess.Popen([str(state / 'mychef')], cwd=ROOT, env=app_env, stdout=log, stderr=log)
+            wait_for(ready, 'restarted disposable Go backend', 35)
+        controls['restart'] = restart
     events = []
+    if analytics is not None:
+        (state / 'analytics-client-boundary.json').write_text(json.dumps(dict(observed=0, passed=True)))
     rejected_tls = []
     shopping_sync = {}
     shopping_lock = threading.Lock()
@@ -185,6 +317,13 @@ def fixture(state, stack, journeys=False):
                 if len(body) > 32 * 1024 * 1024:
                     self.send_error(502)
                     return
+                boundary = state / 'analytics-client-boundary.json'
+                if boundary.exists() and response.getheader('Content-Type', '').startswith('application/json'):
+                    with shopping_lock:
+                        value = json.loads(boundary.read_text())
+                        value['observed'] += 1
+                        value['passed'] = value['passed'] and re.search(rb'\b(?:sub|evt|per)_[a-f0-9]{32}\b', body) is None
+                        boundary.write_text(json.dumps(value))
                 if journeys and self.command == "POST" and self.path == "/api/native/v1/personal-recipes" and response.status in (200, 201):
                     try:
                         (state / "native-personal-save-drop").unlink()

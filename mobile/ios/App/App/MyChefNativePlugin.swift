@@ -129,7 +129,11 @@ public class MyChefNativePlugin: CAPPlugin, CAPBridgedPlugin, URLSessionDataDele
     @objc func readRuntime(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [self] in
             guard let origin = origin else { call.reject("App state is unavailable", "native_runtime"); return }
-            nativeReply(call, NativeRuntime.shared.snapshot(origin: origin))
+            var snapshot = NativeRuntime.shared.snapshot(origin: origin)
+            let traits = bridge?.webView?.traitCollection
+            let scaled = UIFontMetrics(forTextStyle: .body).scaledValue(for: 16, compatibleWith: traits)
+            snapshot["textScale"] = Double(scaled / 16)
+            nativeReply(call, snapshot)
         }
     }
     @objc func configuration(_ call: CAPPluginCall) {
@@ -322,6 +326,23 @@ final class MyChefBridgeViewController: CAPBridgeViewController {
     override func capacitorDidLoad() {
         bridge?.registerPluginInstance(nativePlugin)
         #if targetEnvironment(simulator)
+        if ProcessInfo.processInfo.arguments.contains("--mychef-analytics-native-fixture"),
+           nativePlugin.getConfig().getString("apiOrigin") == "https://localhost:8977" {
+            checkAnalyticsText(60)
+        }
+        if ProcessInfo.processInfo.arguments.contains("--mychef-analytics-fixture-link"),
+           nativePlugin.getConfig().getString("apiOrigin") == "https://localhost:8977" {
+            // Only the simulator's private fixture can provide this handoff.
+            // NativeRuntime still validates the exact origin, route and proof.
+            let path = FileManager.default.temporaryDirectory.appendingPathComponent("analytics-fixture-link")
+            if let data = try? Data(contentsOf: path), data.count <= 512,
+               let value = String(data: data, encoding: .utf8),
+               value.range(of: "^https://localhost:8977/app/signup#[A-Za-z0-9_-]{43}$", options: .regularExpression) != nil,
+               let url = URL(string: value) {
+                try? FileManager.default.removeItem(at: path)
+                NativeRuntime.shared.receive(url)
+            }
+        }
         if ProcessInfo.processInfo.arguments.contains("--mychef-analytics-disabled-fixture"),
            nativePlugin.getConfig().getString("apiOrigin") == "https://localhost:8977" {
             checkDisabledAnalytics(50)
@@ -329,6 +350,33 @@ final class MyChefBridgeViewController: CAPBridgeViewController {
         #endif
     }
     #if targetEnvironment(simulator)
+    private func checkAnalyticsText(_ remaining: Int) {
+        guard remaining > 0 else { return }
+        let enlarged = UIFontMetrics(forTextStyle: .body).scaledValue(for: 16, compatibleWith: webView?.traitCollection) > 20
+        webView?.evaluateJavaScript("""
+            (() => {
+              const panel = document.querySelector('.analytics-control');
+              const label = panel?.querySelector('label');
+              const notice = panel?.querySelector('p');
+              if (!label || !notice) return null;
+              return {root:parseFloat(getComputedStyle(document.documentElement).fontSize)>20,
+                label:parseFloat(getComputedStyle(label).fontSize)>20,
+                notice:parseFloat(getComputedStyle(notice).fontSize)>17,
+                fits:document.documentElement.scrollWidth<=innerWidth+1};
+            })();
+            """) { result, _ in
+            if var value = result as? [String: Bool], value.count == 4,
+               value.values.allSatisfy({ $0 }), enlarged {
+                value["osTextEnlarged"] = enlarged
+                if let data = try? JSONSerialization.data(withJSONObject: value) {
+                    let path = FileManager.default.temporaryDirectory.appendingPathComponent("analytics-text-result.json")
+                    try? data.write(to: path, options: .atomic)
+                }
+            } else {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) { self.checkAnalyticsText(remaining - 1) }
+            }
+        }
+    }
     private func checkDisabledAnalytics(_ remaining: Int) {
         guard remaining > 0 else { return }
         webView?.evaluateJavaScript("""

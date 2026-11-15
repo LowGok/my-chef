@@ -1,4 +1,4 @@
-"""Limited installed disabled-state evidence; full analytics journeys stay pending."""
+"""Guarded installed verification with explicit limits for incomplete proof."""
 from contextlib import ExitStack
 import hashlib
 import json
@@ -11,9 +11,12 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'scripts'))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 import test_native_installed as native
 from native_fixture_account import seed
 from native_android_probe import build
+from analytics_fixture import Fixture, own_export
+import analytics_ios
 
 
 def authorized(event, environment):
@@ -41,6 +44,108 @@ def assert_disabled_storage(db):
         raise RuntimeError('Disabled fixture captured data or enabled enrollment')
 
 
+def install_android_probe(state, artifact):
+    sdk = Path(native.ENV['ANDROID_HOME'])
+    signer = (native.GENERATED / 'analytics-debug-keystore-path').read_text().strip()
+    if not Path(signer).is_file():
+        raise RuntimeError('Exact debug signer unavailable')
+    def probe_command(*args, **kwargs):
+        args = list(args)
+        if Path(args[0]).name == 'apksigner' and args[1] == 'sign':
+            args[args.index('--ks') + 1] = signer
+        return native.command(*args, **kwargs)
+    probe = build(state, sdk, probe_command)
+    tool = str(sdk / 'build-tools/36.0.0/apksigner')
+    def fingerprint(path):
+        value = native.command(tool, 'verify', '--print-certs', str(path))
+        match = re.search(r'certificate SHA-256 digest: ([a-f0-9]{64})', value)
+        if not match:
+            raise RuntimeError('Debug certificate identity unavailable')
+        return match.group(1)
+    if fingerprint(probe) != fingerprint(artifact):
+        raise RuntimeError('Probe and app debug signatures differ')
+    adb_path = str(sdk / 'platform-tools/adb')
+    native.command(adb_path, '-s', 'emulator-5554', 'install', str(probe))
+
+
+def full_journeys(receipt, artifact):
+    with tempfile.TemporaryDirectory(prefix='mychef-installed-') as directory, ExitStack() as stack:
+        state = Path(directory).resolve()
+        controls = {}
+        ca, events, rejected = native.fixture(state, stack, analytics='disabled', controls=controls)
+        fixture = Fixture(state, controls['restart'])
+        account = fixture.operate({'operation': 'seed'})
+        control = fixture.serve(stack)
+        config_digest = hashlib.sha256((state / 'analytics-config.json').read_bytes()).hexdigest()
+        if native.PLATFORM == 'android':
+            metadata, launch, stop, diagnostic = native.android(state, stack, ca, artifact)
+        else:
+            metadata, launch, stop, diagnostic = native.ios(state, stack, ca, artifact)
+        native.verify_stage(lambda: ('POST', 'session', 201) in events and ('GET', 'session', 200) in events,
+                            'native analytics fixture session', events, rejected, diagnostic, launch=launch)
+        if native.PLATFORM == 'android':
+            install_android_probe(state, artifact)
+            (state / 'native-android-account.json').write_text(json.dumps(account))
+            for key in ('GITHUB_ACTIONS', 'GITHUB_REPOSITORY', 'NATIVE_PLATFORM'):
+                native.ENV[key] = os.environ[key]
+            native.command('bun', 'scripts/native-android-journeys.ts', str(state), 'analytics', timeout=600)
+            checks = json.loads((state / 'native-android-journeys-analytics.json').read_text())['checks']
+        else:
+            devices = json.loads(native.command('xcrun', 'simctl', 'list', 'devices', 'booted', '-j'))['devices']
+            identifiers = [d['udid'] for group in devices.values() for d in group if d.get('name') == 'MyChef fixture']
+            if len(identifiers) != 1:
+                raise RuntimeError('Expected one run-owned simulator')
+            identifier = identifiers[0]
+            native.command('xcrun', 'simctl', 'ui', identifier, 'content_size', 'accessibility-medium')
+            container = Path(native.command('xcrun', 'simctl', 'get_app_container', identifier, native.APP, 'data'))
+            stop()
+            checks = analytics_ios.run(state, control, account, identifier, container)
+            scale = json.loads((container / 'tmp/analytics-text-result.json').read_text())
+            if set(scale) != {'root', 'label', 'notice', 'fits', 'osTextEnlarged'} or not all(value is True for value in scale.values()):
+                raise RuntimeError('Installed iOS text scale did not propagate')
+            checks['accessibility'].update(enlargedOSText=True, textScalePropagated=True, noClipping=True)
+            if (container / 'Library/Application Support/MyChefNative/shopping.v1').exists():
+                raise RuntimeError('Deleted account retained native shopping snapshot')
+            checks['lifecycle']['relaunchSessionCacheCleared'] = True
+            # The fresh run-owned simulator contains no owner's Files data.
+            # Inspect the OS-saved copy, excluding the app's transient staging.
+            copies = [path for path in container.parents[3].rglob('mychef-data-*.zip')
+                      if re.fullmatch(r'mychef-data-[a-f0-9]{32}\.zip', path.name)
+                      and not path.is_relative_to(container / 'Library/Caches')]
+            if len(copies) != 1 or not own_export(copies[0].read_bytes(), account['email']):
+                raise RuntimeError('OS-saved iOS export ownership verification failed')
+            checks['lifecycle']['ownExportOnly'] = True
+        boundary = json.loads((state / 'analytics-client-boundary.json').read_text())
+        if boundary['observed'] < 1 or boundary['passed'] is not True:
+            raise RuntimeError('Native response boundary included analytics identifiers')
+        checks['participation']['noClientAnalyticsIdentifiers'] = True
+        fixture.worker('maintenance')
+        if fixture.operate({'operation': 'expire-backup'})['passed'] is not True:
+            raise RuntimeError('Original native fixture backup expiry was not enforced')
+        binding = dict(sourceCommit=receipt['candidate']['sourceCommit'],
+                       apiSha256=hashlib.sha256((ROOT / 'api/openapi.yaml').read_bytes()).hexdigest(),
+                       bundleSha256=receipt['candidate']['bundleSha256'], artifactSha256=receipt['artifactSha256'],
+                       fixtureConfigSha256=hashlib.sha256(json.dumps(dict(
+                           disabled=config_digest,
+                           approved=hashlib.sha256((state / 'analytics-config.json').read_bytes()).hexdigest(),
+                           overlays={name: hashlib.sha256((state / name).read_bytes()).hexdigest() for name in (
+                               'analytics-runtime-fixture.go', 'analytics-worker-fixture.go')},
+                       ), sort_keys=True).encode()).hexdigest(), contractVersion=1)
+        probe = dict(schemaVersion=1, platform=native.PLATFORM, binding=binding, checks=checks)
+        complete = native.validate_analytics_probe(probe, native.PLATFORM, binding)
+        result = dict(probe=probe, device=metadata, fullJourneys=complete,
+                      apiExecutableSha256=hashlib.sha256((state / 'mychef').read_bytes()).hexdigest(),
+                      fixture='fictional isolated accounts and assessment; controlled clock and worker',
+                      distribution='not authorized', liveCollection='disabled',
+                      limitations=[] if complete else ['Incomplete observations; no full native receipt issued'])
+        (native.ARTIFACTS / 'analytics-installed-observations.json').write_text(json.dumps(result, indent=2) + '\n')
+        # The separate full receipt exists only after all six journeys, including
+        # observed speech, pass. A green functional run is not that conclusion.
+        if complete:
+            (native.ARTIFACTS / 'analytics-installed-full.json').write_text(json.dumps(result, indent=2) + '\n')
+        print('Installed analytics observations retained; full receipt ' + ('complete' if complete else 'withheld'))
+
+
 def main():
     os.umask(0o077)
     event = json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text())
@@ -55,6 +160,9 @@ def main():
             or receipt['platform'] != native.PLATFORM
             or hashlib.sha256(artifact.read_bytes()).hexdigest() != receipt['artifactSha256']):
         raise SystemExit('Candidate/artifact identity mismatch')
+    if os.environ.get('NATIVE_ANALYTICS_JOURNEYS') == '1':
+        full_journeys(receipt, artifact)
+        return
     with tempfile.TemporaryDirectory(prefix='mychef-installed-') as directory, ExitStack() as stack:
         state = Path(directory).resolve()
         ca, events, rejected = native.fixture(state, stack, journeys=False)
