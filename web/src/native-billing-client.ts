@@ -62,7 +62,9 @@ export function setNativeBillingStore(
     },
     async unfinished() {
       const result = await bridge.billingUnfinished();
-      return Array.isArray(result.receipts) ? result.receipts : [];
+      if (!Array.isArray(result?.receipts))
+        throw new Error("The store could not check unfinished purchases.");
+      return result.receipts;
     },
     async restore() {
       const result = await bridge.billingRestore();

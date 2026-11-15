@@ -171,6 +171,10 @@ export function createBillingFlow(
         return "pending";
       const plans = current.plans.filter((p) => p.interval === interval);
       if (plans.length !== 1) return "unavailable";
+      // The store can already have an unfinished result while the server is
+      // still waiting for proof. Reconcile it before creating another attempt.
+      const recovered = await recover(false, current);
+      if (recovered !== "empty") return recovered;
       const [first] = await quotePlans(current, plans);
       if (!first) return "unavailable";
       requireSession();
@@ -224,8 +228,11 @@ export function createBillingFlow(
       return "pending";
     });
   }
-  async function recover(prompt: boolean): Promise<Result> {
-    const current = await status();
+  async function recover(
+    prompt: boolean,
+    current?: BillingStatus,
+  ): Promise<Result> {
+    current = current ?? (await status());
     if (!current.restoreAvailable || current.store !== device.store)
       return "unavailable";
     const receipts = prompt

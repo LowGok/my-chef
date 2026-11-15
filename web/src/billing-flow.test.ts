@@ -66,7 +66,9 @@ function fixture() {
         return allowFinish();
       },
       async restore(value) {
-        expect(unfinished.some((receipt) => receipt.receipt === value)).toBe(true);
+        expect(unfinished.some((receipt) => receipt.receipt === value)).toBe(
+          true,
+        );
         events.push("verify restore");
         return allowFinish();
       },
@@ -81,6 +83,8 @@ function fixture() {
         expect(value).toEqual(quote);
         expect(accountBinding).toBe(binding);
         events.push("purchase");
+        // The fake store exposes the new receipt only after the sheet opens.
+        unfinished = [proof];
         return purchase;
       },
       async unfinished() {
@@ -131,25 +135,35 @@ function fixture() {
 
 test("a storefront switch or unexpected terms stop before the store sheet", async () => {
   const f = fixture();
+  f.setUnfinished();
   f.setQuotes(quote, { ...quote, region: "FRA" });
   expect(await f.flow.purchase("monthly")).toBe("unavailable");
-  expect(f.events).toEqual(["quote", "reserve", "quote", "release unused"]);
+  expect(f.events).toEqual([
+    "unfinished",
+    "quote",
+    "reserve",
+    "quote",
+    "release unused",
+  ]);
   for (const changed of [
     { amountMinor: 700 },
     { introductory: true },
     { interval: "annual" as const },
   ]) {
     const attempt = fixture();
+    attempt.setUnfinished();
     attempt.setQuotes({ ...quote, ...changed });
     expect(await attempt.flow.purchase("monthly")).toBe("unavailable");
-    expect(attempt.events).toEqual(["quote"]);
+    expect(attempt.events).toEqual(["unfinished", "quote"]);
   }
 });
 
 test("checkout records launch before opening the store and finishes only after verification", async () => {
   const success = fixture();
+  success.setUnfinished();
   expect(await success.flow.purchase("monthly")).toBe("verified");
   expect(success.events).toEqual([
+    "unfinished",
     "quote",
     "reserve",
     "quote",
@@ -160,9 +174,23 @@ test("checkout records launch before opening the store and finishes only after v
   ]);
 
   const pending = fixture();
+  pending.setUnfinished();
   pending.setFinish(false);
   expect(await pending.flow.purchase("monthly")).toBe("pending");
   expect(pending.events).not.toContain("finish");
+});
+
+test("checkout recovers already unfinished store proof without starting a new purchase", async () => {
+  const f = fixture();
+  expect(await f.flow.purchase("monthly")).toBe("verified");
+  expect(f.events).toEqual(["unfinished", "verify restore", "finish"]);
+});
+
+test("checkout stops when unfinished proof cannot be verified for this account", async () => {
+  const f = fixture();
+  f.setFinish(false);
+  expect(await f.flow.purchase("monthly")).toBe("pending");
+  expect(f.events).toEqual(["unfinished", "verify restore"]);
 });
 
 test("sales-off restore and resumed checkout never open a new sheet", async () => {
@@ -212,6 +240,7 @@ test("store discovery recovers an unfinished purchase without opening checkout o
 
 test("a store update during checkout is coalesced and waits before reading unfinished results", async () => {
   const f = fixture();
+  f.setUnfinished();
   f.setPurchase("pending");
   const purchase = f.flow.purchase("monthly");
   const discovery = f.flow.discover();
@@ -220,6 +249,7 @@ test("a store update during checkout is coalesced and waits before reading unfin
   expect(await purchase).toBe("pending");
   expect(await discovery).toBe("verified");
   expect(f.events).toEqual([
+    "unfinished",
     "quote",
     "reserve",
     "quote",
@@ -254,9 +284,9 @@ test("sign-out during automatic verification prevents device acknowledgement", a
   expect(f.events).toEqual(["unfinished", "verify restore"]);
 });
 
-
 test("a lost store finish can retry the same verified purchase without a second sheet", async () => {
   const f = fixture();
+  f.setUnfinished();
   const attempted: string[] = [];
   f.onFinish(async (id) => {
     attempted.push(id);
@@ -266,12 +296,20 @@ test("a lost store finish can retry the same verified purchase without a second 
   expect(await f.flow.discover()).toBe("verified");
   expect(attempted).toEqual([proof.id, proof.id]);
   expect(f.events.filter((event) => event === "purchase")).toHaveLength(1);
-  expect(f.events.slice(-3)).toEqual(["unfinished", "verify restore", "finish"]);
+  expect(f.events.slice(-3)).toEqual([
+    "unfinished",
+    "verify restore",
+    "finish",
+  ]);
 });
 
 test("a failed store finish does not block a second unfinished verified transaction", async () => {
   const f = fixture();
-  const later = { ...proof, id: "fixture-renewal", receipt: "fixture-renewal-proof" };
+  const later = {
+    ...proof,
+    id: "fixture-renewal",
+    receipt: "fixture-renewal-proof",
+  };
   const attempted: string[] = [];
   f.setUnfinished(proof, later);
   f.onFinish(async (id) => {
@@ -280,5 +318,11 @@ test("a failed store finish does not block a second unfinished verified transact
   });
   expect(await f.flow.restore()).toBe("verified");
   expect(attempted).toEqual([proof.id, later.id]);
-  expect(f.events).toEqual(["restore", "verify restore", "finish", "verify restore", "finish"]);
+  expect(f.events).toEqual([
+    "restore",
+    "verify restore",
+    "finish",
+    "verify restore",
+    "finish",
+  ]);
 });
