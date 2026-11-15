@@ -36,13 +36,12 @@ test("feedback preserves its receipt and guards uncertain submissions", async ({
   const field = page.getByLabel("Message", { exact: true });
   await expect(topic).toBeEnabled();
   await expect(page.getByText(/verified account email/)).toBeVisible();
+  const feedback = page.getByRole("region", { name: "Feedback", exact: true });
   await expect(
-    page.locator('input[type="file"], input[type="checkbox"]'),
+    feedback.locator('input[type="file"], input[type="checkbox"]'),
   ).toHaveCount(0);
   await expect(
-    page
-      .getByRole("region", { name: "Feedback", exact: true })
-      .locator('a[href^="mailto:"]'),
+    feedback.locator('a[href^="mailto:"]'),
   ).toHaveCount(0);
   await expect(topic.locator("option")).toHaveText([
     "Choose a reason",

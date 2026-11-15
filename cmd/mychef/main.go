@@ -382,6 +382,18 @@ func main() {
 		<-signUpDone
 		recoveryWorkers.Wait()
 	}()
+	reminders, pushSender, err := configurePush(s, personalReader, inboxSettings != nil)
+	if err != nil {
+		logger.Error("invalid private push configuration")
+		os.Exit(1)
+	}
+	if reminders != nil {
+		if err := reminders.RecoverReminderDispatches(ctx); err != nil {
+			logger.Error("planning reminder recovery unavailable")
+			os.Exit(1)
+		}
+		recoveryWorkers.Go(func() { runPushWorker(emailCtx, reminders, pushSender, logger) })
+	}
 	api := httpapi.New(s, service, httpapi.Config{
 		Newsletter: newsletterService, NewsletterSettings: newsletterSettings, NewsletterReady: func(ctx context.Context) bool {
 			return newsletterReady(newsletterSettings, !lifecycleFailed.Load() && journal.CheckReady(ctx) == nil && s.SQL.PingContext(ctx) == nil, mailService.Ready(ctx), proofKeys != nil && len(proofSettings.RateKey) == 32, newsletterFailed.Load())
@@ -400,7 +412,7 @@ func main() {
 		EmailChange:     &auth.EmailChange{SignUp: signUp},
 		Recovery:        recovery,
 		FeedbackTo:      config.LoadFeedbackRecipient(),
-		PersonalFixture: personalFixture, PersonalEntitlements: personalReader,
+		PersonalFixture: personalFixture, PersonalEntitlements: personalReader, Reminders: reminders,
 		PersonalRecipes: personalRecipes, PersonalPhotos: personalPhotos, RecipeImports: recipeImports,
 	}, logger)
 	srv := &http.Server{Addr: cfg.Addr, Handler: api.Handler(webui.Handler()), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second, BaseContext: func(net.Listener) context.Context { return ctx }}

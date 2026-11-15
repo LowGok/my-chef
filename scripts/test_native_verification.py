@@ -30,6 +30,57 @@ import native_fixture_account
 
 
 class NativeVerificationTest(unittest.TestCase):
+    def test_ios_notification_actions_reach_the_same_handler_on_scene_connection(self):
+        # The simulator fixture injects an opaque reference after launch and
+        # cannot detect a missing UIKit cold-start callback.
+        ios = ROOT / "mobile/ios/App/App"
+        with (ios / "Info.plist").open("rb") as file:
+            manifest = plistlib.load(file)["UIApplicationSceneManifest"]
+        self.assertIn("UIWindowSceneSessionRoleApplication", manifest["UISceneConfigurations"])
+        scene = (ios / "SceneDelegate.swift").read_text()
+        app = (ios / "AppDelegate.swift").read_text()
+        self.assertRegex(scene, r"receiveReminderResponse\(connectionOptions\.notificationResponse\)")
+        self.assertRegex(app, r"receiveReminderResponse\(response\)")
+
+    def test_ios_reminder_journey_requires_the_rendered_week_and_controls(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            result = Path(temporary) / "mychef-reminder-result.json"
+            self.assertFalse(installed.ios_reminder_ui_passed(result))
+            for value in ({"weekAndMeal": True}, {"weekAndMeal": True, "scaledControls": False}):
+                result.write_text(json.dumps(value))
+                self.assertFalse(installed.ios_reminder_ui_passed(result))
+            result.write_text('{"weekAndMeal":true,"scaledControls":true}')
+            self.assertFalse(installed.ios_reminder_ui_passed(result))
+            result.write_text('{"weekAndMeal":true,"scaledControls":true,"systemTextSize":false}')
+            self.assertFalse(installed.ios_reminder_ui_passed(result))
+            result.write_text('{"weekAndMeal":true,"scaledControls":true,"systemTextSize":true}')
+            self.assertTrue(installed.ios_reminder_ui_passed(result))
+
+    def test_android_reminder_text_restores_the_emulator_setting_on_failure(self):
+        for initial in ("null", "1.15"):
+            with self.subTest(initial=initial):
+                scale = initial
+                changes = []
+
+                def adb(*args):
+                    nonlocal scale
+                    if args == ("shell", "settings", "get", "system", "font_scale"):
+                        return scale
+                    changes.append(args)
+                    scale = args[-1] if args[2] == "put" else "null"
+                    return ""
+
+                with self.assertRaisesRegex(RuntimeError, "synthetic journey failure"):
+                    with installed.android_reminder_text(adb):
+                        self.assertEqual(scale, "1.5")
+                        raise RuntimeError("synthetic journey failure")
+                self.assertEqual(scale, initial)
+                self.assertEqual(changes, [
+                    ("shell", "settings", "put", "system", "font_scale", "1.5"),
+                    ("shell", "settings", "delete", "system", "font_scale") if initial == "null" else
+                    ("shell", "settings", "put", "system", "font_scale", initial),
+                ])
+
     def test_android_groups_continue_on_failure_without_issuing_a_full_receipt(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -71,6 +122,52 @@ class NativeVerificationTest(unittest.TestCase):
             self.assertEqual(result["artifactSha256"], build["artifactSha256"])
             self.assertEqual({group: len(names) for group, names in result["groups"].items()}, counts)
             self.assertIn(page_check, result["passed"])
+
+    def test_android_reminder_permission_precedes_separate_large_text_session(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "fixture-inbox.json").write_text(json.dumps({"capability": "x" * 43}))
+            scale = "1.0"
+            cleared = False
+            events = []
+            checked = []
+            installation = [("DELETE", "planning-reminders/installation", 204),
+                            ("PUT", "planning-reminders/installation", 204),
+                            ("DELETE", "planning-reminders/installation", 204)]
+            baseline = ["native reminders start disabled and require explicit consent",
+                        "installed app registers only after notification permission and removes on opt out"]
+            text = "Android system large text and reminder accessibility nodes"
+
+            def execute(*args, **kwargs):
+                nonlocal cleared, scale
+                if args[0] == "bun":
+                    group = args[-1]
+                    checked.append((group, scale, cleared))
+                    events.extend(installation if group == "reminders" else [])
+                    (root / f"native-android-journeys-{group}.json").write_text(json.dumps({
+                        "group": group, "passed": baseline if group == "reminders" else [text],
+                    }))
+                elif args[4:6] == ("pm", "clear"):
+                    cleared = True
+                elif args[4:6] == ("settings", "get"):
+                    return scale
+                elif args[4:6] == ("settings", "put"):
+                    scale = args[-1]
+                return "Success"
+
+            build = {"candidate": {}, "artifactSha256": "c" * 64}
+            with patch.object(installed, "command", side_effect=execute), \
+                    patch.object(installed, "ARTIFACTS", root), \
+                    patch.dict(installed.ENV, {"ANDROID_HOME": "/synthetic-sdk"}), \
+                    patch.object(probe, "build", return_value=root / "probe.apk"), \
+                    patch.object(native_fixture_account, "seed", return_value={}), \
+                    patch.object(installed, "android_request_diagnostics"), redirect_stdout(io.StringIO()):
+                installed.android_journeys(root, build, {}, events, reminders=True)
+            self.assertEqual(checked, [("reminders", "1.0", False),
+                                       ("reminder-text", "1.5", True)])
+            self.assertEqual(scale, "1.0")
+            result = json.loads((root / "installed-journeys.json").read_text())
+            self.assertEqual(result["groups"], {"reminders": baseline + [text]})
 
     def test_wrong_simulator_archive_stops_before_a_device_is_opened(self):
         with tempfile.TemporaryDirectory() as temporary:
