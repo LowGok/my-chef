@@ -64,6 +64,20 @@ class AnalyticsAuthorizationTest(unittest.TestCase):
             with self.subTest(payload=value):
                 self.assertFalse(self.authorized(value, self.environment))
 
+    def test_voiceover_uses_the_same_unsigned_artifact_and_a_standard_runner(self):
+        workflow = (ROOT / '.github/workflows/native-compile.yml').read_text()
+        self.assertIn('  analytics-voiceover:\n', workflow)
+        lane = workflow.split('  analytics-voiceover:\n', 1)[1].split('  compile:\n', 1)[0]
+        self.assertIn('needs: analytics-journeys', lane)
+        self.assertIn('runs-on: xcode-27', lane)
+        self.assertNotIn('xlarge', lane)
+        self.assertIn('NATIVE_ANALYTICS_VOICEOVER: "1"', lane)
+        self.assertIn('analytics-voiceover-input-${{ github.sha }}', lane)
+        self.assertIn('analytics-journeys-ios-simulator-${{ github.sha }}', lane)
+        self.assertIn('retention-days: 1', lane)
+        self.assertNotIn('secrets:', lane)
+        self.assertNotIn('mobile-compile', lane)
+
     def test_full_journey_lane_never_changes_the_existing_native_job(self):
         workflow = (ROOT / '.github/workflows/native-compile.yml').read_text()
         self.assertIn('  analytics-journeys:\n', workflow)

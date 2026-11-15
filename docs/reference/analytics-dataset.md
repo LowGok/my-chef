@@ -766,9 +766,26 @@ emulator:
   text throughout those flows.
 - Account export/deletion and session/cache cleanup through the packaged app.
 
-The existing native workflow is restricted to another approved PR/branch and
-does not automatically verify this integration. Compilation or browser bridge
-checks must not be recorded as simulator/emulator results. Record the exact
-candidate, runtime/device configuration and observed journey results before
-closing the native verification criterion. This PR enables no signing,
-distribution, live storage, real-data migration or collection.
+The analytics verification branch has its own guarded unsigned Android/iOS lane.
+It preserves the existing owner-labelled native/reminder job. Each receipt binds
+source, API, UI bundle, installed artifact and fictional configuration. Unknown,
+missing, mismatched or unobserved checks cannot produce a complete receipt.
+Compilation, DOM labels and browser bridge checks do not establish spoken behavior.
+
+The owner approved a limited one-day public CI transfer of the unsigned simulator
+app, its compilation receipt and fixed fictional entitlements plist for a second
+job on the standard Xcode 27 runner. The plist contains no real Keychain items or
+signing keys. The producer and receiver validate the simulator archive boundary;
+the app is packaged before disposable account fixtures exist. No real provider or
+customer data is an authorized artifact. The same compiled app is tested with the
+iOS 27 VoiceOver service, whose spoken output and focus are measured directly.
+The normal app SDK pin remains unchanged. This supplements the older-runtime
+functional/layout lane and does not establish speech behavior on every OS version.
+
+A speech-only supplement can pass while primary journeys are unavailable, but
+then the combined full receipt is withheld. A complete receipt requires all
+primary observations and matching same-artifact speech evidence. Android reports
+whether TalkBack/TTS are installed; an accessibility node alone never sets speech
+flags. Record exact runtimes and results before closing the criterion. These
+checks authorize no device signing, store distribution, beta operation, live
+migration or collection.

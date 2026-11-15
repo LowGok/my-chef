@@ -90,13 +90,14 @@ def project(state):
     return path
 
 
-def run(state, control, account, identifier, container, layout_only=False):
+def run(state, control, account, identifier, container, layout_only=False, voiceover_only=False):
     root = Path(state)
     output = root / 'analytics-ios-observations.json'
     input_path = root / 'analytics-ios-input.json'
     input_path.write_text(json.dumps({**control, **account, 'appContainer': str(container),
                                      'contract': str(ROOT / 'mobile/tests/analytics-contract.json'), 'output': str(output),
                                      'layoutOnly': 'true' if layout_only else 'false',
+                                     'voiceOverOnly': 'true' if voiceover_only else 'false',
                                      'anonymousScreenshot': str(native.ARTIFACTS / 'analytics-anonymous.png')}))
     input_path.chmod(0o600)
     source = project(root)

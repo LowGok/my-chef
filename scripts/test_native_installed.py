@@ -482,6 +482,12 @@ def android(state, stack, ca, apk):
     signature = command(str(sdk / "build-tools/36.0.0/apksigner"), "verify", "--print-certs", str(apk))
     metadata = {"api": version, "systemImage": image, "webView": webview,
                 "signing": next(line for line in signature.splitlines() if "certificate SHA-256 digest:" in line)}
+    for key, package in (("talkBackInstalled", "com.google.android.marvin.talkback"),
+                         ("googleTTSInstalled", "com.google.android.tts")):
+        try:
+            metadata[key] = adb("shell", "pm", "path", package).startswith("package:")
+        except RuntimeError:
+            metadata[key] = False
     system_ui_recovered = False
 
     def launch():
@@ -514,7 +520,8 @@ def android(state, stack, ca, apk):
 
 def ios(state, stack, ca, package, model="iPhone 16", fixture_name="MyChef fixture"):
     if (model, fixture_name) not in (("iPhone 16", "MyChef fixture"),
-                                    ("iPhone SE (3rd generation)", "MyChef analytics small fixture")):
+                                    ("iPhone SE (3rd generation)", "MyChef analytics small fixture"),
+                                    ("iPhone 17", "MyChef analytics voice fixture")):
         raise ValueError("Unsupported disposable simulator selection")
     # Verify the archive before booting the simulator. The host Mach-O tools
     # do not need CoreSimulator, and can otherwise contend with its first boot.
@@ -540,8 +547,9 @@ def ios(state, stack, ca, package, model="iPhone 16", fixture_name="MyChef fixtu
         return command(str(simctl), *args, timeout=timeout)
 
     runtimes = json.loads(sim("list", "devices", "available", "-j"))["devices"]
+    required_runtime = "iOS-27-0" if model == "iPhone 17" else "iOS-18-6"
     runtime, device = next((runtime, device) for runtime, devices in runtimes.items()
-                           if runtime.endswith("iOS-18-6") for device in devices if device["name"] == model)
+                           if runtime.endswith(required_runtime) for device in devices if device["name"] == model)
     identifier = sim("create", fixture_name, device["deviceTypeIdentifier"], runtime)
     if not re.fullmatch(r"[0-9A-Fa-f]{8}(?:-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}", identifier):
         raise RuntimeError("CoreSimulator did not return a device identifier")

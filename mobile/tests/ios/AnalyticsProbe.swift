@@ -224,6 +224,17 @@ final class AnalyticsProbe: XCTestCase {
     }
     func testAuthenticatedAnalytics() throws {
         app.launch()
+        if configuration["voiceOverOnly"] == "true" {
+            #if compiler(>=6.4)
+            if #available(iOS 27.0, *) {
+                try verifyVoiceOver()
+                guard let output = configuration["output"] else { throw Failure.invalidFixture }
+                try JSONSerialization.data(withJSONObject: ["checks": observations]).write(to: URL(fileURLWithPath: output), options: .atomic)
+                return
+            }
+            #endif
+            throw Failure.invalidFixture
+        }
         if configuration["layoutOnly"] == "true" {
             tap("Create an account")
             let box = checkbox(); reveal(box)
@@ -322,4 +333,81 @@ final class AnalyticsProbe: XCTestCase {
         // Unobserved speech, layout sizes and private-cache inspection remain
         // false. The coordinator must refuse a full receipt for this run.
     }
+    #if compiler(>=6.4)
+    @available(iOS 27.0, *)
+    func verifyVoiceOver() throws {
+        let voice = XCUIDevice.shared.voiceOverService
+        func spoken(_ phrase: String, backward: Bool = false) throws -> String {
+            if let current = try? voice.currentSpeech().utterance,
+               current.localizedCaseInsensitiveContains(phrase) { return current }
+            for reverse in [backward, !backward] {
+                for _ in 0..<160 {
+                    let output = try? (reverse ? voice.moveBackward() : voice.moveForward()).utterance
+                    guard let output = output else { break }
+                    if output.localizedCaseInsensitiveContains(phrase) { return output }
+                }
+            }
+            XCTFail("Required app control or error must be spoken by VoiceOver")
+            throw Failure.missingControl
+        }
+        func state(_ utterance: String) -> String {
+            // Inspect only the control/state prefix, before its long hint.
+            let prefix = String(utterance.prefix(100)).lowercased()
+            if prefix.range(of: "\\b(off|unchecked|not checked|not selected)\\b", options: .regularExpression) != nil { return "off" }
+            if prefix.range(of: "\\b(on|checked|selected)\\b", options: .regularExpression) != nil { return "on" }
+            return "unknown"
+        }
+        // This uses the OS VoiceOver service's actual spoken output. No TTS
+        // substitute, DOM label or accessibility audit can set these flags.
+        tap("Create an account")
+        try voice.enable()
+        defer { try? voice.disable() }
+        XCTAssertTrue(voice.isEnabled)
+        let unavailable = try spoken("Help improve MyChef")
+        XCTAssertEqual(state(unavailable), "off", "Disabled signup control must speak Off")
+        XCTAssertTrue(unavailable.range(of: "dimmed|disabled|unavailable", options: [.regularExpression, .caseInsensitive]) != nil,
+                      "VoiceOver must convey unavailable participation")
+        try voice.disable()
+        tap("Sign in")
+        fill("Email", configuration["email"] ?? "")
+        fill("Password", configuration["password"] ?? "", secure: true)
+        tap("Sign in to MyChef"); profile(); details()
+        _ = try control("approved"); relaunch(); profile(); details()
+        try voice.enable()
+        _ = try spoken("Privacy and data")
+        var checkboxIndex: Int?, statusIndex: Int?, refreshIndex: Int?
+        for index in 0..<24 {
+            let utterance = try voice.moveForward().utterance
+            if utterance.localizedCaseInsensitiveContains("Help improve MyChef"), checkboxIndex == nil { checkboxIndex = index }
+            if checkboxIndex != nil, utterance.lowercased().trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("off"), statusIndex == nil { statusIndex = index }
+            if utterance.localizedCaseInsensitiveContains("Refresh analytics setting") { refreshIndex = index; break }
+        }
+        XCTAssertNotNil(checkboxIndex); XCTAssertNotNil(statusIndex); XCTAssertNotNil(refreshIndex)
+        XCTAssertLessThan(checkboxIndex ?? 100, statusIndex ?? -1)
+        XCTAssertLessThan(statusIndex ?? 100, refreshIndex ?? -1)
+        mark("accessibility", "focusOrder")
+        try voice.disable(); enabled(true)
+        try voice.enable()
+        XCTAssertEqual(state(try spoken("Help improve MyChef")), "on", "VoiceOver must convey enabled participation")
+        // Change the server choice from another session while the focused
+        // control remains On, then activate it with the real VoiceOver gesture.
+        _ = try control("other-session-choice", ["enabled": false])
+        app.doubleTap()
+        waitFor({ self.text("Your setting changed elsewhere") }, "VoiceOver action must encounter stale-choice error")
+        _ = try spoken("Your setting changed elsewhere", backward: true)
+        XCTAssertEqual(state(try spoken("Help improve MyChef")), "off")
+        try voice.disable(); _ = try control("maintenance"); enabled(true)
+        _ = try control("offline")
+        try voice.enable(); _ = try spoken("Help improve MyChef"); app.doubleTap()
+        waitFor({ self.text("Turning off was not confirmed") }, "VoiceOver action must encounter unconfirmed Off")
+        _ = try spoken("Turning off was not confirmed", backward: true)
+        XCTAssertEqual(state(try spoken("Help improve MyChef")), "on")
+        _ = try control("online")
+        app.doubleTap()
+        waitFor({ ((try? self.control("preference")["enabled"]) as? Bool) == false }, "VoiceOver Off must receive server acknowledgement")
+        XCTAssertEqual(state(try spoken("Help improve MyChef")), "off")
+        mark("accessibility", "platformScreenReader", "spokenStatesAndErrors")
+    }
+    #endif
+
 }

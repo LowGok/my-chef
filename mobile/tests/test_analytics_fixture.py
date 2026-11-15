@@ -1,5 +1,7 @@
 """Offline fixture/controller boundaries; no device or CI authority is asserted."""
 import io
+import copy
+import json
 from pathlib import Path
 import plistlib
 import tempfile
@@ -35,6 +37,49 @@ class FixtureBoundaryTest(unittest.TestCase):
         self.assertFalse(own_export(self.archive(**{'account.json': 'foreign@example.test', 'analytics.json': '{}'}), own))
         for other in ('analyticsdisabled@example.test', 'analyticsassessed@example.test'):
             self.assertFalse(own_export(self.archive(**{'account.json': own, 'analytics.json': other}), own))
+
+    def test_transfer_refuses_signing_material_databases_and_other_app_payloads(self):
+        from analytics_artifact import verify_archive
+        info = plistlib.dumps({'CFBundleIdentifier': 'com.gkldevelopment.mychef.preview',
+                              'CFBundleSupportedPlatforms': ['iPhoneSimulator']})
+        clean = {'App.app/Info.plist': info, 'App.app/App': b'fictional executable'}
+        self.assertTrue(verify_archive(self.archive(**clean)))
+        for name, value in (('App.app/customer.sqlite', b'private'), ('App.app/signing.p12', b'private'),
+                            ('App.app/client.key', b'private'), ('App.app/hidden.bin', b'SQLite format 3\0private'),
+                            ('App.app/secret.txt', b'-----BEGIN PRIVATE KEY-----'), ('Other.app/Info.plist', info)):
+            self.assertFalse(verify_archive(self.archive(**{**clean, name: value})))
+        self.assertFalse(verify_archive(self.archive(**{**clean, 'App.app/Info.plist': plistlib.dumps({
+            'CFBundleIdentifier': 'com.gkldevelopment.mychef.preview', 'CFBundleSupportedPlatforms': ['iPhoneOS']})})))
+
+    def test_speech_supplement_requires_the_same_candidate_and_every_other_observation(self):
+        from analytics_voiceover import combine
+        contract = json.loads((Path(__file__).parent / 'analytics-contract.json').read_text())
+        binding = dict(sourceCommit='a' * 40, apiSha256='b' * 64, bundleSha256='c' * 64,
+                       artifactSha256='d' * 64, fixtureConfigSha256='e' * 64, contractVersion=1)
+        primary = dict(schemaVersion=1, platform='ios-simulator', binding=binding,
+                       checks={group: dict.fromkeys(names, True) for group, names in contract['checks'].items()})
+        speech = ('platformScreenReader', 'spokenStatesAndErrors', 'focusOrder')
+        for key in speech:
+            primary['checks']['accessibility'][key] = False
+        supplement_binding = dict(binding, fixtureConfigSha256='f' * 64)
+        supplement = dict(schemaVersion=1, binding=supplement_binding, checks=dict.fromkeys(speech, True))
+        self.assertIsNotNone(combine(primary, supplement, binding, supplement_binding))
+        for group, names in contract['checks'].items():
+            for name in names:
+                if group == 'accessibility' and name in speech:
+                    continue
+                bad = copy.deepcopy(primary); bad['checks'][group][name] = False
+                self.assertIsNone(combine(bad, supplement, binding, supplement_binding))
+        for key in binding:
+            bad = copy.deepcopy(supplement)
+            bad['binding'][key] = 2 if key == 'contractVersion' else '0' * (40 if key == 'sourceCommit' else 64)
+            self.assertIsNone(combine(primary, bad, binding, supplement_binding))
+        for name in speech:
+            for value in (False, 1, 'true', None):
+                bad = copy.deepcopy(supplement); bad['checks'][name] = value
+                self.assertIsNone(combine(primary, bad, binding, supplement_binding))
+        bad = copy.deepcopy(supplement); bad['email'] = 'private@example.test'
+        self.assertIsNone(combine(primary, bad, binding, supplement_binding))
 
     def test_generated_probe_has_only_a_separate_unsigned_ui_target(self):
         with tempfile.TemporaryDirectory(prefix='analytics-probe-') as folder:
