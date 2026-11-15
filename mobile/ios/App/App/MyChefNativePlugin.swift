@@ -319,6 +319,43 @@ public class MyChefNativePlugin: CAPPlugin, CAPBridgedPlugin, URLSessionDataDele
 
 final class MyChefBridgeViewController: CAPBridgeViewController {
     private let nativePlugin = MyChefNativePlugin()
-    override func capacitorDidLoad() { bridge?.registerPluginInstance(nativePlugin) }
+    override func capacitorDidLoad() {
+        bridge?.registerPluginInstance(nativePlugin)
+        #if targetEnvironment(simulator)
+        if ProcessInfo.processInfo.arguments.contains("--mychef-analytics-disabled-fixture"),
+           nativePlugin.getConfig().getString("apiOrigin") == "https://localhost:8977" {
+            checkDisabledAnalytics(50)
+        }
+        #endif
+    }
+    #if targetEnvironment(simulator)
+    private func checkDisabledAnalytics(_ remaining: Int) {
+        guard remaining > 0 else { return }
+        webView?.evaluateJavaScript("""
+            (() => {
+              const create = [...document.querySelectorAll('button')].find(x => x.textContent.trim() === 'Create an account');
+              if (create) { create.click(); return null; }
+              const panel = document.querySelector('fieldset.analytics-control');
+              const box = panel?.querySelector('input[type=checkbox]');
+              const label = box?.closest('label');
+              if (!box || !panel.textContent.includes('Analytics is Off while unavailable.')) return null;
+              return {disabled:box.disabled, unchecked:!box.checked,
+                labelled:label.textContent.includes('Help improve MyChef'),
+                fits:document.documentElement.scrollWidth <= innerWidth + 1};
+            })();
+            """) { result, _ in
+            if let value = result as? [String: Bool], value.count == 4,
+               value.values.allSatisfy({ $0 }),
+               let data = try? JSONSerialization.data(withJSONObject: value) {
+                let path = FileManager.default.temporaryDirectory.appendingPathComponent("analytics-disabled-result.json")
+                try? data.write(to: path, options: .atomic)
+            } else {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                    self.checkDisabledAnalytics(remaining - 1)
+                }
+            }
+        }
+    }
+    #endif
     deinit { nativePlugin.shutdown() }
 }

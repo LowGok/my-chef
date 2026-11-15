@@ -1,6 +1,14 @@
 name: Native verification
 
 on:
+  push:
+    branches: [ci/analytics-installed-b9e9699]
+    paths:
+      - .github/workflows/native-compile.yml
+      - mobile/tests/**
+      - mobile/ios/App/App/MyChefNativePlugin.swift
+      - scripts/test_native_installed.py
+      - scripts/native-android-journeys.ts
   pull_request:
     types: [labeled]
 
@@ -12,6 +20,46 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  analytics-disabled:
+    if: >-
+      github.event_name == 'push' &&
+      github.repository == 'LowGok/my-chef' && github.repository_id == '1454481532' &&
+      github.event.repository.private == false && github.actor == 'LowGok' &&
+      github.ref == 'refs/heads/ci/analytics-installed-b9e9699'
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        platform: [android, ios-simulator]
+    runs-on: ${{ matrix.platform == 'android' && 'ubuntu-24.04' || 'macos-15' }}
+    timeout-minutes: 35
+    env:
+      CI: "1"
+      CAPACITOR_TELEMETRY_DISABLED: "1"
+      NATIVE_PLATFORM: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version-file: mobile/package.json
+          no-cache: true
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Compile isolated unsigned analytics candidate
+        run: bun mobile/tests/analytics-compile.ts
+      - name: Verify installed disabled analytics UI
+        run: python3 mobile/tests/analytics_installed.py
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: analytics-disabled-${{ matrix.platform }}-${{ github.sha }}
+          path: mobile/.generated/artifacts/analytics-installed-smoke.json
+          if-no-files-found: error
+          retention-days: 1
   compile:
     if: >-
       github.repository == 'LowGok/my-chef' &&

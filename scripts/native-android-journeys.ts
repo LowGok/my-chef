@@ -31,7 +31,8 @@ if (
   (group !== "core" &&
     group !== "media" &&
     group !== "pages" &&
-    group !== "account") ||
+    group !== "account" &&
+    group !== "analytics-disabled") ||
   !state ||
   !/^\/.*mychef-installed-[A-Za-z0-9_-]+$/.test(state)
 )
@@ -1074,6 +1075,32 @@ async function accountJourneys() {
   });
 }
 
+async function disabledAnalyticsJourney() {
+  await check(
+    "disabled analytics signup control in installed Android",
+    async () => {
+      await button("Create an account").click();
+      const box = page.getByRole("checkbox", {
+        name: "Help improve MyChef",
+        exact: true,
+      });
+      await expect(box).toBeDisabled();
+      await expect(box).not.toBeChecked();
+      await expect(
+        page.getByText(
+          "Analytics is Off while unavailable. You can create your account normally.",
+          { exact: true },
+        ),
+      ).toBeVisible();
+      expect(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth <= innerWidth + 1,
+        ),
+      ).toBe(true);
+    },
+  );
+}
+
 try {
   await connect();
   await {
@@ -1081,6 +1108,7 @@ try {
     media: mediaJourneys,
     pages: pageImportJourney,
     account: accountJourneys,
+    "analytics-disabled": disabledAnalyticsJourney,
   }[group]();
   await writeFile(
     join(state, `native-android-journeys-${group}.json`),

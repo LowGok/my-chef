@@ -268,6 +268,7 @@ class NativeFixtureProxyTest(unittest.TestCase):
                 'Content-Type': 'application/json',
                 'Accept': 'application/json',
                 'Idempotency-Key': 'synthetic-native-operation',
+                'X-MyChef-Analytics-Revision': '7',
                 'If-Match': 'synthetic-version',
                 'If-None-Match': 'synthetic-previous-version',
             }
@@ -319,6 +320,21 @@ class NativeFixtureProxyTest(unittest.TestCase):
             self.assertEqual(json.loads(upstream[-2][2])['items'][0]['name'], 'Native remote salt')
             self.assertEqual(upstream[-1][2], b'{}')
             self.assertEqual(sent, [409])
+
+            # A loading/disabled checkbox alone is not a server result. Only
+            # the real unavailable notice can corroborate the OS UI probe.
+            handler.path = '/api/native/v1/analytics/notice'
+            handler.command = 'GET'
+            handler.rfile = io.BytesIO()
+            handler.wfile = io.BytesIO()
+            replies.append(Response(200, b'{"available":false,"defaultEnabled":false}'))
+            handler.forward()
+            self.assertEqual(namespace['events'][-1], ('GET', 'analytics-notice-disabled', 200))
+            handler.rfile = io.BytesIO()
+            handler.wfile = io.BytesIO()
+            replies.append(Response(200, b'{"available":true,"defaultEnabled":true}'))
+            handler.forward()
+            self.assertEqual(namespace['events'][-1], ('GET', 'feature', 200))
 
 
 class NativeSystemPickerTest(unittest.TestCase):

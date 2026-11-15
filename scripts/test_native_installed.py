@@ -169,7 +169,7 @@ def fixture(state, stack, journeys=False):
                 return
             request_body = self.rfile.read(size)
             with closing(http.client.HTTPConnection("127.0.0.1", 18137, timeout=8)) as client:
-                headers = {k: self.headers[k] for k in ("Authorization", "Content-Type", "Cookie", "Accept", "Idempotency-Key", "If-Match", "If-None-Match") if k in self.headers}
+                headers = {k: self.headers[k] for k in ("Authorization", "Content-Type", "Cookie", "Accept", "Idempotency-Key", "X-MyChef-Analytics-Revision", "If-Match", "If-None-Match") if k in self.headers}
                 if journeys and self.command == "PUT" and re.fullmatch(r"/api/native/v1/shopping/\d{4}-\d{2}-\d{2}", self.path):
                     try:
                         (state / "native-shopping-conflict").unlink()
@@ -211,6 +211,10 @@ def fixture(state, stack, journeys=False):
                 # Fixed route groups only: no IDs, query values or response bodies.
                 route = self.path.split("?", 1)[0].removeprefix("/api/native/v1/")
                 event_kind = route if route in ("session", "refresh", "login", "profile", "menus", "generations", "personal-recipes", "feedback") else "feature"
+                if route == "analytics/notice" and response.status == 200:
+                    notice = json.loads(body)
+                    if notice.get("available") is False and notice.get("defaultEnabled") is False:
+                        event_kind = "analytics-notice-disabled"
                 if re.fullmatch(r"favorite-weeks/\d{4}-\d{2}-\d{2}", route):
                     event_kind = "favorite-week"
                 events.append((self.command, event_kind, response.status))
