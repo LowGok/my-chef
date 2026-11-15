@@ -2,7 +2,7 @@
 status: in-progress
 status_description: "Claim published through owner-approved PR 34 after required CI; PR 33 is merged/released. Fresh spec review R-4 passed; Runtime, purpose-scoped dispatch and recovery rehearsal are implemented locally. Independent review and exact delivery/operational receipts remain pending."
 branch: feat/newsletter-production-runtime
-issue: null
+issue: https://github.com/LowGok/my-chef/issues/35
 goal: "A durable newsletter-only runtime can safely receive the public website's authenticated capture and proof requests without exposing app routes or recipe credentials."
 covers:
   - cmd/mychef/
