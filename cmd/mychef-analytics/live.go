@@ -22,7 +22,7 @@ func liveCommand(ctx context.Context, args []string, out, errOut io.Writer) erro
 		return errors.New("live operation required")
 	}
 	op := args[0]
-	if !slices.Contains([]string{"init", "validate", "maintenance", "refresh", "report", "backup", "restore", "backup-app", "restore-app"}, op) {
+	if !slices.Contains([]string{"preflight", "init", "validate", "maintenance", "refresh", "report", "backup", "restore", "backup-app", "restore-app"}, op) {
 		return analytics.ErrInput
 	}
 	flags := flag.NewFlagSet("live "+op, flag.ContinueOnError)
@@ -35,11 +35,18 @@ func liveCommand(ctx context.Context, args []string, out, errOut io.Writer) erro
 	monthly := flags.Bool("monthly", false, "thirteen-month aggregate output")
 	start := flags.Int64("start", 0, "UTC start second")
 	end := flags.Int64("end", 0, "UTC exclusive end second")
+	evidence := flags.String("evidence", "", "private activation evidence manifest")
+	binary := flags.String("binary", "", "exact proposed application binary")
+	source := flags.String("source", "", "exact proposed application source commit")
+	environment := flags.String("environment", "", "explicit activation environment")
 	if e := flags.Parse(args[1:]); e != nil {
 		return e
 	}
 	if flags.NArg() != 0 || *config == "" || *appPath == "" {
 		return analytics.ErrInput
+	}
+	if op == "preflight" {
+		return runLivePreflight(ctx, *appPath, *config, *evidence, *binary, *source, *environment, out)
 	}
 	opts, e := analytics.LoadRuntime(*config)
 	if e != nil {

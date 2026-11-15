@@ -639,6 +639,82 @@ including first-party cookies. The server-side capture design therefore needs
 its actual client/device operations assessed separately; it supplies no blanket
 exemption. See the [Belgian DPA audience-cookie guidance](https://www.autoriteprotectiondonnees.be/citoyen/faq/si-vous-souhaitez-installer-etou-lire-des-cookies-de-mesure-daudience-encore-connus-comme-cookies-statistiques-ou-analytiques-devez-vous-obtenir-le-consentement-de-lutilisateur-de-votre-site-internet-ou-de-votre-application).
 
+### Read-only activation preflight
+
+Use `live preflight` to check the proposed build and private evidence before an
+activation decision is carried out:
+
+```sh
+mychef-analytics live preflight \
+  --app /private/app.sqlite \
+  --config /private/proposed-analytics.json \
+  --evidence /private/activation-evidence.json \
+  --binary /private/candidate/mychef \
+  --source FULL_SOURCE_COMMIT \
+  --environment arch-1-mychef
+```
+
+This command runs before the service-opening path. It does not initialize,
+maintain, migrate, checkpoint, start a worker, change Enabled, write a notice or
+send a network request. `live validate` still performs maintenance and must not
+be used as its read-only substitute. Keep the proposed file separate from the
+running service configuration until activation is authorized.
+
+The generated manifest has three fields: `schemaVersion: 1`, `identity`, and
+`evidence`. Its identity contains these exact names:
+
+| Field | Meaning |
+| --- | --- |
+| `sourceCommit`, `environment`, `appBinding` | Exact source SHA, explicit environment and private app installation binding. |
+| `binarySha256`, `configSha256` | SHA-256 of the proposed application binary and runtime file bytes. |
+| `apiSha256`, `androidArtifactSha256`, `iosArtifactSha256` | API contract and installed native artifact digests established by the candidate's verification. |
+| `noticeVersion`, `noticeSha256`, `scopeSha256`, `assessmentVersion` | The versions and digests shared by the assessed configuration and its evidence. |
+
+The `evidence` object must contain all eleven references: `controller`,
+`privacy`, `providers`, `deviceAccess`, `nativeAndroid`, `nativeIOS`, `ci`,
+`storage`, `recovery`, `implementationReview`, and `activation`. Each reference
+contains a private absolute `path` and its file's `sha256`. Files must be regular,
+private and accessible without symlink components. Records and their supporting
+documents stay outside public Git history and CI artifacts.
+
+Each referenced record has `schemaVersion: 1`, its `kind`, `status`,
+`bindingSha256`, `verifiedUnix`, `expiresUnix`, and a `document` reference with
+`path` and `sha256`. The document is the actual conclusion, inventory, review,
+receipt or rehearsal supporting the record. The binding digest is the SHA-256
+of the identity encoded as compact JSON with keys sorted. Times are UTC Unix
+seconds. Future, expired or inconsistent dates refuse readiness; record expiry
+cannot exceed the assessment expiry.
+
+The controller and activation records require status `approved`; the other
+records require `passed`. Privacy also requires an empty `unresolved` array.
+Each native record requires `fullJourneys: true` and
+`spokenAccessibility: true`, backed by observed results for the same candidate.
+Incomplete installed probes cannot supply these outcomes. Other record kinds
+cannot claim native outcomes. Unknown fields, duplicate keys, missing
+records and changed file hashes refuse readiness.
+
+Use a quiescent source during this check. It reads committed WAL data through
+read-only file handles and a private in-memory WAL index. It never creates or
+updates SHM files. File identities, modes, timestamps and digests are checked
+again before returning; input changes refuse readiness. The app schema, app and
+analytics bindings, privacy anchor, registered inventory and overdue recovery
+copies must also pass their read-only checks. No failed check repairs storage.
+The private WAL reader follows SQLite's
+[WAL-without-shared-memory mechanism](https://sqlite.org/wal.html#noshm).
+
+Inputs are bounded: 64 KiB per evidence record/runtime file, 1 MiB per manifest,
+16 MiB per supporting document, 256 MiB per binary and 512 MiB per SQLite file
+or sidecar. Oversized files refuse readiness. SQLite file and document hashing
+streams bytes without retaining their contents as evidence.
+
+Standard output contains only `status` (`ready` or `blocked`), coarse `codes`
+and evidence `digests`. A blocked result exits nonzero. Paths, binding values,
+account rows, subject identifiers, supporting prose and key material are absent.
+Ready validates recorded evidence at that time. The controller supplies the
+legal conclusion and the separate activation authorization; the command never
+turns collection on. Actual controller, native and deployment evidence remains
+pending for this release.
+
 ### Remaining simulator and emulator verification
 
 The integration remains in progress. Local checks passed the Go suites,

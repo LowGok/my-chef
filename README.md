@@ -46,6 +46,8 @@ extracts. Live collection stays disabled pending the recorded lawful-basis
 assessment and separate activation approval. The guide records the remaining
 iOS simulator and Android emulator verification. Provider ingestion remains
 outside this integration.
+The guide also documents `live preflight`, which checks a candidate and its
+private activation evidence without changing storage or enabling collection.
 The [catalogue ERD reconciliation](docs/reference/implemented-catalogue-erd.md)
 documents the separately maintained recipe pipeline and its application links.
 
