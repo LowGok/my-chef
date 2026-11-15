@@ -1,6 +1,6 @@
 ---
 status: in-progress
-status_description: "Proposed claim through the documentation PR; implementation starts only after its approved default-branch merge and merged PR 33."
+status_description: "Claim published through owner-approved PR 34 after required CI; PR 33 is merged/released. Fresh spec review R-4 passed; seven implementation tasks remain."
 branch: feat/newsletter-production-runtime
 issue: null
 goal: "A durable newsletter-only runtime can safely receive the public website's authenticated capture and proof requests without exposing app routes or recipe credentials."
@@ -40,7 +40,7 @@ Local verification and production operation remain distinct. Acceptance authoriz
 
 ### Background and dependency
 
-Automatic approval review rejected direct default-branch publication. The proposed claim and accepted task plan are therefore delivered through a docs-only PR with normal CI. The claim takes effect only after the owner-approved PR merge; no feature branch or backend code is created before that publication. This is a requested workflow exception, not a claim that direct push succeeded.
+Automatic approval review rejected direct default-branch publication. The proposed claim and accepted task plan are therefore delivered through a docs-only PR with normal CI. The owner approved this exact fallback, and PR 34 merged as d2df37b after required CI passed on the normal failed-job retry. The published claim now owns feat/newsletter-production-runtime in the managed worktree. No backend code was created before publication. This is a requested workflow exception, not a claim that direct push succeeded.
 
 After acceptance, default main advanced to weekly-reminders merge
 `7ff466952834a0d295e0d483456fa312e2b97d1b`. It adds schema
@@ -144,6 +144,7 @@ None for the technical scope. Controller, contact, retention-review criteria and
 | 2026-11-15 | R-2 | spec | `8e5cdee68f34719d89dc4d905beb2bb0870b159f` | unknown | procedural | No findings after complete pinned-source review. Model identity not attested; owner acceptance pending. |
 | 2026-11-15 | R-2 | spec | `8e5cdee68f34719d89dc4d905beb2bb0870b159f` | n/a | n/a | accepted by owner |
 | 2026-11-15 | R-3 | spec | `946c91c5cd424f35ac8d0d660d5266d064050a20` | unknown | procedural | No findings after current-main/schema-26 freshness review. Accepted normative baseline unchanged; model identity not attested. |
+| 2026-11-15 | R-4 | spec | `d2df37b9e1c1ee59c55a11bf93a671055d00ef83` | unknown | procedural | No findings after merged dependency and published claim; accepted normative baseline unchanged. Model identity not attested. |
 
 ### R-1
 
@@ -159,6 +160,10 @@ PROPOSAL: Make both pages available at the exact pinned revision and rerun the i
 NO FINDINGS
 
 ### R-3
+
+NO FINDINGS
+
+### R-4
 
 NO FINDINGS
 
