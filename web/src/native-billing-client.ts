@@ -68,7 +68,9 @@ export function setNativeBillingStore(
     },
     async restore() {
       const result = await bridge.billingRestore();
-      return Array.isArray(result.receipts) ? result.receipts : [];
+      if (!Array.isArray(result?.receipts))
+        throw new Error("The store could not restore purchases.");
+      return result.receipts;
     },
     finish(id) {
       return bridge.billingFinish({ id });
