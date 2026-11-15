@@ -1,6 +1,7 @@
 ---
-status: planned
-status_description: "Owner accepted reviewed spec R-2; tasks are next. PR 33 must merge before the implementation claim."
+status: in-progress
+status_description: "Proposed claim through the documentation PR; implementation starts only after its approved default-branch merge and merged PR 33."
+branch: feat/newsletter-production-runtime
 issue: null
 goal: "A durable newsletter-only runtime can safely receive the public website's authenticated capture and proof requests without exposing app routes or recipe credentials."
 covers:
@@ -38,6 +39,8 @@ The owner authorized newsletter launch and selected no automatic age deletion fo
 Local verification and production operation remain distinct. Acceptance authorizes task-by-task code and synthetic checks. The existing launch authority applies only after this feature and the website feature pass their own independent reviews, delivery and exact-pair checks. A real mail test needs an approved recipient. No runtime has been changed or deployed by this draft.
 
 ### Background and dependency
+
+Automatic approval review rejected direct default-branch publication. The proposed claim and accepted task plan are therefore delivered through a docs-only PR with normal CI. The claim takes effect only after the owner-approved PR merge; no feature branch or backend code is created before that publication. This is a requested workflow exception, not a claim that direct push succeeded.
 
 After acceptance, default main advanced to weekly-reminders merge
 `7ff466952834a0d295e0d483456fa312e2b97d1b`. It adds schema
