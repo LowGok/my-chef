@@ -9,33 +9,21 @@ import (
 	"time"
 
 	"github.com/LowGok/my-chef/internal/config"
-	"github.com/LowGok/my-chef/internal/email/mailqueue"
 	"github.com/LowGok/my-chef/internal/store"
 )
 
 func TestNewsletterDispatchWaitsForJournalReconciliation(t *testing.T) {
 	for _, phase := range []string{"prepared", "marker-commit", "failed-cancellation"} {
 		t.Run(phase, func(t *testing.T) {
-			db, req, now, keys := protectedFixture(t)
+			locale := map[string]string{"prepared": "en", "marker-commit": "fr-BE", "failed-cancellation": "nl-BE"}[phase]
+			db, initial, now, keys := newsletterFixture(t, locale, phase != "prepared")
+			id := initial.ID
 			j, err := db.InitializeLifecycleJournal(t.Context(), db.Path+".lifecycle")
 			if err != nil {
 				t.Fatal(err)
 			}
 			defer func() { _ = j.Close() }()
-			req.Key = "newsletter/uncertain-worker"
-			req.Template = mailqueue.NewsletterENTemplate
-			req.Fields = map[string]string{"confirm": "https://mychef.dev/newsletter/confirm/#N1ngJYuGtWdZT7czVq0pcc7bcLSeTog-L9VQq9YR73Q", "unsubscribe": "https://mychef.dev/newsletter/unsubscribe/#N1ngJYuGtWdZT7czVq0pcc7bcLSeTog-L9VQq9YR73Q"}
-			if phase != "prepared" {
-				req.Template = mailqueue.NewsletterWithdrawalFRTemplate
-				if phase == "failed-cancellation" {
-					req.Template = mailqueue.NewsletterWithdrawalNLTemplate
-				}
-				delete(req.Fields, "confirm")
-			}
-			id, err := mailqueue.EnqueueProtected(t.Context(), db, nil, now, now.Add(time.Hour), keys, req)
-			if err != nil {
-				t.Fatal(err)
-			}
+
 			operation, incarnation := strings.Repeat("a", 32), strings.Repeat("b", 32)
 			if err := j.PrepareDeletion(t.Context(), operation, incarnation); err != nil {
 				t.Fatal(err)

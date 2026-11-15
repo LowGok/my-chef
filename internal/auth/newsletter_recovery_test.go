@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/LowGok/my-chef/internal/config"
 	"github.com/LowGok/my-chef/internal/email/mailqueue"
 	"github.com/LowGok/my-chef/internal/newsletter"
 	"github.com/LowGok/my-chef/internal/store"
@@ -225,7 +226,7 @@ func TestNewsletterPromotionInvalidatesContactAuthorityAndExpiry(t *testing.T) {
 		t.Fatal("obsolete contact erasure authority accepted", err)
 	}
 	*now = now.Add(48 * time.Hour)
-	if err := n.Sweep(t.Context(), j, 1, 1, store.AccountDeletionOptions{}); err != nil {
+	if err := n.Sweep(t.Context(), j, config.NewsletterRetention{Days: 1}, config.NewsletterRetention{Days: 1}, store.AccountDeletionOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	var count int
@@ -308,7 +309,10 @@ func TestNewsletterExpiryAndSignupPromotionSerialize(t *testing.T) {
 	var wg sync.WaitGroup
 	results := make(chan error, 2)
 	wg.Go(func() { <-start; results <- signup.Complete(t.Context(), anonymous, contactCompletion(proof)) })
-	wg.Go(func() { <-start; results <- n.Sweep(t.Context(), j, 1, 1, store.AccountDeletionOptions{}) })
+	wg.Go(func() {
+		<-start
+		results <- n.Sweep(t.Context(), j, config.NewsletterRetention{Days: 1}, config.NewsletterRetention{Days: 1}, store.AccountDeletionOptions{})
+	})
 	close(start)
 	wg.Wait()
 	close(results)

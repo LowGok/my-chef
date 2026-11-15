@@ -10,10 +10,11 @@ import (
 )
 
 type Email struct {
-	Disabled                   bool
-	Fake                       bool
-	APIKey, From, ReplyTo      string
-	WebhookKey, FingerprintKey []byte
+	Disabled                          bool
+	Fake                              bool
+	APIKey, From, ReplyTo             string
+	NewsletterFrom, NewsletterReplyTo string
+	WebhookKey, FingerprintKey        []byte
 }
 
 func LoadEmail() (Email, error) {
@@ -26,17 +27,33 @@ func LoadEmail() (Email, error) {
 		mode = "fake"
 	}
 	if mode == "fake" && dev {
-		return Email{Fake: true, From: "mychef@example.test"}, nil
+		cfg := Email{Fake: true, From: "mychef@example.test"}
+		if path := os.Getenv("MYCHEF_CREDENTIALS"); path != "" {
+			var profile struct {
+				From    string `json:"newsletter_email_from"`
+				ReplyTo string `json:"newsletter_email_reply_to"`
+			}
+			data, err := os.ReadFile(path)
+			if err != nil || json.Unmarshal(data, &profile) != nil {
+				return Email{}, errors.New("email credential file unavailable or invalid")
+			}
+			if err := setNewsletterSender(&cfg, profile.From, profile.ReplyTo); err != nil {
+				return Email{}, err
+			}
+		}
+		return cfg, nil
 	}
 	if mode != "resend" {
 		return Email{}, errors.New("set MYCHEF_EMAIL_MODE=resend, disabled or use explicit development mode")
 	}
 	var secrets struct {
-		APIKey      string `json:"resend_api_key"`
-		From        string `json:"email_from"`
-		ReplyTo     string `json:"email_reply_to"`
-		Webhook     string `json:"resend_webhook_secret"`
-		Fingerprint string `json:"email_fingerprint_key"`
+		APIKey            string `json:"resend_api_key"`
+		From              string `json:"email_from"`
+		ReplyTo           string `json:"email_reply_to"`
+		Webhook           string `json:"resend_webhook_secret"`
+		Fingerprint       string `json:"email_fingerprint_key"`
+		NewsletterFrom    string `json:"newsletter_email_from"`
+		NewsletterReplyTo string `json:"newsletter_email_reply_to"`
 	}
 	data, err := os.ReadFile(os.Getenv("MYCHEF_CREDENTIALS"))
 	if err != nil || json.Unmarshal(data, &secrets) != nil {
@@ -62,7 +79,32 @@ func LoadEmail() (Email, error) {
 			return Email{}, errors.New("email reply-to must not be a no-reply address")
 		}
 	}
-	return Email{APIKey: secrets.APIKey, From: secrets.From, ReplyTo: secrets.ReplyTo, WebhookKey: webhookKey, FingerprintKey: fp}, nil
+	cfg := Email{APIKey: secrets.APIKey, From: secrets.From, ReplyTo: secrets.ReplyTo, WebhookKey: webhookKey, FingerprintKey: fp}
+	if err := setNewsletterSender(&cfg, secrets.NewsletterFrom, secrets.NewsletterReplyTo); err != nil {
+		return Email{}, err
+	}
+	return cfg, nil
+}
+
+func setNewsletterSender(cfg *Email, from, reply string) error {
+	if from == "" {
+		if reply != "" {
+			return errors.New("newsletter reply-to requires its sender")
+		}
+		return nil
+	}
+	address, err := mail.ParseAddress(from)
+	if err != nil || noReplyAddress(address) {
+		return errors.New("invalid newsletter email sender")
+	}
+	if reply != "" {
+		address, err := mail.ParseAddress(reply)
+		if err != nil || noReplyAddress(address) {
+			return errors.New("invalid newsletter email reply-to")
+		}
+	}
+	cfg.NewsletterFrom, cfg.NewsletterReplyTo = from, reply
+	return nil
 }
 
 func noReplyAddress(address *mail.Address) bool {

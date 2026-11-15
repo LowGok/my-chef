@@ -9,39 +9,51 @@ import (
 )
 
 func TestNewsletterPromotionKeepsAnalyticsChoiceSeparate(t *testing.T) {
-	for _, enabled := range []bool{false, true} {
-		t.Run(map[bool]string{false: "off", true: "on"}[enabled], func(t *testing.T) {
-			s, now := signUpFixture(t)
-			_, contact, _, _ := contactFixture(t, s, "reader@example.test", "confirmed")
-			before := readContactConsent(t, s.Store, contact.ID)
-			signupAnalytics(t, s, now)
-			details := SignUpDetails{FirstName: "Newsletter", LastName: "Reader", Username: "reader", AnalyticsEnabled: &enabled, AnalyticsNoticeVersion: "core-v1"}
-			if _, err := s.Request(t.Context(), "192.0.2.43", SignUpRequest{SignUpDetails: details, Email: contact.Email}); err != nil {
-				t.Fatal(err)
-			}
-			if worked, err := s.Step(t.Context()); !worked || err != nil {
-				t.Fatal("signup work", worked, err)
-			}
-			proof := signUpLink(t, s, *now)
-			anonymous, err := New(s.Store).Rotate(t.Context(), nil, "")
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := s.Complete(t.Context(), anonymous, SignUpCompletion{SignUpDetails: details, Proof: proof, Password: "FixtureSafePassword2026!"}); err != nil {
-				t.Fatal(err)
-			}
-			var user store.User
-			if err := s.Store.DB.First(&user, contact.ID).Error; err != nil || user.IsNewsletterOnly {
-				t.Fatal("original contact was not promoted", err)
-			}
-			if after := readContactConsent(t, s.Store, contact.ID); !reflect.DeepEqual(before, after) {
-				t.Fatal("analytics enrollment changed newsletter consent")
-			}
-			var actual bool
-			if err := s.Store.SQL.QueryRow(`SELECT p.enabled FROM analytics_preferences p JOIN account_incarnations a ON a.incarnation=p.incarnation WHERE a.user_id=?`, contact.ID).Scan(&actual); err != nil || actual != enabled {
-				t.Fatal("signup lost its independent analytics choice", err)
-			}
-		})
+	for _, state := range []string{"pending", "confirmed", "unsubscribed"} {
+		for _, enabled := range []bool{false, true} {
+			t.Run(state+"/"+map[bool]string{false: "off", true: "on"}[enabled], func(t *testing.T) {
+				s, now := signUpFixture(t)
+				n, contact, _, withdrawal := contactFixture(t, s, "reader@example.test", state)
+				before := readContactConsent(t, s.Store, contact.ID)
+				signupAnalytics(t, s, now)
+				details := SignUpDetails{FirstName: "Newsletter", LastName: "Reader", Username: "reader", AnalyticsEnabled: &enabled, AnalyticsNoticeVersion: "core-v1"}
+				if _, err := s.Request(t.Context(), "192.0.2.43", SignUpRequest{SignUpDetails: details, Email: contact.Email}); err != nil {
+					t.Fatal(err)
+				}
+				if worked, err := s.Step(t.Context()); !worked || err != nil {
+					t.Fatal("signup work", worked, err)
+				}
+				proof := signUpLink(t, s, *now)
+				anonymous, err := New(s.Store).Rotate(t.Context(), nil, "")
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := s.Complete(t.Context(), anonymous, SignUpCompletion{SignUpDetails: details, Proof: proof, Password: "FixtureSafePassword2026!"}); err != nil {
+					t.Fatal(err)
+				}
+				var user store.User
+				if err := s.Store.DB.First(&user, contact.ID).Error; err != nil || user.IsNewsletterOnly {
+					t.Fatal("original contact was not promoted", err)
+				}
+				if after := readContactConsent(t, s.Store, contact.ID); !reflect.DeepEqual(before, after) {
+					t.Fatal("analytics enrollment changed newsletter consent")
+				}
+				var actual bool
+				if err := s.Store.SQL.QueryRow(`SELECT p.enabled FROM analytics_preferences p JOIN account_incarnations a ON a.incarnation=p.incarnation WHERE a.user_id=?`, contact.ID).Scan(&actual); err != nil || actual != enabled {
+					t.Fatal("signup lost its independent analytics choice", err)
+				}
+				if err := n.Unsubscribe(t.Context(), withdrawal); err != nil {
+					t.Fatal(err)
+				}
+				if err := s.Store.SQL.QueryRow(`SELECT p.enabled FROM analytics_preferences p JOIN account_incarnations a ON a.incarnation=p.incarnation WHERE a.user_id=?`, contact.ID).Scan(&actual); err != nil || actual != enabled {
+					t.Fatal("newsletter withdrawal changed analytics consent", err)
+				}
+				if readContactConsent(t, s.Store, contact.ID).Status != "unsubscribed" {
+					t.Fatal("withdrawal did not preserve opt-out state")
+				}
+
+			})
+		}
 	}
 }
 

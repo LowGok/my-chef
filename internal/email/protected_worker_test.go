@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -18,6 +19,7 @@ import (
 	"github.com/LowGok/my-chef/internal/auth"
 	"github.com/LowGok/my-chef/internal/email/mailqueue"
 	httpapi "github.com/LowGok/my-chef/internal/http"
+	"github.com/LowGok/my-chef/internal/newsletter"
 	"github.com/LowGok/my-chef/internal/store"
 	"gorm.io/gorm"
 )
@@ -25,6 +27,95 @@ import (
 type proofSender struct {
 	bodies [][]byte
 	result deliveryResult
+}
+
+func TestNewsletterWithdrawalWaitsForInFlightDispatch(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	s, _, now, keys := protectedFixture(t)
+	n := &newsletter.Service{Store: s, Keys: keys, RateKey: bytes.Repeat([]byte{8}, 32), Origin: "https://mychef.dev", ConsentVersion: "newsletter-v1", Now: func() time.Time { return now }}
+	if _, err := n.Request(ctx, "192.0.2.8", newsletter.Input{Email: "withdraw-race@example.test", Locale: "en", ConsentVersion: "newsletter-v1"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := n.Step(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var row mailqueue.Record
+	if err := s.DB.Where("key LIKE 'newsletter/%'").Take(&row).Error; err != nil {
+		t.Fatal(err)
+	}
+	fields, _, err := mailqueue.OpenProtected(keys, row, now, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	withdrawal, err := url.Parse(fields["unsubscribe"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider := &stalledProofSender{started: make(chan struct{}), release: make(chan struct{})}
+	var once sync.Once
+	unblock := func() { once.Do(func() { close(provider.release) }) }
+	defer unblock()
+	w := &Worker{Queue: Queue{Store: s, Now: func() time.Time { return now }, ProofKeys: keys}, sender: provider, From: "MyChef <app@example.test>", FingerprintKey: bytes.Repeat([]byte{3}, 32)}
+	sent := make(chan error, 1)
+	go func() { _, err := w.Step(ctx); sent <- err }()
+	select {
+	case <-provider.started:
+	case <-ctx.Done():
+		t.Fatal("fake provider never started")
+	}
+	withdrawn := make(chan error, 1)
+	go func() { withdrawn <- n.Unsubscribe(ctx, withdrawal.Fragment) }()
+	select {
+	case err := <-withdrawn:
+		t.Fatalf("withdrawal completed while provider was still in flight: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+	unblock()
+	for _, done := range []chan error{sent, withdrawn} {
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatal(err)
+			}
+		case <-ctx.Done():
+			t.Fatal("send/withdrawal did not settle")
+		}
+	}
+	var status string
+	if err := s.SQL.QueryRow("SELECT status FROM newsletter_subscriptions").Scan(&status); err != nil || status != "unsubscribed" {
+		t.Fatal("withdrawal was not committed", err)
+	}
+	if worked, err := w.Step(ctx); err != nil || worked {
+		t.Fatal("obsolete newsletter work remained deliverable", worked, err)
+	}
+}
+
+func TestNewsletterDispatchRechecksCurrentConsentRevision(t *testing.T) {
+	s, _, now, keys := protectedFixture(t)
+	n := &newsletter.Service{Store: s, Keys: keys, RateKey: bytes.Repeat([]byte{8}, 32), Origin: "https://mychef.dev", ConsentVersion: "newsletter-v1", Now: func() time.Time { return now }}
+	if _, err := n.Request(t.Context(), "192.0.2.9", newsletter.Input{Email: "stale-newsletter@example.test", Locale: "en", ConsentVersion: "newsletter-v1"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := n.Step(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	// Simulate a stale queued envelope after a newer consent revision.
+	if err := s.DB.Exec("UPDATE newsletter_subscriptions SET status='unsubscribed',revision=revision+1").Error; err != nil {
+		t.Fatal(err)
+	}
+	p := &proofSender{result: deliveryResult{id: "must-not-send"}}
+	w := &Worker{Queue: Queue{Store: s, Now: func() time.Time { return now }, ProofKeys: keys}, sender: p, From: "app@example.test", FingerprintKey: bytes.Repeat([]byte{3}, 32)}
+	if worked, err := w.Step(t.Context()); err != nil || !worked {
+		t.Fatal("stale envelope was not settled", worked, err)
+	}
+	if len(p.bodies) != 0 {
+		t.Fatal("stale consent revision reached the provider")
+	}
+	var row outbox
+	if err := s.DB.Where("key LIKE 'newsletter/%'").Take(&row).Error; err != nil || row.State != "failed" || row.Attempts != 0 {
+		t.Fatal("stale envelope remained eligible", err)
+	}
 }
 
 func (*proofSender) bindingID() string { return "protected-test" }
