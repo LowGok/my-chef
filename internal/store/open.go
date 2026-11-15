@@ -54,7 +54,7 @@ func open(path string, create, readOnly bool) (*Store, error) {
 		}
 	}
 	u := url.URL{Scheme: "file", Path: absolute}
-	q := url.Values{"_pragma": {"busy_timeout(5000)", "foreign_keys(1)", "journal_mode(WAL)", "synchronous(FULL)"}, "_txlock": {"immediate"}}
+	q := url.Values{"_pragma": {"busy_timeout(5000)", "foreign_keys(1)", "journal_mode(WAL)", "synchronous(FULL)", "secure_delete(ON)"}, "_txlock": {"immediate"}}
 	if !create {
 		q.Set("mode", "rw")
 	}
@@ -76,6 +76,13 @@ func open(path string, create, readOnly bool) (*Store, error) {
 	if err = pool.QueryRow("PRAGMA foreign_keys").Scan(&fk); err != nil || fk != 1 {
 		_ = pool.Close()
 		return nil, fmt.Errorf("database foreign keys unavailable")
+	}
+	if !readOnly {
+		var secure int
+		if err := pool.QueryRow("PRAGMA secure_delete").Scan(&secure); err != nil || secure != 1 {
+			_ = pool.Close()
+			return nil, fmt.Errorf("database secure deletion unavailable")
+		}
 	}
 	s := &Store{DB: db, SQL: pool, Path: absolute}
 	if err := db.Callback().Create().Before("gorm:before_create").Register("mychef:newsletter-identity-key", func(tx *gorm.DB) {
