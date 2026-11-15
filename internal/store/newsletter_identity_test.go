@@ -246,3 +246,20 @@ func TestNewsletterIdentityGenericAccountBehaviorIsPreserved(t *testing.T) {
 		t.Fatal("ordinary duplicate handling changed", err)
 	}
 }
+
+func TestNewsletterIdentityFreshSessionsRetainGuardWithoutQueryState(t *testing.T) {
+	s, key := newsletterIdentityReadyFixture(t)
+	newsletterReducedFixture(t, s, key, "alice@example.test")
+	var sessions int64
+	if err := s.DB.Model(&Session{}).Where("hash=?", "absent").Count(&sessions).Error; err != nil || sessions != 0 {
+		t.Fatal("unrelated model query failed", err)
+	}
+	fresh := User{Email: "fresh@example.test", Username: "fresh", Password: "hash"}
+	if err := s.DB.Session(&gorm.Session{NewDB: true}).WithContext(t.Context()).Create(&fresh).Error; err != nil {
+		t.Fatal("fresh ORM session lost the configured namespace", err)
+	}
+	duplicate := User{Email: "ALICE@example.test", Username: "duplicate", Password: "hash"}
+	if err := s.DB.Session(&gorm.Session{NewDB: true}).WithContext(t.Context()).Create(&duplicate).Error; !errors.Is(err, sqlite3.CONSTRAINT_UNIQUE) {
+		t.Fatal("fresh ORM session bypassed the protected collision guard", err)
+	}
+}

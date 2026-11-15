@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 
 	"github.com/LowGok/my-chef/internal/analytics"
 	"github.com/ncruces/go-sqlite3/gormlite"
@@ -15,11 +16,12 @@ import (
 )
 
 type Store struct {
-	Analytics   *analytics.Service
-	AccountWork sync.RWMutex
-	DB          *gorm.DB
-	SQL         *sql.DB
-	Path        string
+	Analytics          *analytics.Service
+	AccountWork        sync.RWMutex
+	newsletterIdentity atomic.Pointer[NewsletterIdentityKey]
+	DB                 *gorm.DB
+	SQL                *sql.DB
+	Path               string
 }
 
 func Open(path string, create bool) (*Store, error) {
@@ -74,7 +76,16 @@ func open(path string, create, readOnly bool) (*Store, error) {
 		_ = pool.Close()
 		return nil, fmt.Errorf("database foreign keys unavailable")
 	}
-	return &Store{DB: db, SQL: pool, Path: absolute}, nil
+	s := &Store{DB: db, SQL: pool, Path: absolute}
+	if err := db.Callback().Create().Before("gorm:before_create").Register("mychef:newsletter-identity-key", func(tx *gorm.DB) {
+		if tx.Statement.Table == "users" {
+			tx.Statement.Settings.Store(newsletterIdentitySetting, &s.newsletterIdentity)
+		}
+	}); err != nil {
+		_ = pool.Close()
+		return nil, err
+	}
+	return s, nil
 }
 
 func (s *Store) Close() error { return s.SQL.Close() }

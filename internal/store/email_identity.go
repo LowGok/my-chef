@@ -28,13 +28,13 @@ func EmailIdentity(address string) (display, key string, err error) {
 }
 
 // BeforeCreate also covers callers that write users through the shared store.
-func (u *User) BeforeCreate(_ *gorm.DB) error {
+func (u *User) BeforeCreate(tx *gorm.DB) error {
 	display, key, err := EmailIdentity(u.Email)
 	if err != nil {
 		return err
 	}
 	u.Email, u.EmailKey = display, key
-	return nil
+	return guardNewsletterIdentityCreate(tx, display)
 }
 
 func (s *Store) migrateEmailIdentity(ctx context.Context) error {
