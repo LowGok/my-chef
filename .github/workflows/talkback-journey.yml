@@ -64,7 +64,10 @@ jobs:
           tar -xzf "$archive"
           test -x scrcpy-linux-x86_64-v5.0.1/scrcpy
           test -f scrcpy-linux-x86_64-v5.0.1/scrcpy-server
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends ffmpeg cmake g++
           ffmpeg -version | sed -n '1p'
+          ./scrcpy-linux-x86_64-v5.0.1/scrcpy --version | sed -n '1,3p'
       - name: Prepare a checksum-verified offline recognizer
         run: |
           set -euo pipefail
