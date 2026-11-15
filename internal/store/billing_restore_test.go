@@ -139,6 +139,50 @@ func TestRestoredBillingRequiresFreshProofForTheOriginalIncarnation(t *testing.T
 	if err := before.Fulfil(ctx, period); err == nil {
 		t.Fatal("old generation wrote after verification")
 	}
+
+	// Keep a snapshot taken during a paid period, then record the store's
+	// revocation before restoring that older app state.
+	paidBackup := filepath.Join(t.TempDir(), "after-payment-before-revocation.db")
+	if err := r.Backup(ctx, paidBackup); err != nil {
+		t.Fatal(err)
+	}
+	revoked := proof
+	revoked.proof.Period.Revoked = true
+	revoked.proof.Period.ObservedAt = now.Add(time.Minute)
+	if _, err := after.RestoreWithFence(ctx, inc, billing.Apple, billing.Sandbox, offers, period.Transaction, revoked, nil); err != nil {
+		t.Fatal("could not record the original owner's revocation", err)
+	}
+	check(false)
+	revokedDest := filepath.Join(t.TempDir(), "restored-paid-state.db")
+	if err := Restore(ctx, paidBackup, revokedDest, AccountRestoreOptions{JournalPath: j.Path}); err != nil {
+		t.Fatal(err)
+	}
+	oldApp, err := Open(revokedDest, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = oldApp.Close() })
+	revokedPair, err := oldApp.OpenLifecycleJournal(ctx, j.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = revokedPair.Close() })
+	current, err := revokedPair.Billing(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result, err := current.RestoreWithFence(ctx, inc, billing.Apple, billing.Sandbox, offers, period.Transaction, proof, nil); !errors.Is(err, billing.ErrStalePurchase) || result.CompleteStoreTransaction {
+		t.Fatal("accepted old paid proof after the revocation", err)
+	}
+	revoked.proof.Period.ObservedAt = now.Add(2 * time.Minute)
+	if _, err := current.RestoreWithFence(ctx, inc, billing.Apple, billing.Sandbox, offers, period.Transaction, revoked, nil); err != nil {
+		t.Fatal("could not confirm the same revocation in the restored runtime", err)
+	}
+	checkAt := now.Add(2 * time.Minute)
+	restoredReader := NativeBillingEntitlementReader(current, billing.Sandbox, nil, func() time.Time { return checkAt })
+	if v, err := restoredReader(ctx, oldApp.DB, actor.UserID, inc); err != nil || v.Premium {
+		t.Fatal("the paid app snapshot revived a revoked period", err)
+	}
 }
 
 func TestRestoredBillingKeepsPurchaseWhenSnapshotPredatesItsAccount(t *testing.T) {
