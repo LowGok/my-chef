@@ -441,14 +441,14 @@ public final class NativeJourneyProbe extends Instrumentation {
     }
 
     @Override public void onStart() {
-        // Establish this policy before instrumentation can create a default
-        // UiAutomation connection that suppresses the real screen reader.
-        getUiAutomation(UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES);
         File stop = new File(getTargetContext().getCacheDir(), "native-check-finish");
         File command = new File(getTargetContext().getCacheDir(), "native-check-command");
         File done = new File(getTargetContext().getCacheDir(), "native-check-done");
         stop.delete(); command.delete(); done.delete();
         try {
+            // Prime the non-suppressing connection before the first UI action.
+            if (getUiAutomation(UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES) == null)
+                throw new IllegalStateException("automation-connect");
             Intent launch = getTargetContext().getPackageManager().getLaunchIntentForPackage(getTargetContext().getPackageName());
             if (launch == null) throw new IllegalStateException("launch");
             launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
@@ -510,7 +510,9 @@ public final class NativeJourneyProbe extends Instrumentation {
         } catch (Exception error) {
             Bundle failure = new Bundle(); failure.putString("probe", "failed");
             String reason = error.getMessage();
-            failure.putString("probeReason", reason != null && reason.matches("launch|webview|pinch-disabled|probe-timeout|native-control|native-window-(?:unfocused|bounds)|control-(?:timeout|target|geometry|viewport|outside-viewport|outside-webview|screen-bounds)|input-denied|picker-(?:window|target|activation|confirmation|return)|accessibility-controls|speech-(window|node|state|event)") ? reason : "instrumentation");
+            if (reason != null && reason.contains("already registered")) reason = "automation-busy";
+            else if (reason != null && (reason.contains("UiAutomation not connected") || reason.contains("connecting UiAutomation"))) reason = "automation-connect";
+            failure.putString("probeReason", reason != null && reason.matches("launch|webview|pinch-disabled|probe-timeout|native-control|native-window-(?:unfocused|bounds)|control-(?:timeout|target|geometry|viewport|outside-viewport|outside-webview|screen-bounds)|input-denied|picker-(?:window|target|activation|confirmation|return)|accessibility-controls|speech-(window|node|state|event)|automation-(busy|connect)") ? reason : "instrumentation");
             finish(Activity.RESULT_CANCELED, failure);
         } finally {
             runOnMainSync(() -> WebView.setWebContentsDebuggingEnabled(false));

@@ -236,7 +236,7 @@ final class AnalyticsProbe: XCTestCase {
             "label == %@ AND (elementType == %d OR elementType == %d)", label,
             XCUIElement.ElementType.textField.rawValue, XCUIElement.ElementType.textView.rawValue)).firstMatch
         let element = secure ? app.secureTextFields[label].firstMatch : ordinary
-        reveal(element); element.tap()
+        reveal(element); tapSettled(element)
         if let current = element.value as? String, !current.isEmpty,
            current != element.placeholderValue {
             element.press(forDuration: 1.1)
@@ -258,7 +258,7 @@ final class AnalyticsProbe: XCTestCase {
         let box = checkbox(); reveal(box)
         XCTAssertTrue(box.isEnabled, "Analytics control is available")
         let current = (box.value as? String) == "1"
-        if current != desired { box.tap() }
+        if current != desired { tapSettled(box) }
         waitFor({ ((try? self.control("preference")["enabled"]) as? Bool) == desired }, "Server preference must acknowledge choice")
     }
     func text(_ phrase: String) -> Bool {
@@ -273,7 +273,7 @@ final class AnalyticsProbe: XCTestCase {
     func details() {
         print("Analytics iOS control: Account details")
         let summary = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Account details")).firstMatch
-        reveal(summary); summary.tap()
+        reveal(summary); tapSettled(summary)
         XCTAssertTrue(checkbox().waitForExistence(timeout: 20), "Profile privacy control is labelled")
     }
     func relaunch() { app.terminate(); app.launch(); XCTAssertTrue(app.wait(for: .runningForeground, timeout: 20)) }
@@ -283,7 +283,7 @@ final class AnalyticsProbe: XCTestCase {
         let box = checkbox(); reveal(box)
         if assessed {
             XCTAssertTrue(box.isEnabled); XCTAssertEqual(box.value as? String, "1")
-            box.tap(); mark("signup", "assessedNotice", "offBeforeCompletion")
+            tapSettled(box); mark("signup", "assessedNotice", "offBeforeCompletion")
         } else {
             XCTAssertFalse(box.isEnabled); XCTAssertEqual(box.value as? String, "0")
             mark("signup", "disabledNotice")
@@ -357,11 +357,11 @@ final class AnalyticsProbe: XCTestCase {
         XCTAssertEqual(try control("counts")["delivered"] as? Int, 1)
         mark("participation", "restarted", "exactlyOneEvent")
         _ = try control("other-session-choice", ["enabled": false])
-        checkbox().tap()
+        tapSettled(checkbox())
         waitFor({ self.text("Your setting changed elsewhere") }, "Stale choice must show conflict")
         XCTAssertEqual(checkbox().value as? String, "0"); mark("conflict", "staleConflict", "currentState")
         _ = try control("maintenance"); enabled(true)
-        _ = try control("offline"); checkbox().tap()
+        _ = try control("offline"); tapSettled(checkbox())
         waitFor({ self.text("Turning off was not confirmed") }, "Offline Off must remain unconfirmed")
         XCTAssertEqual(checkbox().value as? String, "1"); mark("conflict", "offlineOffUnconfirmed")
         _ = try control("online"); enabled(false)
@@ -371,7 +371,7 @@ final class AnalyticsProbe: XCTestCase {
         tap("Shopping list"); waitFor({ self.text("Saved") }, "Shopping snapshot must load")
         _ = try control("offline")
         let extra = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "A few extras?")).firstMatch
-        reveal(extra); extra.tap()
+        reveal(extra); tapSettled(extra)
         fill("Extra item", "Analytics queued oats"); tap("Add extra")
         waitFor({ self.text("Pending sync") }, "Offline edit must enter durable queue")
         _ = try control("other-session-choice", ["enabled": false]); _ = try control("maintenance")

@@ -607,7 +607,15 @@ def ios(state, stack, ca, package, model="iPhone 16", fixture_name="MyChef fixtu
         # booted device directly; trust, installation and launch still must pass.
         sim("spawn", identifier, "launchctl", "print", "system", timeout=30)
         print("CoreSimulator reports Booted; continuing with the installed app check", flush=True)
-    sim("keychain", identifier, "add-root-cert", ca)
+    try:
+        sim("keychain", identifier, "add-root-cert", ca)
+    except subprocess.TimeoutExpired:
+        # A freshly booted simulator can finish security-service startup after
+        # reporting Booted. Retry the same run-owned CA idempotently; success
+        # still requires simctl's actual completion, installation and HTTPS.
+        print("Simulator trust service not ready; retrying the same fixture CA", flush=True)
+        sim("bootstatus", identifier, timeout=120)
+        sim("keychain", identifier, "add-root-cert", ca, timeout=120)
     sim("install", identifier, str(app))
     print("Installed the verified simulator package", flush=True)
 

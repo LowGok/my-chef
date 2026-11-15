@@ -97,11 +97,15 @@ async function connect() {
           "utf8",
         ).catch(() => "");
         if (/INSTRUMENTATION_STATUS: probe=ready/.test(log)) return true;
-        if (probe.exitCode !== null)
-          throw new Error("Disposable instrumentation stopped before ready.");
+        if (probe.exitCode !== null) {
+          const reason = log.match(/probeReason=([a-z-]{1,50})\b/)?.[1];
+          const category = /UiAutomationService.*already registered/.test(log) ? "automation-busy"
+            : /UiAutomation.*(?:not connected|connect)/.test(log) ? "automation-connect" : "unclassified";
+          throw new Error("Disposable instrumentation stopped before ready: " + (reason ?? category));
+        }
         return false;
       },
-      { timeout: 30_000 },
+      { timeout: 90_000 },
     )
     .toBe(true);
   stage = "discover Android device";
