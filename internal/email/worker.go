@@ -109,6 +109,15 @@ func (w *Worker) Step(ctx context.Context) (bool, error) {
 			}
 			return tx.Model(&row).Updates(update).Error
 		}
+		if mailqueue.NewsletterTemplate(row.Template) {
+			allowed, err := mailqueue.NewsletterDispatchAllowed(ctx, tx, row, now)
+			if err != nil {
+				return err
+			}
+			if !allowed {
+				return fail("newsletter_consent_changed")
+			}
+		}
 		if row.Attempts >= maxAttempts || !now.Before(time.Unix(row.CreatedAt, 0).Add(retryHorizon)) {
 			return fail("retry_exhausted")
 		}

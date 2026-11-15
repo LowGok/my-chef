@@ -189,6 +189,15 @@ Expired queued requests are removed. Routine tests use fake delivery.
 
 ### Transfer recovery and restored subscriptions
 
+Withdrawal commits `newsletter_subscriptions.status='unsubscribed'`, invalidates
+old newsletter proof/proposal and queued-mail authority, and retains the contact
+identity. It does not change app or analytics consent. Dispatch checks live
+newsletter authority before claiming a message. Withdrawal waits for any provider
+call already holding the shared account-work fence to settle (the send timeout
+is ten seconds) before it commits and reports success. Mail already accepted by
+the provider cannot be recalled. Retrying an old withdrawal does not reactivate
+or overwrite a newer subscription decision.
+
 Placeholder retirement prepares an independent journal intent, then commits
 the address/consent transfer, placeholder deletion and application receipt in
 one SQL transaction. The independent marker is completed afterward. A failed
