@@ -69,16 +69,19 @@ type subscription struct {
 func (subscription) TableName() string { return "newsletter_subscriptions" }
 
 type proofRecord struct {
-	Hash         string `gorm:"primaryKey"`
-	UserID       int64
-	Purpose      string
-	EmailKey     string
-	Revision     int64
-	RequestOrder int64
-	CreatedUnix  int64
-	ExpiresUnix  *int64
-	ConsumedUnix *int64
-	Proposal     string
+	Hash                string `gorm:"primaryKey"`
+	UserID              int64
+	Purpose             string
+	EmailKey            string
+	Revision            int64
+	RequestOrder        int64
+	CreatedUnix         int64
+	ExpiresUnix         *int64
+	ConsumedUnix        *int64
+	Proposal            string
+	IdentityIncarnation *string
+	IdentityKeyVersion  *int
+	IdentityAddressTag  *string
 }
 
 func (proofRecord) TableName() string { return "newsletter_proofs" }
@@ -252,7 +255,7 @@ func (s *Service) resolve(ctx context.Context, tx *gorm.DB, now time.Time, job r
 	if erased != 0 {
 		return nil
 	}
-	user, err := resolveUser(tx, input.Email, key)
+	user, err := s.resolveUser(ctx, tx, input.Email, key)
 	if err != nil {
 		return err
 	}
@@ -270,7 +273,7 @@ func (s *Service) resolve(ctx context.Context, tx *gorm.DB, now time.Time, job r
 	if job.OrderID <= sub.ProvedOrder {
 		return nil
 	}
-	if sub.EmailKey != key {
+	if sub.EmailKey != key && !user.NewsletterMinimised {
 		if err := s.invalidate(ctx, tx, now, sub.UserID); err != nil {
 			return err
 		}
@@ -296,15 +299,14 @@ func (s *Service) resolve(ctx context.Context, tx *gorm.DB, now time.Time, job r
 	return s.issue(ctx, tx, now, user, sub, job, input)
 }
 
-func resolveUser(tx *gorm.DB, address, key string) (store.User, error) {
+func (s *Service) resolveUser(ctx context.Context, tx *gorm.DB, address, key string) (store.User, error) {
 	for range 3 {
-		var user store.User
-		err := tx.Where("email_key=?", key).Take(&user).Error
-		if err == nil {
-			return user, nil
-		}
-		if !errors.Is(err, gorm.ErrRecordNotFound) {
+		user, found, err := s.Store.ResolveEmailOwnerTx(ctx, tx, address)
+		if err != nil {
 			return user, err
+		}
+		if found {
+			return user, nil
 		}
 		var random [16]byte
 		if _, err := rand.Read(random[:]); err != nil {
@@ -343,21 +345,43 @@ func (s *Service) issue(ctx context.Context, tx *gorm.DB, now time.Time, user st
 		return err
 	}
 	expires := now.Add(24 * time.Hour)
-	proof := proofRecord{Hash: hash, UserID: user.ID, Purpose: "confirm", EmailKey: user.EmailKey, Revision: sub.Revision, RequestOrder: job.OrderID, CreatedUnix: now.Unix(), ExpiresUnix: store.Ptr(expires.Unix())}
+	_, addressKey, err := store.EmailIdentity(input.Email)
+	if err != nil {
+		return err
+	}
+	proof := proofRecord{Hash: hash, UserID: user.ID, Purpose: "confirm", EmailKey: addressKey, Revision: sub.Revision, RequestOrder: job.OrderID, CreatedUnix: now.Unix(), ExpiresUnix: store.Ptr(expires.Unix())}
 	proof.Proposal, err = s.seal("newsletter-proposal", proofBinding(proof), proposal{Input: input, RequestedUnix: job.RequestedUnix})
 	if err != nil {
 		return err
 	}
+	if s.Lifecycle != nil {
+		var incarnation string
+		if err := tx.Raw("SELECT incarnation FROM account_incarnations WHERE user_id=?", user.ID).Row().Scan(&incarnation); err != nil {
+			return err
+		}
+		key, err := store.DeriveNewsletterIdentityKey(s.RateKey)
+		if err != nil {
+			return err
+		}
+		tag, err := key.Tag(input.Email)
+		if err != nil {
+			return err
+		}
+		proof.IdentityIncarnation = store.Ptr(incarnation)
+		proof.IdentityKeyVersion = store.Ptr(key.Version())
+		proof.IdentityAddressTag = store.Ptr(tag)
+	}
 	if err := tx.Create(&proof).Error; err != nil {
 		return err
 	}
-	withdraw := proofRecord{Hash: withdrawalHash, UserID: user.ID, Purpose: "unsubscribe", EmailKey: user.EmailKey, Revision: sub.Revision, RequestOrder: job.OrderID, CreatedUnix: now.Unix()}
+	withdraw := proofRecord{Hash: withdrawalHash, UserID: user.ID, Purpose: "unsubscribe", EmailKey: addressKey, Revision: sub.Revision, RequestOrder: job.OrderID, CreatedUnix: now.Unix()}
+	withdraw.IdentityIncarnation, withdraw.IdentityKeyVersion, withdraw.IdentityAddressTag = proof.IdentityIncarnation, proof.IdentityKeyVersion, proof.IdentityAddressTag
 	if err := tx.Create(&withdraw).Error; err != nil {
 		return err
 	}
 	prefix, _ := localePath(input.Locale)
 	template := map[string]string{"en": mailqueue.NewsletterENTemplate, "fr-BE": mailqueue.NewsletterFRTemplate, "nl-BE": mailqueue.NewsletterNLTemplate}[input.Locale]
-	_, err = mailqueue.EnqueueProtected(ctx, s.Store, tx, now, expires, s.Keys, mailqueue.Request{OwnerID: user.ID, Key: "newsletter/" + hash, Recipient: user.Email, Template: template,
+	_, err = mailqueue.EnqueueProtected(ctx, s.Store, tx, now, expires, s.Keys, mailqueue.Request{OwnerID: user.ID, Key: "newsletter/" + hash, Recipient: input.Email, Template: template,
 		Fields: map[string]string{"confirm": s.Origin + prefix + "newsletter/confirm/#" + confirmation, "unsubscribe": s.Origin + prefix + "newsletter/unsubscribe/#" + withdrawal}})
 	return err
 }

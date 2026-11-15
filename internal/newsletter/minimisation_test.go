@@ -216,7 +216,7 @@ func TestMinimisationKeepsLiveSignupAndVerificationAuthority(t *testing.T) {
 			case "recovery":
 				// Existing recovery schema requires a verified account. A contact-bound
 				// delivery job independently keeps its current bounded recipient authority.
-				_, err := mailqueue.EnqueueProtected(t.Context(), s.Store, nil, *now, now.Add(time.Hour), s.Keys, mailqueue.Request{OwnerID: user.ID, Key: "authority-job", Recipient: user.Email, Template: mailqueue.EmailVerificationTemplate, Fields: map[string]string{"link": "https://mychef.dev/app/verify-email#synthetic"}})
+				_, err := mailqueue.EnqueueProtected(t.Context(), s.Store, nil, *now, now.Add(time.Hour), s.Keys, mailqueue.Request{OwnerID: user.ID, Key: "authority-job", Recipient: user.Email, Template: mailqueue.EmailVerificationTemplate, Fields: map[string]string{"link": "https://mychef.dev/app/verify-email#" + strings.Repeat("A", 43)}})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -248,5 +248,45 @@ func TestMinimisationRefusesAmbiguousContactProfile(t *testing.T) {
 	var u store.User
 	if err := s.Store.DB.First(&u).Error; err != nil || u.FirstName != "Unexpected profile" || u.Email == "" {
 		t.Fatal("ambiguous account modified", err)
+	}
+}
+
+func TestMinimisationFreshRequestKeepsReducedIDAndOptOut(t *testing.T) {
+	s, now := fixture(t)
+	request(t, s, "repeat@example.test", "en")
+	step(t, s)
+	_, oldWithdrawal := links(t, s)
+	if err := s.Unsubscribe(t.Context(), oldWithdrawal); err != nil {
+		t.Fatal(err)
+	}
+	var user store.User
+	if err := s.Store.DB.First(&user).Error; err != nil {
+		t.Fatal(err)
+	}
+	j := minimisationJournal(t, s)
+	*now = now.Add(25 * time.Hour)
+	if err := s.Minimise(t.Context(), j); err != nil {
+		t.Fatal(err)
+	}
+	// This logical fixture clears only the physical readiness flags. Byte-level
+	// maintenance is tested separately; no production completion is claimed here.
+	if err := s.Store.DB.Exec("UPDATE newsletter_identity_namespace SET physical_cleanup_pending=0,legacy_vacuum_pending=0").Error; err != nil {
+		t.Fatal(err)
+	}
+	request(t, s, "REPEAT@example.test", "nl-BE")
+	step(t, s)
+	var kept store.User
+	if err := s.Store.DB.First(&kept, user.ID).Error; err != nil || !kept.NewsletterMinimised || kept.Email != "" || count(t, s, "users") != 1 || status(t, s) != "unsubscribed" {
+		t.Fatal("fresh request changed retained identity or consent", err)
+	}
+	confirmation, _ := links(t, s)
+	if err := s.Confirm(t.Context(), confirmation); err != nil {
+		t.Fatal("fresh confirmed address did not reactivate same ID", err)
+	}
+	if err := s.Store.DB.First(&kept, user.ID).Error; err != nil || kept.NewsletterMinimised || kept.EmailKey != "repeat@example.test" || status(t, s) != "confirmed" {
+		t.Fatal("confirmed address not restored to same ID", err)
+	}
+	if count(t, s, "newsletter_identity_matches") != 0 {
+		t.Fatal("active raw address retained protected lookup")
 	}
 }

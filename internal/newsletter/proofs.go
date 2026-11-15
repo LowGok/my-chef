@@ -2,6 +2,8 @@ package newsletter
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"time"
 
@@ -22,15 +24,8 @@ func (s *Service) applyProof(ctx context.Context, token, purpose string) error {
 	if s == nil || s.Store == nil || purpose == "confirm" && !s.valid() {
 		return ErrUnavailable
 	}
-	if purpose == "unsubscribe" {
-		// Dispatch holds the shared fence until its bounded provider call and
-		// state update finish. Withdrawal commits after those calls settle.
-		s.Store.AccountWork.Lock()
-		defer s.Store.AccountWork.Unlock()
-	} else {
-		s.Store.AccountWork.RLock()
-		defer s.Store.AccountWork.RUnlock()
-	}
+	s.Store.AccountWork.Lock()
+	defer s.Store.AccountWork.Unlock()
 	if s.Lifecycle != nil && s.Lifecycle.CheckReady(ctx) != nil {
 		return ErrUnavailable
 	}
@@ -38,7 +33,11 @@ func (s *Service) applyProof(ctx context.Context, token, purpose string) error {
 	if err != nil {
 		return err
 	}
-	err = s.Store.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	var original proofRecord
+	if err := s.Store.DB.WithContext(ctx).Where("hash=? AND purpose=?", hash, purpose).Take(&original).Error; err != nil {
+		return ErrProof
+	}
+	err = s.withProofTransition(ctx, original, purpose, func(tx *gorm.DB, order int64) error {
 		now := s.now()
 		var proof proofRecord
 		if err := tx.Where("hash=? AND purpose=?", hash, purpose).Take(&proof).Error; err != nil {
@@ -48,11 +47,11 @@ func (s *Service) applyProof(ctx context.Context, token, purpose string) error {
 		if err := tx.Where("user_id=?", proof.UserID).Take(&sub).Error; err != nil {
 			return err
 		}
-		var user store.User
-		if err := tx.Where("user_id=? AND email_key=?", proof.UserID, proof.EmailKey).Take(&user).Error; err != nil {
+		user, err := s.proofOwner(ctx, tx, proof)
+		if err != nil {
 			return err
 		}
-		if sub.EmailKey != proof.EmailKey {
+		if proof.IdentityIncarnation == nil && !user.NewsletterMinimised && sub.EmailKey != proof.EmailKey {
 			return ErrProof
 		}
 		if proof.ConsumedUnix != nil {
@@ -63,10 +62,6 @@ func (s *Service) applyProof(ctx context.Context, token, purpose string) error {
 		}
 		if proof.Revision != sub.Revision || proof.ExpiresUnix != nil && *proof.ExpiresUnix <= now.Unix() {
 			return ErrProof
-		}
-		order, err := nextOrder(tx)
-		if err != nil {
-			return err
 		}
 		if purpose == "unsubscribe" {
 			sub.Status = "unsubscribed"
@@ -88,6 +83,20 @@ func (s *Service) applyProof(ctx context.Context, token, purpose string) error {
 			if err != nil || key != proof.EmailKey || !valid || proposed.ConsentVersion == "" {
 				return ErrProof
 			}
+			if user.NewsletterMinimised {
+				var nonce [16]byte
+				if _, err := rand.Read(nonce[:]); err != nil {
+					return err
+				}
+				if err := tx.Exec("DELETE FROM newsletter_identity_matches WHERE user_id=?", user.ID).Error; err != nil {
+					return err
+				}
+				if err := tx.Exec("UPDATE users SET newsletter_minimised=0,email=?,email_key=?,username=? WHERE user_id=?", proposed.Email, key, "newsletter-"+hex.EncodeToString(nonce[:]), user.ID).Error; err != nil {
+					return err
+				}
+				user.NewsletterMinimised = false
+				sub.EmailKey = key
+			}
 			sub.Status = "confirmed"
 			sub.Locale = proposed.Locale
 			sub.ConsentVersion = proposed.ConsentVersion
@@ -103,6 +112,9 @@ func (s *Service) applyProof(ctx context.Context, token, purpose string) error {
 			}
 		}
 		sub.ProvedOrder = order
+		if user.NewsletterMinimised {
+			return tx.Model(&subscription{}).Where("user_id=?", user.ID).Updates(map[string]any{"status": sub.Status, "revision": sub.Revision, "proved_order": order, "withdrawn_unix": sub.WithdrawnUnix, "decision_unix": now.Unix()}).Error
+		}
 		return tx.Save(&sub).Error
 	})
 	if errors.Is(err, ErrProof) || errors.Is(err, gorm.ErrRecordNotFound) {

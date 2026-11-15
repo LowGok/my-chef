@@ -118,3 +118,5 @@ BEGIN
    (SELECT incarnation FROM newsletter_identity_matches WHERE user_id=NEW.user_id AND NEW.newsletter_minimised=1),lower(hex(randomblob(16)))));
 END;
 ALTER TABLE newsletter_identity_namespace ADD COLUMN journal_bound INTEGER NOT NULL DEFAULT 0 CHECK(journal_bound IN (0,1));
+
+ALTER TABLE newsletter_subscriptions ADD COLUMN decision_unix INTEGER CHECK(decision_unix IS NULL OR decision_unix>=0);

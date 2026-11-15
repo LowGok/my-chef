@@ -8,6 +8,7 @@ import (
 	"errors"
 	"math"
 	"regexp"
+	"time"
 
 	"gorm.io/gorm"
 )
@@ -239,7 +240,7 @@ func (j *LifecycleJournal) ReserveNewsletterUserID(ctx context.Context, floor in
 
 func (j *LifecycleJournal) NewsletterIdentity(ctx context.Context, userID int64) (NewsletterIdentityRecord, bool, error) {
 	if _, bound, err := j.newsletterIdentityBinding(ctx); err != nil || !bound {
-		return NewsletterIdentityRecord{}, false, ErrNewsletterIdentityUnavailable
+		return NewsletterIdentityRecord{}, false, err
 	}
 	return readNewsletterIdentity(j.store.DB.WithContext(ctx), userID)
 }
@@ -413,6 +414,7 @@ func (j *LifecycleJournal) validateNewsletterIdentityPostState(ctx context.Conte
 		RequestedUnix  *int64
 		ConfirmedUnix  *int64
 		WithdrawnUnix  *int64
+		DecisionUnix   *int64
 	}
 	err = tx.Table("newsletter_subscriptions").Take(&sub, "user_id=?", record.UserID).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) && record.Status == "pending" && record.Revision == 0 && record.DecisionOrder == 0 && record.NoticeVersion == nil && record.DecisionUnix == nil {
@@ -422,11 +424,15 @@ func (j *LifecycleJournal) validateNewsletterIdentityPostState(ctx context.Conte
 		return ErrLifecycleConflict
 	}
 	date := sub.RequestedUnix
-	switch sub.Status {
-	case "confirmed":
-		date = sub.ConfirmedUnix
-	case "unsubscribed":
-		date = sub.WithdrawnUnix
+	if user.NewsletterMinimised {
+		date = sub.DecisionUnix
+	} else {
+		switch sub.Status {
+		case "confirmed":
+			date = sub.ConfirmedUnix
+		case "unsubscribed":
+			date = sub.WithdrawnUnix
+		}
 	}
 	if date == nil != (record.DecisionUnix == nil) || date != nil && *date != *record.DecisionUnix {
 		return ErrLifecycleConflict
@@ -646,4 +652,40 @@ func (j *LifecycleJournal) checkNewsletterIdentityJournalReady(ctx context.Conte
 		return ErrLifecycleUncertain
 	}
 	return nil
+}
+
+// TransitionNewsletterIdentity is called with the exclusive account-work fence
+// already held. A failed SQL commit remains uncertain; only a proved rollback
+// permits cancellation of the prepared journal operation.
+func (j *LifecycleJournal) TransitionNewsletterIdentity(ctx context.Context, record NewsletterIdentityRecord, apply func(*gorm.DB) error) error {
+	operation, err := randomLifecycleID()
+	if err != nil {
+		return err
+	}
+	intent, err := j.PrepareNewsletterIdentity(ctx, operation, record)
+	if err != nil {
+		return err
+	}
+	tx := j.app.DB.WithContext(ctx).Begin()
+	if tx.Error != nil {
+		return tx.Error
+	}
+	if err = apply(tx); err == nil {
+		err = j.MarkNewsletterIdentityCommit(ctx, tx, intent)
+	}
+	if err != nil {
+		if tx.Rollback().Error != nil {
+			return ErrLifecycleUncertain
+		}
+		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		if j.CancelNewsletterIdentity(cleanup, operation) != nil {
+			return ErrLifecycleUncertain
+		}
+		return err
+	}
+	if err := tx.Commit().Error; err != nil {
+		return ErrLifecycleUncertain
+	}
+	return j.CommitNewsletterIdentity(ctx, operation)
 }

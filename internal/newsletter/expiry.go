@@ -58,6 +58,10 @@ func (s *Service) expireTransient(ctx context.Context, now time.Time) error {
 	if s.Lifecycle != nil && s.Lifecycle.CheckReady(ctx) != nil {
 		return ErrUnavailable
 	}
+	return s.expireTransientOwned(ctx, now)
+}
+
+func (s *Service) expireTransientOwned(ctx context.Context, now time.Time) error {
 	return s.Store.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Exec("DELETE FROM newsletter_requests WHERE expires_unix<=?", now.Unix()).Error; err != nil {
 			return err
