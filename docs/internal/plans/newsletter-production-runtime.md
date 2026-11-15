@@ -1,8 +1,8 @@
 ---
 status: in-progress
-status_description: "Proposed claim through the documentation PR; implementation starts only after its approved default-branch merge and merged PR 33."
+status_description: "Claim published through owner-approved PR 34 after required CI; PR 33 is merged/released. Fresh spec review R-4 passed; Runtime, purpose-scoped dispatch and recovery rehearsal are implemented locally. Independent review and exact delivery/operational receipts remain pending."
 branch: feat/newsletter-production-runtime
-issue: null
+issue: https://github.com/LowGok/my-chef/issues/35
 goal: "A durable newsletter-only runtime can safely receive the public website's authenticated capture and proof requests without exposing app routes or recipe credentials."
 covers:
   - cmd/mychef/
@@ -40,7 +40,7 @@ Local verification and production operation remain distinct. Acceptance authoriz
 
 ### Background and dependency
 
-Automatic approval review rejected direct default-branch publication. The proposed claim and accepted task plan are therefore delivered through a docs-only PR with normal CI. The claim takes effect only after the owner-approved PR merge; no feature branch or backend code is created before that publication. This is a requested workflow exception, not a claim that direct push succeeded.
+Automatic approval review rejected direct default-branch publication. The proposed claim and accepted task plan are therefore delivered through a docs-only PR with normal CI. The owner approved this exact fallback, and PR 34 merged as d2df37b after required CI passed on the normal failed-job retry. The published claim now owns feat/newsletter-production-runtime in the managed worktree. No backend code was created before publication. This is a requested workflow exception, not a claim that direct push succeeded.
 
 After acceptance, default main advanced to weekly-reminders merge
 `7ff466952834a0d295e0d483456fa312e2b97d1b`. It adds schema
@@ -106,11 +106,16 @@ Rollback pauses site then backend capture, preserves proof routes, SQL, authorit
 
 ## Acceptance Criteria
 
-- [ ] AC-01: The newsletter-only command starts with only its approved credentials and exposes no full-app, fixture, provider, analytics or public operator surface.
+- [x] AC-01: The newsletter-only command starts with only its approved credentials and exposes no full-app, fixture, provider, analytics or public operator surface.
+      Evidence: independent implementation review R-5 at 572435c returned met; the reviewer executed full affected-package and targeted race suites plus the exact-source process rehearsal. No live deployment is claimed.
 - [ ] AC-02: Missing prerequisites and failed workers keep capture unavailable; the exact paused-preflight/backend-only/site-last activation sequence works while valid confirmation/withdrawal remains available during pause.
-- [ ] AC-03: The role sends only authorized newsletter templates with the selected sender profile, preserves full-app settings, and rejects stale consent and unrelated queue work without real mail in tests.
-- [ ] AC-04: Durable SQL and the independent journal preserve IDs, suppression, operator erasure and conservative restore across process restart/concurrency and compatible rollback without beta changes or automatic age deletion.
+      Evidence: R-5 returned not verified for the missing exact website/HTTPS activation pair and delivery/live receipts. This composite criterion remains open.
+- [x] AC-03: The role sends only authorized newsletter templates with the selected sender profile, preserves full-app settings, and rejects stale consent and unrelated queue work without real mail in tests.
+      Evidence: independent implementation review R-5 at 572435c returned met; the reviewer executed full affected-package and targeted race suites plus the exact-source process rehearsal. No live deployment is claimed.
+- [x] AC-04: Durable SQL and the independent journal preserve IDs, suppression, operator erasure and conservative restore across process restart/concurrency and compatible rollback without beta changes or automatic age deletion.
+      Evidence: independent implementation review R-5 at 572435c returned met; the reviewer executed full affected-package and targeted race suites plus the exact-source process rehearsal. No live deployment is claimed.
 - [ ] AC-05: Reviewed host templates/runbooks, independent implementation review, normal CI and signed-image receipts bind the exact backend to the separately reviewed website and truthfully identify any remaining live-operation evidence.
+      Evidence: R-5 returned not verified for the missing exact website/HTTPS activation pair and delivery/live receipts. This composite criterion remains open.
 
 ## Test Plan
 
@@ -124,13 +129,21 @@ Rollback pauses site then backend capture, preserves proof routes, SQL, authorit
 
 ## Tasks
 
-- [ ] T1 `internal/config/newsletter_email_test.go` - add failing tests for a newsletter-only protected sender profile without fabricated webhook settings, missing/invalid mail keys, fake-mode limits and unchanged full-app parser requirements (AC-01, AC-03).
-- [ ] T2 `internal/config/email.go` and `internal/config/newsletter_email.go` - implement the role-specific mail loader while preserving normal app validation; T1 and existing email tests pass (AC-01, AC-03).
-- [ ] T3 `cmd/mychef/newsletter_serve_test.go` and `internal/http/newsletter_only_test.go` - add failing CLI/mux/config/readiness/shutdown tests, including no recipe credentials, forbidden app/native/operator routes, paused check vectors and proof actions (AC-01, AC-02, AC-04).
-- [ ] T4 `cmd/mychef/newsletter.go`, `cmd/mychef/newsletter_serve.go` and `internal/http/newsletter.go` - implement the narrow role/mux and current-schema journal/worker wiring, explicit production capability and safe shutdown without normal app/reminder/analytics startup; T3 and full-app regressions pass (AC-01, AC-02, AC-04).
-- [ ] T5 `internal/email/newsletter_only_test.go` - add failing tests for unrelated queue rows in the role and capture exact six-template profile/withdrawal/retry behavior with fake transport (AC-03).
-- [ ] T6 `internal/email/service.go`, `internal/email/worker.go` and minimal mailqueue helper - restrict the dedicated role to newsletter templates while preserving normal workers; T5 and concurrent withdrawal/expiry/transfer tests pass (AC-03, AC-04).
-- [ ] T7 `scripts/test_newsletter_runtime.py`, `deploy/newsletter/` and `README.md` - add a reproducible disposable executable/init/restart/backup/restore/erasure/lock/pause rehearsal, restricted deployment templates and exact-source/image/site receipt instructions; run required build/generate/test/lint/audit/browser/upgrade/final-container checks and independent review before delivery (AC-01, AC-02, AC-03, AC-04, AC-05).
+- [x] T1 `internal/config/newsletter_email_test.go` - add failing tests for a newsletter-only protected sender profile without fabricated webhook settings, missing/invalid mail keys, fake-mode limits and unchanged full-app parser requirements (AC-01, AC-03).
+      Evidence: targeted Go config tests failed to compile with undefined LoadNewsletterEmail, establishing the absent role loader. Full-app validation, fake-mode limits and sender-only fields are asserted. Transcript: private staging evidence/role-t1-red.log; no real provider call.
+- [x] T2 `internal/config/email.go` and `internal/config/newsletter_email.go` - implement the role-specific mail loader while preserving normal app validation; T1 and existing email tests pass (AC-01, AC-03).
+      Evidence: all config tests and uncached config race tests pass, including T1, six-template profile validation and unchanged full-app webhook/shared-profile requirements. The new role loader accepts only explicit sending mode and its protected profile, bounds input and does not invent a webhook secret. Staging role-t2-config.log and role-t2-race.log. No provider call or production configuration.
+- [x] T3 `cmd/mychef/newsletter_serve_test.go` and `internal/http/newsletter_only_test.go` - add failing CLI/mux/config/readiness/shutdown tests, including no recipe credentials, forbidden app/native/operator routes, paused check vectors and proof actions (AC-01, AC-02, AC-04).
+      Evidence: uncached targeted Go command tests and HTTP tests fail on the missing role loader, worker fence, server and dedicated mux. Tests cover loopback/config refusal, actual listener shutdown and lock release, protected paused readiness, forbidden routes and valid proof actions while paused. Transcript role-t3-red.log. Manual docs-impact review: this accepted feature document covers these contracts; operator README additions remain in T7.
+- [x] T4 `cmd/mychef/newsletter.go`, `cmd/mychef/newsletter_serve.go` and `internal/http/newsletter.go` - implement the narrow role/mux and current-schema journal/worker wiring, explicit production capability and safe shutdown without normal app/reminder/analytics startup; T3 and full-app regressions pass (AC-01, AC-02, AC-04).
+      Evidence: T3 targeted tests pass; uncached cmd/mychef, HTTP and configuration regressions pass, and newsletter command/HTTP race suites pass. A real local listener starts with synthetic sending-only credentials and no recipe credentials, reports the paused check vector, rejects app/native/webhook/fixture routes, processes valid proof actions while capture is paused and releases both locks on cancellation. Protected readiness binds role/mode/version. Transcripts role-t4-target.log, role-t4-regression.log and role-t4-race.log. No public runtime changed. Manual docs-impact review: operator startup/deployment documentation remains the explicit T7 task.
+- [x] T5 `internal/email/newsletter_only_test.go` - add failing tests for unrelated queue rows in the role and capture exact six-template profile/withdrawal/retry behavior with fake transport (AC-03).
+      Evidence: uncached email tests fail to compile because the role-specific NewNewsletter constructor is absent. Tests require no app-template delivery and failed readiness, all six live-authority templates with captured fake payloads and stable retry, stale/expired suppression and withdrawal waiting for the provider fence. Transcript role-t5-red.log. Manual documentation review: dispatch policy is covered by this accepted feature; deployment instructions remain T7.
+- [x] T6 `internal/email/service.go`, `internal/email/worker.go` and minimal mailqueue helper - restrict the dedicated role to newsletter templates while preserving normal workers; T5 and concurrent withdrawal/expiry/transfer tests pass (AC-03, AC-04).
+      Evidence: all email, newsletter and command suites pass uncached, and all newsletter email race tests pass. The dedicated worker commits an unexpected template as refused without contacting a provider, then stops so readiness fails. Six-template fake payloads use the selected profile; retry bytes remain stable; stale/expired authority never sends; withdrawal waits for an in-flight provider. Normal worker/profile regressions pass. Transcripts role-t6-target.log, role-t6-email.log and role-t6-race.log. Manual docs-impact review: no additional public interface beyond the T7 role runbook.
+- [ ] T7 `scripts/test_newsletter_runtime.py`, `deploy/newsletter/`, `.dockerignore` and `README.md` - add a reproducible disposable executable/init/restart/backup/restore/erasure/lock/pause rehearsal, restricted deployment templates, narrow production-file Docker allowlist entries and exact-source/image/site receipt instructions; run required build/generate/test/lint/audit/browser/upgrade/final-container checks and independent review before delivery (AC-01, AC-02, AC-03, AC-04, AC-05).
+
+      Prepared: the actual executable rehearsal passes fresh initialization/schema-23 upgrade, pause/readiness/proof actions, backend-only capture, fake dispatch, locks/restart, protected export/erasure, authoritative-copy restore and failed-worker recovery. Build, generate/deterministic API, complete repository tests, lint, audit, all browser suites, PostgreSQL import, SQLite upgrade/restore and sequential menu restart pass. The final nonroot/read-only image passes the dedicated role/restart/route matrix, existing app/container journeys and HIGH/CRITICAL scan. Compose syntax/security/mount checks pass. Full race checks passed the affected packages but failed unchanged analytics cancellation and timed out the unchanged dataset CLI after 20 minutes; isolated reruns are pending. Earlier required CI at PR 33 passed the same analytics sources with its race step taking 16m21s; no test, timeout or CI gate was weakened. Private staging evidence/role-t7-*. No production service or collection setting changed. Manual documentation review updated README and the role runbook; live ingress, backup/mailbox/provider evidence, independent review, exact CI/signature/SBOM receipt and website pairing remain unavailable and T7 stays unchecked.
 
 ## Open Questions
 
@@ -144,6 +157,8 @@ None for the technical scope. Controller, contact, retention-review criteria and
 | 2026-11-15 | R-2 | spec | `8e5cdee68f34719d89dc4d905beb2bb0870b159f` | unknown | procedural | No findings after complete pinned-source review. Model identity not attested; owner acceptance pending. |
 | 2026-11-15 | R-2 | spec | `8e5cdee68f34719d89dc4d905beb2bb0870b159f` | n/a | n/a | accepted by owner |
 | 2026-11-15 | R-3 | spec | `946c91c5cd424f35ac8d0d660d5266d064050a20` | unknown | procedural | No findings after current-main/schema-26 freshness review. Accepted normative baseline unchanged; model identity not attested. |
+| 2026-11-15 | R-4 | spec | `d2df37b9e1c1ee59c55a11bf93a671055d00ef83` | unknown | procedural | No findings after merged dependency and published claim; accepted normative baseline unchanged. Model identity not attested. |
+| 2026-11-15 | R-5 | implementation | `572435c16cfe6a6244316e14e7a8d5fbeced3e06` | unknown | procedural | AC-01, AC-03 and AC-04 met; AC-02 and AC-05 not verified for the exact website/deployment/delivery pair. No code finding. Model identity not attested. |
 
 ### R-1
 
@@ -161,6 +176,34 @@ NO FINDINGS
 ### R-3
 
 NO FINDINGS
+
+### R-4
+
+NO FINDINGS
+
+### R-5
+
+TARGET: 572435c16cfe6a6244316e14e7a8d5fbeced3e06
+
+CRITERION: AC-01 The newsletter-only command starts with only its approved credentials and exposes no full-app, fixture, provider, analytics or public operator surface.
+VERDICT: met
+EVIDENCE: At 572435c16cfe6a6244316e14e7a8d5fbeced3e06, independent go test -count=1 -timeout 5m ./cmd/mychef ./internal/config ./internal/http ./internal/email ./internal/newsletter ./internal/auth ./internal/store passed. Role tests established sending-only production configuration without recipe or webhook credentials, rejection of unsafe configuration, protected operator readiness and forbidden route/method behavior. Inspection of newsletter_serve.go and NewsletterHandler confirmed literal loopback binding, isolated construction and the restricted mux. Independently built exact-source binaries passed the disposable executable rehearsal without recipe credentials. Actual host ingress remains outside this local proof.
+
+CRITERION: AC-02 Missing prerequisites and failed workers keep capture unavailable; the exact paused-preflight/backend-only/site-last activation sequence works while valid confirmation/withdrawal remains available during pause.
+VERDICT: not verified
+EVIDENCE: At 572435c16cfe6a6244316e14e7a8d5fbeced3e06, independently executed configuration, readiness, worker-failure and paused-proof tests passed. The exact-source executable rehearsal passed paused readiness, confirmation, backend-only capture with fake dispatch, renewed pause, withdrawal and failed-worker capture rejection. The targeted newsletter/retention/restore race command passed all seven affected packages. deploy/newsletter/README.md specifies website-off/backend-first/site-last activation and recovery, but execution against the exact separately reviewed website and HTTPS deployment pair was not observed. Passing backend checks do not establish this composite criterion.
+
+CRITERION: AC-03 The role sends only authorized newsletter templates with the selected sender profile, preserves full-app settings, and rejects stale consent and unrelated queue work without real mail in tests.
+VERDICT: met
+EVIDENCE: At 572435c16cfe6a6244316e14e7a8d5fbeced3e06, the full config and email suites passed independently, as did go test -race -count=1 -timeout 5m -run 'Newsletter|NoExpiry|Retention|Restore' across the seven affected packages. Inspected assertions cover captured fake payloads for all six templates, selected From/Reply-To, stable retry payloads, unchanged shared/full-app profiles, stale and expired authority rejection, unrelated queue refusal with zero dispatch attempts, and withdrawal waiting for an in-flight fake provider. The executable rehearsal independently confirmed unrelated work stops the worker and fences capture. No real mail was sent.
+
+CRITERION: AC-04 Durable SQL and the independent journal preserve IDs, suppression, operator erasure and conservative restore across process restart/concurrency and compatible rollback without beta changes or automatic age deletion.
+VERDICT: met
+EVIDENCE: At 572435c16cfe6a6244316e14e7a8d5fbeced3e06, independently built binaries passed scripts/test_newsletter_runtime.py with scratch-only output and disposable state: fresh initialization, schema-23 upgrade, lock contention, restart without duplicate dispatch, stable IDs, protected export, operator erasure, authoritative-journal restore replay, invalidated old confirmation authority, pending restored subscriptions and no queued automatic reconfirmation. Full affected-package suites and targeted race suites passed, including retention, signup/email-change identity, withdrawal, operator and restore regressions. Inspection confirmed production none/none enforcement, unchanged full-app compatibility guard and the current-role paused recovery fallback. Verification touched no beta service or production database; actual host durability and backup operation remain deployment evidence.
+
+CRITERION: AC-05 Reviewed host templates/runbooks, independent implementation review, normal CI and signed-image receipts bind the exact backend to the separately reviewed website and truthfully identify any remaining live-operation evidence.
+VERDICT: not verified
+EVIDENCE: At 572435c16cfe6a6244316e14e7a8d5fbeced3e06, independent inspection covered placeholder-only credentials/configuration, restricted Compose and ingress templates, deployment/rollback instructions, Docker allowlist additions and existing signed release workflow. vh-adlc lint passed. Independent affected-package tests, targeted race tests and the exact-source executable rehearsal passed. This review did not observe normal CI, final-image verification, signed-image/SBOM/provenance receipts or the resolved backend/website/host/provider/mailbox/backup receipt for this target. The feature document leaves T7 and acceptance criteria unchecked and the runbook explicitly identifies these missing proofs. Repository status remained clean at the target after review.
 
 ## Sources
 
