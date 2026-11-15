@@ -1,0 +1,5 @@
+{
+  "active": "launch",
+  "keys": {"launch": "REPLACE_WITH_BASE64_32_RANDOM_BYTES"},
+  "rate_key": "REPLACE_WITH_BASE64_32_DIFFERENT_RANDOM_BYTES"
+}

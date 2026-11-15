@@ -30,6 +30,7 @@ type sender interface {
 }
 
 type Worker struct {
+	newsletterOnly                    bool
 	onlyID                            int64
 	Queue                             Queue
 	sender                            sender
@@ -81,7 +82,7 @@ func (w *Worker) Step(ctx context.Context) (bool, error) {
 	var row outbox
 	var body []byte
 	var proofExpiry int64
-	var claimed, found bool
+	var claimed, found, wrongPurpose bool
 	err := w.Queue.background(ctx, func(tx *gorm.DB) error {
 		pending := tx.Where("state IN ? AND next_at <= ?", []string{"queued", "sending"}, now.Unix())
 		if w.onlyID != 0 {
@@ -109,6 +110,10 @@ func (w *Worker) Step(ctx context.Context) (bool, error) {
 				update["data"] = "{}"
 			}
 			return tx.Model(&row).Updates(update).Error
+		}
+		if w.newsletterOnly && !mailqueue.NewsletterTemplate(row.Template) {
+			wrongPurpose = true
+			return fail("newsletter_role_template")
 		}
 		if mailqueue.NewsletterTemplate(row.Template) {
 			allowed, err := mailqueue.NewsletterDispatchAllowed(ctx, tx, row, now)
@@ -160,6 +165,10 @@ func (w *Worker) Step(ctx context.Context) (bool, error) {
 	})
 	if err != nil {
 		return false, errStorage
+	}
+	if wrongPurpose {
+		// Commit the refused row before stopping dispatch and failing readiness.
+		return true, errStorage
 	}
 	if !claimed {
 		return found, nil
