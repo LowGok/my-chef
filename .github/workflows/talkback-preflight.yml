@@ -23,11 +23,16 @@ jobs:
           set -euo pipefail
           image="system-images;android-33;${IMAGE_VARIANT};x86_64"
           sdk="$ANDROID_HOME/cmdline-tools/latest/bin"
-          "$sdk/sdkmanager" --install "$image"
+          "$sdk/sdkmanager" --install "platform-tools" "$image"
+          echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
+          export PATH="$ANDROID_HOME/platform-tools:$PATH"
+          adb version
+          adb start-server
           echo no | "$sdk/avdmanager" create avd --name screen-reader --package "$image"
           sudo chmod a+rw /dev/kvm
-          "$ANDROID_HOME/emulator/emulator" -avd screen-reader -no-window -no-audio -no-snapshot -no-boot-anim -gpu swiftshader_indirect >"$RUNNER_TEMP/emulator.log" 2>&1 &
+          "$ANDROID_HOME/emulator/emulator" -avd screen-reader -no-window -no-audio -no-snapshot -no-boot-anim -gpu software >"$RUNNER_TEMP/emulator.log" 2>&1 &
           echo "$!" >"$RUNNER_TEMP/emulator.pid"
+          trap 'tail -35 "$RUNNER_TEMP/emulator.log"' ERR
           timeout 240 adb wait-for-device
           timeout 120 bash -c 'until [ "$(adb shell getprop sys.boot_completed | tr -d "\r")" = 1 ]; do sleep 3; done'
           test "$(adb shell getprop ro.build.version.sdk | tr -d '\r')" = 33
@@ -64,5 +69,5 @@ jobs:
       - name: Stop emulator
         if: always()
         run: |
-          adb emu kill || true
+          if [ -x "$ANDROID_HOME/platform-tools/adb" ]; then "$ANDROID_HOME/platform-tools/adb" emu kill || true; fi
           if [ -f "$RUNNER_TEMP/emulator.pid" ]; then kill "$(cat "$RUNNER_TEMP/emulator.pid")" 2>/dev/null || true; fi
