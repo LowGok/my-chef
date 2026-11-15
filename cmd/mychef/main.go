@@ -109,6 +109,11 @@ func main() {
 		logger.Error("invalid private Apple billing sandbox configuration")
 		os.Exit(1)
 	}
+	playBilling, err := loadPlayBillingSandbox(cfg, inboxSettings)
+	if err != nil || playBilling != nil && (appleBilling != nil || billingMode != nil) {
+		logger.Error("invalid private Play billing sandbox configuration")
+		os.Exit(1)
+	}
 	fixturePhotoDirectory, err := config.LoadFixturePhotoDirectory(cfg, inboxSettings)
 	if err != nil {
 		logger.Error("invalid fixture photo configuration")
@@ -246,6 +251,16 @@ func main() {
 		})
 		if err != nil {
 			logger.Error("Apple sandbox billing unavailable")
+			os.Exit(1)
+		}
+	}
+	var playWorker *billing.PlayService
+	if playBilling != nil {
+		nativeBilling, playWorker, err = playBilling.start(ctx, journal, nil, func(health billing.PlayWorkerHealth) {
+			logger.Info("Play sandbox billing health", "stage", health.Stage, "degraded", health.Degraded, "outstanding", health.Outstanding)
+		})
+		if err != nil {
+			logger.Error("Play sandbox billing unavailable")
 			os.Exit(1)
 		}
 	}
@@ -412,6 +427,13 @@ func main() {
 			billingCtx, stop := context.WithDeadline(emailCtx, appleBilling.expires)
 			defer stop()
 			appleWorker.Run(billingCtx)
+		})
+	}
+	if playWorker != nil {
+		recoveryWorkers.Go(func() {
+			billingCtx, stop := context.WithDeadline(emailCtx, playBilling.expires)
+			defer stop()
+			playWorker.Run(billingCtx)
 		})
 	}
 	defer func() {

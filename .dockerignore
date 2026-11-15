@@ -55,6 +55,7 @@ internal/email/mailqueue/**
 !cmd/mychef/main.go
 !cmd/mychef/billing_runtime.go
 !cmd/mychef/billing_apple_runtime.go
+!cmd/mychef/billing_play_runtime.go
 !cmd/mychef/photo_normalize.go
 !go.mod
 !go.sum

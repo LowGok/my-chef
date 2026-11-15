@@ -9,6 +9,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -234,6 +235,66 @@ func TestNativeBillingRechecksAuthorityAfterProviderReturns(t *testing.T) {
 	}
 	if active, err := journal.Active(t.Context(), incarnation, billing.Sandbox, now); err != nil || active != nil {
 		t.Fatal("provider result granted access after verification was lost", err)
+	}
+}
+
+func TestNativeBillingSandboxExpiresDuringVerificationAndRestore(t *testing.T) {
+	for _, restore := range []bool{false, true} {
+		label := "checkout"
+		if restore {
+			label = "restore"
+		}
+		t.Run(label, func(t *testing.T) {
+			a, _, _, _ := lifecycleHTTPFixture(t)
+			signed := nativeFixtureLogin(t, a, a.Handler(nil))
+			const email = "native-http@example.test"
+			now := time.Now()
+			if err := a.Store.DB.Exec("UPDATE users SET email_verified_at=? WHERE email=?", now.Unix(), email).Error; err != nil {
+				t.Fatal(err)
+			}
+			journal, err := a.Config.Lifecycle.Billing(t.Context())
+			if err != nil {
+				t.Fatal(err)
+			}
+			var attempt struct{ ID, Binding string }
+			var active atomic.Bool
+			active.Store(true)
+			verifier := billingVerifier(func(_ context.Context, _ string) (billing.ProviderProof, error) {
+				active.Store(false)
+				return billing.ProviderProof{App: "com.example.preview", Product: "monthly", Region: "BEL",
+					Period: billing.VerifiedPeriod{Store: billing.Apple, Environment: billing.Sandbox, Binding: attempt.Binding,
+						Subscription: "delayed-lineage", Transaction: "delayed-order", Interval: billing.Monthly,
+						StartsAt: now, PaidThrough: now.Add(time.Hour), ObservedAt: now}}, nil
+			})
+			a.Config.NativeBilling = &NativeBilling{Journal: journal, Environment: billing.Sandbox, CheckoutEnabled: true,
+				SyntheticAccountsOnly: true, Available: active.Load,
+				Offers:    []billing.Offer{{App: "com.example.preview", Product: "monthly", Interval: billing.Monthly, Store: billing.Apple, Environment: billing.Sandbox}},
+				Providers: map[billing.Store]billing.Provider{billing.Apple: verifier}}
+			h := a.Handler(nil)
+			base := "/billing/checkouts"
+			res := callNative(h, "POST", base, `{"interval":"monthly"}`, signed.AccessToken)
+			if res.Code != 201 || json.Unmarshal(res.Body.Bytes(), &attempt) != nil || attempt.ID == "" {
+				t.Fatalf("reservation failed: %d", res.Code)
+			}
+			if res = callNative(h, "POST", base+"/"+attempt.ID+"/launch", "", signed.AccessToken); res.Code != 204 {
+				t.Fatalf("launch failed: %d", res.Code)
+			}
+			route := base + "/" + attempt.ID + "/verify"
+			if restore {
+				route = "/billing/restore"
+			}
+			res = callNative(h, "POST", route, `{"receipt":"synthetic"}`, signed.AccessToken)
+			if res.Code != 404 || strings.Contains(res.Body.String(), "completeStoreTransaction") {
+				t.Fatalf("expired Sandbox returned a fulfilment response: %d", res.Code)
+			}
+			var owner string
+			if err := a.Store.SQL.QueryRow("SELECT a.incarnation FROM account_incarnations a JOIN users u ON u.user_id=a.user_id WHERE email=?", email).Scan(&owner); err != nil {
+				t.Fatal(err)
+			}
+			if paid, err := journal.Active(t.Context(), owner, billing.Sandbox, now); err != nil || paid != nil {
+				t.Fatal("the response created a paid period after Sandbox expiry", err)
+			}
+		})
 	}
 }
 

@@ -12,15 +12,9 @@ import (
 	"encoding/json/v2"
 	"encoding/pem"
 	"errors"
-	"io"
-	"net"
 	"net/http"
-	"net/netip"
-	"net/url"
 	"os"
-	"path/filepath"
 	"regexp"
-	"syscall"
 	"time"
 
 	"github.com/LowGok/my-chef/internal/billing"
@@ -34,7 +28,6 @@ const appleRootG3SHA256 = "63343abfb89a6a03ebb57e9b3f5fa7be7c4f5c756f3017b3a8c48
 
 var (
 	errAppleSandbox     = errors.New("invalid private Apple billing sandbox configuration")
-	applePrivateOrigin  = regexp.MustCompile(`^[a-z0-9-]+\.tail[a-z0-9]+\.ts\.net$`)
 	applePreviewProduct = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,128}$`)
 	applePreviewGroup   = regexp.MustCompile(`^[0-9]{1,32}$`)
 	applePreviewAppID   = regexp.MustCompile(`^[A-Z0-9]{10}\.` + regexp.QuoteMeta(applePreviewBundle) + `$`)
@@ -78,20 +71,12 @@ func loadAppleBillingSandbox(app config.Config, inbox *config.FixtureInbox) (*ap
 		}
 		return nil, nil
 	}
-	host, _, listenErr := net.SplitHostPort(app.Addr)
-	ip, ipErr := netip.ParseAddr(host)
-	origin, err := url.Parse(app.Origin)
-	if listenErr != nil || ipErr != nil || !ip.IsLoopback() || err != nil || origin.Scheme != "https" ||
-		!applePrivateOrigin.MatchString(origin.Hostname()) || origin.User != nil || origin.Path != "" ||
-		origin.RawQuery != "" || origin.Fragment != "" || !app.Secure || app.Provider != "fixture" ||
-		os.Getenv("MYCHEF_DEV") != "1" || os.Getenv("MYCHEF_E2E") != "1" || inbox == nil ||
-		inbox.Origin != app.Origin || inbox.CapabilityHash == ([32]byte{}) || !time.Now().Before(inbox.Expires) ||
-		!disposableBillingFiles(os.Getenv("MYCHEF_BILLING_PREVIEW_ROOT"), app.Database, app.LifecycleDatabase) {
+	if !privateBillingSandbox(app, inbox, time.Now()) {
 		return nil, errAppleSandbox
 	}
-	raw, err := readAppleSandboxCredential(path)
+	raw, err := readPrivateBillingSandboxCredential(path)
 	if err != nil {
-		return nil, err
+		return nil, errAppleSandbox
 	}
 	defer clear(raw)
 	var saved appleBillingCredential
@@ -140,37 +125,6 @@ func loadAppleBillingSandbox(app config.Config, inbox *config.FixtureInbox) (*ap
 		return nil, errAppleSandbox
 	}
 	return mode, nil
-}
-
-func readAppleSandboxCredential(path string) ([]byte, error) {
-	if !filepath.IsAbs(path) || filepath.Clean(path) != path {
-		return nil, errAppleSandbox
-	}
-	fd, err := syscall.Open(path, syscall.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK|syscall.O_CLOEXEC, 0)
-	if err != nil {
-		return nil, errAppleSandbox
-	}
-	file := os.NewFile(uintptr(fd), path)
-	if file == nil {
-		_ = syscall.Close(fd)
-		return nil, errAppleSandbox
-	}
-	defer func() { _ = file.Close() }()
-	info, err := file.Stat()
-	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 {
-		return nil, errAppleSandbox
-	}
-	sys, ok := info.Sys().(*syscall.Stat_t)
-	if !ok || sys.Nlink != 1 || int(sys.Uid) != os.Geteuid() {
-		return nil, errAppleSandbox
-	}
-	const limit = 8 << 10
-	raw, err := io.ReadAll(io.LimitReader(file, limit+1))
-	if err != nil || len(raw) == 0 || len(raw) > limit {
-		clear(raw)
-		return nil, errAppleSandbox
-	}
-	return raw, nil
 }
 
 func appleSandboxRoots() (*x509.CertPool, error) {

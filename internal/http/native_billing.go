@@ -30,10 +30,14 @@ type NativeBilling struct {
 	RequireAppleAttestation bool
 }
 
+func (b *NativeBilling) available() bool {
+	return b != nil && (b.Available == nil || b.Available())
+}
+
 func (b *NativeBilling) Entitlements(fallback store.PersonalEntitlementReader) store.PersonalEntitlementReader {
 	current := store.NativeBillingEntitlementReader(b.Journal, b.Environment, fallback, nil)
 	return func(ctx context.Context, tx *gorm.DB, user int64, incarnation string) (store.PersonalEntitlement, error) {
-		active := b.Available == nil || b.Available()
+		active := b.available()
 		if active && b.SyntheticAccountsOnly {
 			var err error
 			active, err = store.SyntheticFixtureAccount(tx.WithContext(ctx), user, incarnation)
@@ -105,7 +109,7 @@ func (a *API) billingRoutes(mux *http.ServeMux) {
 	}
 	for path, handler := range routes {
 		mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
-			if available := a.Config.NativeBilling.Available; available != nil && !available() {
+			if !a.Config.NativeBilling.available() {
 				http.NotFound(w, r)
 				return
 			}
@@ -121,6 +125,10 @@ func (a *API) billingRoutes(mux *http.ServeMux) {
 var errBillingEmail = errors.New("billing requires verified email")
 
 func (a *API) billingActor(r *http.Request) (string, billing.Store, error) {
+	// This also runs inside the commit fence after provider I/O.
+	if !a.Config.NativeBilling.available() {
+		return "", "", billing.ErrPurchaseBinding
+	}
 	current := info(r)
 	s := billing.Apple
 	switch current.Platform {

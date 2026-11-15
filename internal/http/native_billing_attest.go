@@ -52,7 +52,7 @@ func appleBillingID(value string) ([32]byte, bool) {
 
 func (a *API) billingAppleActor(r *http.Request) (string, error) {
 	b := a.Config.NativeBilling
-	if !b.appleAttestationEnabled() || (b.Available != nil && !b.Available()) {
+	if !b.appleAttestationEnabled() {
 		return "", billing.ErrPurchaseBinding
 	}
 	owner, platform, err := a.billingActor(r)
