@@ -1,6 +1,6 @@
 ---
 status: planned
-status_description: "Owner accepted R-2 technical baseline fa1881e. Prepare tasks; publish the claim after runtime PR 36 merges and its delivery passes, before code."
+status_description: "Owner accepted R-2 baseline fa1881e; nineteen tasks are prepared. Fresh-main spec review precedes claim publication, and code waits for the runtime signed delivery."
 issue: null
 goal: "Inactive newsletter contacts retain their userID and non-consenting state without unnecessary clear email or expired mail/proof history."
 covers:
@@ -36,7 +36,7 @@ Matching remains personal data. The private website feature owns the supported n
 
 ### Inspected source and review
 
-Source is merged newsletter-retention app commit 49468fd2aebf6b219c3758aa0e7cecdcbe533306, whose code matches reviewed integration 405f760c713972958882b92e0ec553b9ee9adb18. Current published schema is 26. PR 34 merged as d2df37b. The separate newsletter production runtime is implemented locally at 572435c and undergoing its own independent review; this feature does not change its accepted no-schema scope or claim. Its required delivery must precede this feature's code claim.
+Source is merged newsletter-retention app commit 49468fd2aebf6b219c3758aa0e7cecdcbe533306, whose code matches reviewed integration 405f760c713972958882b92e0ec553b9ee9adb18. Current published schema is 26. PR 34 merged as d2df37b. The separate newsletter runtime was independently reviewed at 572435c and PR 36 merged as 564990f after all required PR CI passed at a551344. Its post-merge signed Delivery 43752793138 is retrying one unchanged Java-test timeout; no release is yet claimed. This feature does not change that accepted no-schema scope or claim. Its required delivery must precede this feature's code claim.
 
 `migrations/001_initial.sql:1-6` requires unique non-null users.email. `005_email_identity.sql` requires nonempty unique email_key. `internal/store/email_identity.go:18-37` derives clear case-folded matching fields. Capture resolves by email_key (`internal/newsletter/capture.go:299-325`); verified signup binds and promotes the same row (`internal/auth/registration.go:244-253,414-431`); operator authority compares the same address (`internal/store/newsletter_lifecycle.go:21-39`). No persistent protected-match-to-ID facility exists.
 
