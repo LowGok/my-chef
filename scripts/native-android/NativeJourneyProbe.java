@@ -14,6 +14,7 @@ import android.view.View;
 import android.view.ViewConfiguration;
 import android.view.ViewGroup;
 import android.view.accessibility.AccessibilityEvent;
+import android.view.accessibility.AccessibilityManager;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.accessibility.AccessibilityWindowInfo;
 import android.webkit.WebView;
@@ -369,7 +370,14 @@ public final class NativeJourneyProbe extends Instrumentation {
         throw new IllegalStateException(!hadWindow ? "speech-window" : !hadNode ? "speech-node" : !hadState ? "speech-state" : "speech-event");
     }
 
+    private void speechTouchMode() {
+        AccessibilityManager manager = getTargetContext().getSystemService(AccessibilityManager.class);
+        if (manager == null || !manager.isTouchExplorationEnabled())
+            throw new IllegalStateException("speech-touch-mode");
+    }
+
     private void speechToggle(String before) throws Exception {
+        speechTouchMode();
         speechFocus(before);
         UiAutomation automation = interactiveWindows();
         int[] origin = new int[2], size = new int[2];
@@ -382,7 +390,12 @@ public final class NativeJourneyProbe extends Instrumentation {
                 MotionEvent event = MotionEvent.obtain(down, SystemClock.uptimeMillis(), action,
                     origin[0] + size[0] * .5f, origin[1] + size[1] * .4f, 0);
                 event.setSource(InputDevice.SOURCE_TOUCHSCREEN);
-                try { automation.injectInputEvent(event, true); } finally { event.recycle(); }
+                // Waiting for each dispatch can stretch a double tap into
+                // separate explore taps on a hosted emulator. Inject this
+                // real gesture asynchronously; the caller verifies its effect.
+                try {
+                    if (!automation.injectInputEvent(event, false)) throw new IllegalStateException("input-denied");
+                } finally { event.recycle(); }
                 SystemClock.sleep(30);
             }
             SystemClock.sleep(80);
@@ -390,11 +403,12 @@ public final class NativeJourneyProbe extends Instrumentation {
     }
 
     private void speechOrder() throws Exception {
+        speechTouchMode();
         speechFocus("on");
         UiAutomation automation = interactiveWindows();
         boolean status = false;
-        int[] size = new int[2];
-        runOnMainSync(() -> { size[0] = web.getWidth(); size[1] = web.getHeight(); });
+        int[] origin = new int[2], size = new int[2];
+        runOnMainSync(() -> { web.getLocationOnScreen(origin); size[0] = web.getWidth(); size[1] = web.getHeight(); });
         for (int step = 0; step < 20; step++) {
             // Real TalkBack swipe-next gesture, rather than direct focus of the
             // desired later control. The intervening status must precede Refresh.
@@ -403,9 +417,11 @@ public final class NativeJourneyProbe extends Instrumentation {
             for (int move = 0; move <= 8; move++) {
                 int action = move == 0 ? MotionEvent.ACTION_DOWN : move == 8 ? MotionEvent.ACTION_UP : MotionEvent.ACTION_MOVE;
                 MotionEvent event = MotionEvent.obtain(down, SystemClock.uptimeMillis(), action,
-                    size[0] * (.3f + .4f * move / 8), y, 0);
+                    origin[0] + size[0] * (.3f + .4f * move / 8), origin[1] + y, 0);
                 event.setSource(InputDevice.SOURCE_TOUCHSCREEN);
-                try { automation.injectInputEvent(event, true); } finally { event.recycle(); }
+                try {
+                    if (!automation.injectInputEvent(event, false)) throw new IllegalStateException("input-denied");
+                } finally { event.recycle(); }
                 SystemClock.sleep(25);
             }
             SystemClock.sleep(500);
@@ -512,7 +528,7 @@ public final class NativeJourneyProbe extends Instrumentation {
             String reason = error.getMessage();
             if (reason != null && reason.contains("already registered")) reason = "automation-busy";
             else if (reason != null && (reason.contains("UiAutomation not connected") || reason.contains("connecting UiAutomation"))) reason = "automation-connect";
-            failure.putString("probeReason", reason != null && reason.matches("launch|webview|pinch-disabled|probe-timeout|native-control|native-window-(?:unfocused|bounds)|control-(?:timeout|target|geometry|viewport|outside-viewport|outside-webview|screen-bounds)|input-denied|picker-(?:window|target|activation|confirmation|return)|accessibility-controls|speech-(window|node|state|event)|automation-(busy|connect)") ? reason : "instrumentation");
+            failure.putString("probeReason", reason != null && reason.matches("launch|webview|pinch-disabled|probe-timeout|native-control|native-window-(?:unfocused|bounds)|control-(?:timeout|target|geometry|viewport|outside-viewport|outside-webview|screen-bounds)|input-denied|picker-(?:window|target|activation|confirmation|return)|accessibility-controls|speech-(window|node|state|event|touch-mode)|automation-(busy|connect)") ? reason : "instrumentation");
             finish(Activity.RESULT_CANCELED, failure);
         } finally {
             runOnMainSync(() -> WebView.setWebContentsDebuggingEnabled(false));

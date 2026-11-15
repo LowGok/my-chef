@@ -1227,6 +1227,7 @@ async function analyticsJourneys() {
     adb("shell", "cmd", "media_session", "volume", "--stream", "10", "--set", "10");
     adb("shell", "settings", "put", "secure", "enabled_accessibility_services", service);
     adb("shell", "settings", "put", "secure", "accessibility_enabled", "1");
+    adb("shell", "settings", "put", "secure", "touch_exploration_enabled", "1");
     try {
       await expect.poll(() => adb("shell", "dumpsys", "activity", "services", service.split("/")[0])
         .split("\n").some(line => /ServiceRecord/.test(line) && line.includes("TalkBackService"))).toBe(true);
@@ -1252,6 +1253,7 @@ async function analyticsJourneys() {
     } finally {
       adb("shell", "settings", "delete", "secure", "enabled_accessibility_services");
       adb("shell", "settings", "put", "secure", "accessibility_enabled", "0");
+      adb("shell", "settings", "put", "secure", "touch_exploration_enabled", "0");
     }
   }
   async function hear(target: "on" | "off" | "stale" | "offline" | "order" | "signup-on" | "signup-off" | "cleanup" | "backup") {
@@ -1261,11 +1263,22 @@ async function analyticsJourneys() {
       : target === "cleanup" || target === "backup" ? page.getByRole("status").filter({ hasText:
         target === "cleanup" ? "Active deletion is in progress" : "isolated backup cleanup is pending" }) : toggle();
     await withTalkBack(control, async () => {
-      await fixture("speech-start", { target });
-      const focus = target === "order" ? "on" : target.replace("signup-", "");
-      await probeAction(target === "order" ? "speech-order" : "speech-focus", focus);
-      await Bun.sleep(16000);
-      expect((await fixture("speech-stop", { target })).passed).toBe(true);
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        await fixture("speech-start", { target });
+        const focus = target === "order" ? "on" : target.replace("signup-", "");
+        await probeAction(target === "order" ? "speech-order" : "speech-focus", focus);
+        await Bun.sleep(16000);
+        try {
+          expect((await fixture("speech-stop", { target })).passed).toBe(true);
+          return;
+        } catch (error) {
+          // Re-observe the same unchanged control after cold/queued speech.
+          // Never retry activation or turn missing speech into a true flag.
+          if (attempt === 3) throw error;
+          console.log("Installed Android speech refocus: " + target + " attempt=" + (attempt + 1));
+          await Bun.sleep(1000);
+        }
+      }
     });
   }
   async function voiceToggle(before: "on" | "off") {

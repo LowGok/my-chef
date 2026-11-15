@@ -121,7 +121,8 @@ def full_journeys(receipt, artifact):
                     raise RuntimeError('Incomplete actual TalkBack speech evidence')
                 checks['accessibility'].update(platformScreenReader=True, spokenStatesAndErrors=True, focusOrder=True)
                 metadata['speech'] = dict(method='stock TalkBack speaker output and pinned offline recognition',
-                                         targets=sorted(speech.passed), rawAudioRetained=False, externalRecognition=False)
+                                         targets=sorted(speech.passed), attempts=speech.attempts,
+                                         rawAudioRetained=False, externalRecognition=False)
         else:
             devices = json.loads(native.command('xcrun', 'simctl', 'list', 'devices', 'booted', '-j'))['devices']
             identifiers = [d['udid'] for group in devices.values() for d in group if d.get('name') == 'MyChef fixture']

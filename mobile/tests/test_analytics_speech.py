@@ -5,7 +5,7 @@ import tempfile
 import unittest
 import wave
 
-from analytics_speech import audible, matches
+from analytics_speech import Speech, audible, matches
 
 
 class SpeechEvidenceTest(unittest.TestCase):
@@ -38,6 +38,15 @@ class SpeechEvidenceTest(unittest.TestCase):
         self.assertFalse(matches('cleanup', 'Off.'))
         self.assertTrue(matches('backup', 'Off. Active data is erased; isolated backup cleanup is pending for up to seven days.'))
         self.assertFalse(matches('backup', 'Active deletion is in progress'))
+
+    def test_capture_retries_are_bounded_and_cannot_mark_missing_speech_passed(self):
+        speech = Speech.__new__(Speech)
+        speech.active, speech.passed, speech.attempts = None, set(), {'on': 3}
+        with self.assertRaisesRegex(ValueError, 'attempt limit'):
+            speech.operate('speech-start', 'on')
+        self.assertEqual(speech.passed, set())
+        self.assertIsNone(speech.active)
+        self.assertEqual(speech.attempts, {'on': 3})
 
     def test_silence_wrong_format_and_unbounded_audio_are_not_evidence(self):
         with tempfile.TemporaryDirectory(prefix='analytics-speech-') as directory:

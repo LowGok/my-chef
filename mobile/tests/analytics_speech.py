@@ -100,6 +100,7 @@ class Speech:
         self.state, self.native, self.stack = state, native, stack
         self.active, self.capture = None, None
         self.passed = set()
+        self.attempts = {}
         socket = state / 'speaker.sock'
         pulse_root = state / 'pulse'
         pulse_root.mkdir(mode=0o700)
@@ -140,8 +141,13 @@ class Speech:
         if operation == 'speech-start':
             if self.active is not None or target in self.passed:
                 raise ValueError('Duplicate speech capture')
+            attempt = self.attempts.get(target, 0) + 1
+            if attempt > 3:
+                raise ValueError('Speech capture attempt limit')
+            self.attempts[target] = attempt
             self.active, self.started = target, time.monotonic()
-            path = self.state / ('speech-' + target + '.wav')
+            path = self.state / ('speech-' + target + '-' + str(attempt) + '.wav')
+            self.path = path
             self.capture = subprocess.Popen(['ffmpeg', '-nostdin', '-v', 'error', '-f', 'pulse', '-i',
                 self.sink + '.monitor', '-t', '40', '-vn', '-ac', '1', '-ar', '16000', '-c:a', 'pcm_s16le', str(path)],
                 env=self.env, stdout=self.log, stderr=self.log)
@@ -154,15 +160,16 @@ class Speech:
         self.capture.send_signal(signal.SIGINT)
         self.capture.wait(timeout=12)
         self.capture, self.active = None, None
-        path = self.state / ('speech-' + target + '.wav')
+        path = self.path
         if not audible(path):
+            path.unlink(missing_ok=True)
             raise RuntimeError('Speaker capture is silent or outside bounds')
         root = tools()
         model = root / 'model.bin'
         with model.open('rb') as stream:
             if hashlib.file_digest(stream, 'sha256').hexdigest() != MODEL_SHA:
                 raise RuntimeError('Offline model changed')
-        prefix = self.state / ('speech-' + target)
+        prefix = path.with_suffix('')
         result = subprocess.run([str(root / 'recognizer/build/bin/whisper-cli'), '-m', str(model), '-f', str(path),
             '-l', 'en', '-t', '4', '-np', '-nt', '-otxt', '-of', str(prefix)],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=60)

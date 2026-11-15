@@ -142,6 +142,9 @@ def run(state, control, account, identifier, container, layout_only=False, voice
             speech = re.findall(r'Analytics iOS spoken control: role=(true|false) disabled=(true|false) state=(on|off|unknown)', text)
             if speech:
                 detail += '; spoken role/disabled/state ' + ', '.join('/'.join(row) for row in speech[-4:])
+            voice_errors = re.findall(r'Analytics iOS voice API error: ([0-9]{1,2}|other)', text)
+            if voice_errors:
+                detail += '; voice API error codes ' + ','.join(sorted(set(voice_errors)))
             vocabularies = re.findall(r'Analytics iOS spoken vocabulary: ([a-z ,]{0,200})', text)
             allowed = {'help improve mychef', 'analytics is off', 'unavailable', 'check box', 'checkbox', 'checked', 'button', 'web content', 'create an account', 'privacy'}
             for vocabulary in vocabularies[-2:]:

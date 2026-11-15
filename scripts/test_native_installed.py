@@ -544,6 +544,23 @@ def android(state, stack, ca, apk):
     return metadata, launch, stop, diagnostics
 
 
+def ios_host_resources(state):
+    """Coarse ephemeral-runner diagnostics; no command lines or private paths."""
+    result = {"diskFreeMiB": shutil.disk_usage(state).free // 1024**2}
+    try:
+        memory = subprocess.run(["/usr/bin/vm_stat"], env=ENV, capture_output=True, text=True, timeout=10)
+        size = re.search(r"page size of ([0-9]+) bytes", memory.stdout)
+        if size:
+            for name, field in (("free", "Pages free"), ("active", "Pages active"),
+                                ("wired", "Pages wired down"), ("compressed", "Pages occupied by compressor")):
+                value = re.search(re.escape(field) + r":\s*([0-9]+)", memory.stdout)
+                if value:
+                    result[name + "MiB"] = int(value[1]) * int(size[1]) // 1024**2
+    except (OSError, subprocess.SubprocessError):
+        pass
+    print("Simulator runner resources: " + json.dumps(result, sort_keys=True), flush=True)
+
+
 def ios(state, stack, ca, package, model="iPhone 16", fixture_name="MyChef fixture"):
     if (model, fixture_name) not in (("iPhone 16", "MyChef fixture"),
                                     ("iPhone SE (3rd generation)", "MyChef analytics small fixture"),
@@ -569,8 +586,14 @@ def ios(state, stack, ca, package, model="iPhone 16", fixture_name="MyChef fixtu
     if not simctl.is_relative_to(Path(ENV["DEVELOPER_DIR"]).resolve()) or not simctl.is_file():
         raise RuntimeError("Could not resolve the selected Xcode simulator tool")
     print("Booting iPhone simulator", flush=True)
+    ios_host_resources(state)
     def sim(*args, timeout=150):
-        return command(str(simctl), *args, timeout=timeout)
+        try:
+            return command(str(simctl), *args, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            print("Simulator operation timed out: " + args[0], flush=True)
+            ios_host_resources(state)
+            raise
 
     runtimes = json.loads(sim("list", "devices", "available", "-j"))["devices"]
     required_runtime = "iOS-27-0" if model == "iPhone 17" else "iOS-18-6"
@@ -590,6 +613,10 @@ def ios(state, stack, ca, package, model="iPhone 16", fixture_name="MyChef fixtu
 
     stack.callback(cleanup)
     sim("boot", identifier)
+    # Activate the selected Xcode's simulator UI before the first app launch;
+    # the same owned device must still finish boot, trust and real HTTPS.
+    command("/usr/bin/open", "-a", str(Path(ENV["DEVELOPER_DIR"]) / "Applications/Simulator.app"),
+            "--args", "-CurrentDeviceUDID", identifier, timeout=30)
     try:
         sim("bootstatus", identifier, timeout=240)
     except subprocess.TimeoutExpired as error:

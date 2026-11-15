@@ -450,15 +450,29 @@ final class AnalyticsProbe: XCTestCase {
                 guard normalized.contains(expected) else { return false }
                 return !controlRole || value.range(of: "switch|check.?box|button|link", options: [.regularExpression, .caseInsensitive]) != nil
             }
-            if let current = try? voice.currentSpeech().utterance, matches(current) { return current }
+            func observe(_ operation: () throws -> String) -> String? {
+                do { return try operation() }
+                catch {
+                    let code = (error as NSError).code
+                    print("Analytics iOS voice API error: " + ((0...10).contains(code) ? String(code) : "other"))
+                    return nil
+                }
+            }
+            if let current = observe({ try voice.currentSpeech().utterance }), matches(current) { return current }
             for reverse in [backward, !backward] {
                 // Reserve time for both directions if the first reaches a
                 // boundary without throwing or changing its announcement.
                 let deadline = Date().addingTimeInterval(45)
                 for _ in 0..<32 {
                     if Date() >= deadline { break }
-                    let output = try? (reverse ? voice.moveBackward() : voice.moveForward()).utterance
-                    guard let output = output else { break }
+                    let output = observe { try (reverse ? voice.moveBackward() : voice.moveForward()).utterance }
+                    guard let output = output else {
+                        // A navigation target can be silent. Keep searching
+                        // within the bounded budget instead of abandoning the
+                        // direction after the first NoSpeech response.
+                        RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+                        continue
+                    }
                     if matches(output) { return output }
                 }
             }
