@@ -1,6 +1,6 @@
 ---
 status: draft
-status_description: "Proposal requested after the notice review; additional schema/identity scope is not accepted and no implementation is authorized."
+status_description: "Owner approved the reduced inactive-contact scope and prepared plan through the Hub. Concrete SQL/key/restore design is being prepared for independent review before task and claim publication."
 issue: null
 goal: "Inactive newsletter contacts retain their userID and non-consenting state without unnecessary clear email or expired mail/proof history."
 covers:
@@ -15,6 +15,9 @@ covers:
   - migrations/
   - scripts/
   - README.md
+  - .dockerignore
+  - .github/workflows/delivery.yml
+  - deploy/newsletter/
 ---
 
 # Plan: Minimise inactive newsletter identities
@@ -25,15 +28,15 @@ covers:
 
 The owner selected stable contact IDs without automatic age deletion, necessity review when public app signup opens or the purpose changes, and verified erasure. Those choices remain. The notice review found that keeping a stable ID does not itself justify retaining clear email and every old proof/mail reference.
 
-The proposal is to keep an inactive contact's same userID, account classification, non-consenting status and a protected email-match key. A later supplied email can be verified and matched to that ID. Clear email and unnecessary old references can be discarded once current delivery/confirmation authority ends. Withdrawal-only links must continue working. Confirmed subscribers and full app accounts keep addresses needed for their current functions.
+Keep an inactive contact's same userID, account classification, non-consenting status and protected email-match key. A later explicitly supplied and verified email resolves to that ID. Remove unnecessary clear email and old proof/mail references once their current authority ends. Outstanding withdrawal-only links keep working. Confirmed subscribers and full app accounts keep the addresses required for their current functions.
 
-This needs a separate schema/identity feature. Current lookup, signup and operator checks expect a real normalized email; replacing that value with a hash would break them. No migration number is allocated and no data is changed by this draft. Existing newsletter-role and website implementation can continue while production collection stays off. This proposal does not describe reduced retention as already deployed.
+The owner approved this prepared scope through the Hub on 15 November 2026: keep contact IDs and opt-outs, use protected matching, complete signup/confirmation/unsubscribe checks, then publish the reviewed notices and enable public signup last. Beta, public app-account signup and analytics remain unchanged. This is additional schema/identity work, separate from the newsletter role's accepted no-schema feature. This document defines its technical design for independent review; it does not claim the representation is deployed.
 
-The matching record remains personal data. The controller still needs a supported purpose/basis and balancing conclusion, readable notice and protected key/restore operations. The recommendation reduces unnecessary exposure; it does not certify compliance. The owner must first decide whether to authorize this additional scope. Acceptance would later authorize implementation through its own tasks and independent review, with delivery and live migration subject to their existing approvals.
+Matching remains personal data. The private website feature owns the supported necessity/balancing assessment, controller approval, actual provider/operations facts and localized notice. This backend feature provides the verified representation, rights and recovery contract used by that assessment. No synthetic test certifies legal compliance or real mail receipt. A reviewed technical baseline, tasks and published claim precede code; delivery and live activation retain their required gates.
 
 ### Inspected source and review
 
-Source is merged newsletter-retention app commit 49468fd2aebf6b219c3758aa0e7cecdcbe533306, whose code matches reviewed integration 405f760c713972958882b92e0ec553b9ee9adb18. Current published schema is 26. The separate production-role spec is under PR 34; this proposal changes neither its accepted no-schema scope nor its claim.
+Source is merged newsletter-retention app commit 49468fd2aebf6b219c3758aa0e7cecdcbe533306, whose code matches reviewed integration 405f760c713972958882b92e0ec553b9ee9adb18. Current published schema is 26. PR 34 merged as d2df37b. The separate newsletter production runtime is implemented locally at 572435c and undergoing its own independent review; this feature does not change its accepted no-schema scope or claim. Its required delivery must precede this feature's code claim.
 
 `migrations/001_initial.sql:1-6` requires unique non-null users.email. `005_email_identity.sql` requires nonempty unique email_key. `internal/store/email_identity.go:18-37` derives clear case-folded matching fields. Capture resolves by email_key (`internal/newsletter/capture.go:299-325`); verified signup binds and promotes the same row (`internal/auth/registration.go:244-253,414-431`); operator authority compares the same address (`internal/store/newsletter_lifecycle.go:21-39`). No persistent protected-match-to-ID facility exists.
 
@@ -43,41 +46,65 @@ The private website worksheet maps each field to purpose at website 7d04298459a4
 
 ## Scope
 
-Proposed: a protected inactive-email matching representation; explicit transitions between temporary clear-address handling, confirmed subscription and inactive minimised contact; shared capture/signup/email-change/operator/proof compatibility; expiry of unnecessary references; recovery and conservative backfill tests. Keep stable IDs, non-consenting state, approved review/erasure rules and anti-replay authority.
+Include a protected inactive-email matching representation; explicit transitions between temporary clear-address handling, confirmed subscription and inactive minimised contact; shared capture/signup/email-change/operator/proof compatibility; expiry of unnecessary references; recovery and conservative backfill tests. Keep stable IDs, non-consenting state, approved review/erasure rules and anti-replay authority.
 
 Exclude deletion of contact IDs merely because they age, changes to full app account retention, advertising/analytics/campaign activation, beta operation, new providers, migration-number reuse or changing published checksums. No reduced-data promise may be published before the actual code and migration are verified.
 
 ## Design
 
-### Representation and boundary
+### SQL representation and identity ownership
 
-Add an explicit reviewed matching representation for newsletter-only identities, binding the userID/incarnation to a purpose-keyed, versioned HMAC of the existing canonical email form. Keep a unique match-to-owner constraint. Never use an unkeyed email hash, place a token into the clear email_key column, or fabricate a mailbox to satisfy old constraints. The additive migration must explicitly permit the reduced state while retaining the existing constraints for full accounts and clear-address states. Exact SQL layout is settled against fresh main after the owner chooses this scope; no migration number is reserved here.
+Use the next available additive application migration after fresh-main coordination. Current main is schema 26; no migration number is reserved by this draft. Add a distinct `newsletter_minimised` state for newsletter-only users. Permit NULL `users.email`, `email_key` and opaque placeholder `username` only in this state, with `isNewsletterOnly=1`, no password/verified mailbox and no app profile. Normal/full-account rows retain their current required nonempty identity fields and uniqueness. Keep userID and incarnation unchanged. Unexpected app/profile data in a newsletter-only row is an ambiguity requiring operator review, not permission to erase an account.
 
-Retain the stable userID, isNewsletterOnly, opaque incarnation and minimum current non-consenting status/revision/order. Retain only justified current notice/decision evidence. Locale/source and obsolete history are not required merely to match an identity and must be removed or separately justified. Existing keyed erasure barriers remain limited to preventing old-job/backup resurrection, not contact or marketing authority.
+The pinned Go SQLite implementation is 3.54.1. A disposable probe at runtime source 572435c measured `SELECT sqlite_version()` and successful `ALTER TABLE ... ALTER email DROP NOT NULL`, followed by multiple NULL insertions under UNIQUE. Use this supported transactional alteration and replace the email-key validation triggers with explicit normal/minimised-state validation. Do not rebuild/drop `users`, disable foreign keys, use writable_schema, fabricate mailboxes or put a token into an address column. Preserve all existing indexes, foreign keys, IDs and published migration checksums. Recheck the actual pinned engine in migration tests rather than assuming Python's SQLite version supports the ALTER statement.
 
-### Transition and live authority
+Add `newsletter_identity_matches` with userID, incarnation, algorithm/key version and purpose-keyed email tag. Its constraints prevent duplicate match ownership. Full raw identities and protected matches share one resolver: a fresh canonical email must resolve to at most one consistent owner across both representations. A disagreement or unknown key/version fails closed. The resolver is used by capture, signup issuance/completion, email-change destination and operator authority. Low-level user creation must reject a known protected match instead of bypassing the resolver. Normal accounts without a newsletter match keep their existing behavior.
 
-Minimise a newsletter-only pending or withdrawn identity only when no current delivery, confirmation or account-transition authority requires its clear address. Include relevant signup/email-change/recovery work when deciding that boundary. An unexpired withdrawal-only link must not prevent minimisation or become invalid because the address is removed; preserve its opaque proof binding to the reduced identity. Confirmed subscriptions and promoted app accounts are excluded.
+Reduced subscriptions retain current non-consenting status, revision/proved order and the justified current notice/decision evidence. Remove the redundant clear email key, locale/source and obsolete request/confirmation history when no current operation requires them. Use NULL for absent optional data, never a misleading locale or address. The private field-purpose map identifies each remaining item and its purpose. This feature introduces no automatic deletion of contact IDs. Existing finite-policy generic deployments remain supported without silently applying the selected none-policy minimisation to them; an incompatible policy change with minimised records refuses readiness.
 
-Use an exclusive account-work fence and a transaction that rechecks classification, incarnation, status, revision/order and outstanding authority before writing the match and removing clear references. A concurrent verification, email change, signup or fresh request either completes before the recheck or is retried against the new state. A provider call already in flight settles before the transition. Partial failure rolls back; no missing-address row may be treated as delivery-ready.
+### Purpose key and namespace binding
 
-A new explicit request supplies a temporary delivery address and fresh authority. Matching it must find the same userID without public enumeration. Verification can restore the address for the newly authorized operation; verified app signup promotes the same row and never grants newsletter consent by itself. New requests do not revive expired or withdrawn permission. Email-change destinations, duplicate canonical forms, placeholder transfers and explicit erasure must consult the protected match safely as well as ordinary full-account lookup.
+Reuse the existing protected proof file's stable 32-byte rate root through a separate HMAC-SHA256 key-derivation domain, `mychef/newsletter/identity-match/v1/key`. Match the existing case-folded canonical email using that derived key and a distinct `v1` email-tag domain. Persist a non-secret key identity with the algorithm version in both SQL metadata and the authoritative journal. Do not use an unkeyed email digest or reuse rate/erasure tags as identity tags.
 
-Invalidate old dispatch before scrubbing expired recipient/proof references. Preserve only opaque ordering/idempotency/suppression evidence needed for replay protection. Do not claim that every historical record is required; tie retention to a concrete remaining authority or justified purpose. Existing short request/proof/retry periods remain; none means no automatic deletion of the identity, not unlimited live mail authority.
+The root is already required to remain stable for existing erasure/rate authority. This initial feature supports that immutable v1 key, not blind rotation. An absent, changed, discarded or unsupported key refuses matching, backfill and new identity creation; never interpret an unmatched token as a new customer. A later key version requires its own safe migration with the old key and fresh verified addresses where necessary. A one-way tag cannot be rehashed without its original input. Restore the approved key from its existing protected backup when recovering; do not create another provider, store or secret-transfer route.
 
-### Keys, operations and restore
+Explicit `mychef-migrate up` with the protected keyring initializes/upgrades the matching namespace and backfills relevant existing contacts. Repeating the command completes an interrupted backfill safely. Generic empty/non-newsletter stores may initialize without a matching binding; a production newsletter namespace cannot become ready before its explicit binding/backfill is complete. Startup validates the immutable store key configuration against both metadata copies. It never silently adopts a replacement key. A SQL snapshot missing its older binding is checked against the current journal before any restored contact can be served or matched.
 
-Keep matching secrets in the existing approved protected store, separate by purpose and version. Retain the required key versions for existing matches; losing or discarding one must fail closed rather than create a duplicate account or silently reset IDs. Rebinding to a new key needs fresh verified address input or an independently safe rotation design; a one-way token cannot be blindly rehashed without the original input. Verify recovery using synthetic fixtures and disclose this trade-off in the operational record. Do not add a provider or send secrets to a new backup destination.
+### Transient work and minimisation
 
-Extend verified operator matching/export/erasure to the reduced state using the freshly supplied address and protected match. Erasure removes the retained identity/match while the minimum anti-resurrection marker follows its existing assessed purpose. An erased identity is not promised to be recovered under its old ID by a later signup.
+Use the exclusive account-work fence and a transaction that rechecks classification, incarnation, current status, revision/order and active authority. Provider dispatch keeps the shared fence through its bounded provider call. Minimisation, withdrawal, confirmation/classification transitions and erasure cannot race past that call or partially change ownership. Shared transition helpers own locks once; nested self-fencing must not deadlock.
 
-Old backups may contain clear inactive addresses. Restore must apply the chosen minimisation and current authoritative journal before serving or dispatching, require fresh newsletter confirmation and preserve withdrawn suppression. Backfill only newsletter-only contacts under the same transaction/fence checks. Full accounts, beta and unrelated purposes remain unchanged. A missing key/journal, ambiguous identity, unfinished backfill or unsupported old schema keeps readiness false.
+Run bounded cleanup at startup before readiness and on a one-minute idle schedule, draining eligible batches with cancellation and SQL bounds. A failed cleanup/backfill worker makes capture unavailable. The normal successful sweep removes only expired/unneeded references, not the identity. It invalidates dispatch before removing old recipients, sealed proposals or proof references. Do not promise successful cleanup during a storage/process failure or erase current verification authority to satisfy a timer.
 
-### Upgrade, rollback and release
+For an existing raw newsletter-only identity, defer removal of its required clear fields while current newsletter confirmation/delivery or signup/email-change/recovery work genuinely requires them. Use actual proof/job expiries and purpose/ownership references, not the indefinite existence of a withdrawal-only token. Unconsumed signup proofs already have a keyed address tag and sealed draft; connect contact-bound signup outbox rows to their incarnation when issuing them. Expired signup, verification, email-change and recovery payloads use the existing bounded cleanup contracts; the dedicated role may call a shared expiry helper but starts no app/signup/recovery worker. Do not retain all historical rows merely because one new operation is live.
 
-Inspect the actual next schema and coordinate with current workstreams before authoring an additive migration. Test from schema 26 and every then-supported historical restore path. Never edit published migrations. Do not downgrade a minimised namespace into code that requires clear addresses or recompute addresses from guesses. Pause capture, retain proof/withdrawal access with compatible code and repair forward if no compatible rollback exists. No data loss, duplicate ID, revived consent or full-account modification may be used to make old code run.
+A new request for an already reduced identity supplies a temporary delivery address and fresh purpose-bound authority. Keep that address in the bounded request/proposal/outbox work needed for the requested operation; do not recreate a clear permanent user row merely for lookup. A verified newsletter confirmation may restore the required raw address for an active subscription. A verified app signup promotes the same userID, fills the normal profile/credential fields and does not grant newsletter consent. A fresh request alone never clears an opt-out or revives expired consent. Email change retains its existing full-account ID and verified placeholder-retirement semantics.
 
-Backend and website retain their own independent reviews/releases. Update the notice only when its actual representation, expiry and rights operations pass, with the controller's supported purpose/basis assessment and existing launch authority. This draft grants neither implementation nor live migration.
+Inspect all duplicated clear addresses and personal payloads: users, subscription/proof fields, outbox recipient/data/fingerprint and provider-event/ownership references, and account-transition work. Clear or remove expired purpose-owned rows when retry/delivery authority ends; preserve only justified opaque idempotency/order/suppression data. Existing 30-minute capture, 24-hour confirmation/signup and 23-hour delivery retry horizons remain. An unconsumed valid withdrawal proof stays usable without an age limit; consumed withdrawal retry metadata may be bounded to 24 hours, after which removing it cannot regain authority or consent. Full accounts and confirmed subscriber retention are outside the inactive-identity transition.
+
+### Withdrawal and rights without a clear mailbox
+
+Bind withdrawal proofs to userID, incarnation, current recipient tag/key version and consent revision, not a retained plaintext address. Backfill that binding for currently valid old withdrawal links while the canonical address is available. Preserve the actual token/hash and validity; replacing the contact representation does not issue a different link or consume the current one. Confirmation proofs keep only their bounded purpose-specific payload. Old, consumed, erased, reclassified or address-changed authority cannot affect another incarnation or a later decision.
+
+A newly supplied address plus normal operator mailbox verification is matched through the protected resolver for export/erasure. Export describes the reduced stored identity and distinguishes the freshly supplied verification address from data still stored. No public handler accepts operator authority or exposes a match, userID or classification. Erasure removes the identity and active match and uses the established minimum anti-resurrection barrier. Later explicit registration after verified erasure is not promised the erased ID.
+
+### Authoritative state, concurrency and old backups
+
+Upgrade the separate lifecycle journal explicitly to hold a minimal current newsletter-identity registry: userID/incarnation, opaque match/key identity, classification/retirement state, current non-consenting decision/order and minimised marker. It contains no clear mailbox, profile, proof token or mail body. This current-state record is needed to preserve an opt-out, prevent ID reuse and avoid restoring unnecessary raw fields from a snapshot taken before the latest transition. Do not retain every old decision or duplicate the raw SQL history in the journal.
+
+Identity creation, minimisation, withdrawal, confirmation and contact promotion/retirement use prepared journal intents plus SQL commit markers, then journal finalization. A crash before/after either commit is reconciled under the exclusive fence before readiness. Unknown/unfinished intents, key mismatch, ambiguous ownership or unsupported journal version refuse capture. Preserve the existing account-deletion reconciliation. Compact superseded committed transition history only after a durable current-state checkpoint makes older SQL markers unambiguous; retain the existing assessed erasure barriers. The current identity registry follows the approved ID/review/erasure rules.
+
+Maintain the authoritative allocated-ID high-water mark. A committed newsletter contact created after a SQL snapshot can be reconstructed from the journal as the same reduced, non-consenting userID/incarnation; an ID cannot be reassigned to another account after restore. If a candidate copy already has a conflicting incarnation or cannot safely reproduce a known later app-account promotion, refuse that restore and require a suitable current snapshot/recovery. Do not discard full-account credentials/profile or silently turn a promoted account back into a placeholder.
+
+Restore applies current journal state and explicit minimisation before serving or dispatching. Latest withdrawn state remains withdrawn unless a later explicit confirmation decision superseded it. A restored confirmed subscription becomes pending and needs a fresh request/confirmation; restoring a snapshot never restores consent. Old links/jobs/mail are invalid, no automatic reconfirmation is sent, and erased/retired identities are not recreated. Replay a snapshot from before minimisation, withdrawal, creation and promotion in tests. A direct old-copy startup also reconciles conservatively; it is not a shortcut around the explicit restore command.
+
+### Upgrade, rollback and notice handoff
+
+Stop the owned service for explicit migration/backfill/key or restore operations. Test from schema 26 and all retained supported historical restore paths, with SQL integrity, foreign-key checks and unchanged migration checksums. Record actual schema/journal versions and current ID allocator in the private rollout receipt. Beta data is neither imported nor migrated. Coordinate the application migration number with other current workstreams at claim time.
+
+Use compatible new code for an existing reduced namespace. Old code that requires clear fields must refuse its new schema/version. Pause site then backend capture, retain working proof/withdrawal access with compatible code and repair forward if there is no safe previous image. Do not restore clear inactive addresses, delete IDs, create duplicate ownership or make up finite ages to make a rollback start.
+
+Backend and website retain separate independent reviews and delivery receipts. This feature produces the source-grounded field/purpose/expiry/rights/key/restore handoff for the private website notice review. That feature publishes the complete notice only after deployed representation and actual operations match it, then verifies authorized real signup, mailbox confirmation and unsubscribe while public collection stays closed. The website enables collection last and verifies EN/FR/NL. Normal app enrollment, beta and analytics stay unchanged. This document does not report publication or actual delivery.
 
 ## Acceptance Criteria
 
@@ -85,7 +112,7 @@ Backend and website retain their own independent reviews/releases. Update the no
 - [ ] AC-02: Fresh verified newsletter/app/email-change flows safely resolve the same identity without enumeration, duplicate ownership or implicit newsletter consent; valid withdrawal links and operator rights continue working.
 - [ ] AC-03: Concurrency, expiry, erasure, restart, key recovery and old-backup restore cannot resurrect clear inactive data, old consent or dispatch, and do not change full accounts or unrelated purposes.
 - [ ] AC-04: The additive migration/backfill and compatible rollback are independently verified, with fail-closed readiness for missing keys/journal/ambiguous state and untouched published checksums.
-- [ ] AC-05: The actual notice and field-purpose/basis/retention record match the deployed representation and approved review/erasure criteria, with no claim that pseudonymous matching is anonymous or that current code already implements the proposal.
+- [ ] AC-05: The verified backend field/purpose/expiry/rights/key/restore handoff supports the separate private website assessment and localized notice against the approved review/erasure criteria, with no anonymous-data, deployed-behavior or live-delivery claim before its actual proof.
 
 ## Test Plan
 
@@ -95,24 +122,15 @@ Backend and website retain their own independent reviews/releases. Update the no
 | AC-02 | Same-ID verified signup/newsletter confirmation, case-folded collisions, email-change placeholder transfer, replay and concurrent requests, original unsubscribe links, verified export/erasure; generic public responses and no duplicate account. |
 | AC-03 | Race tests for send/withdraw/minimise/signup/expiry; process restart; missing/rotated/recovered key fixtures; current-journal restore of older raw snapshots; deleted-ID non-resurrection and full-account/analytics/reminder preservation. |
 | AC-04 | Explicit additive upgrade/backfill, migration checksum checks, integrity/foreign keys, mixed authority states, partial failures and safe pause/forward-repair; final container and exact independent implementation review. |
-| AC-05 | Field-purpose map against actual SQL and shared resolvers, independent notice/privacy review, controller decision on supported necessity/balancing, localized notice version/release binding and operational proof; missing evidence remains a blocker. |
+| AC-05 | Field-purpose map against actual SQL/shared resolvers and recovery tests; independent backend review and accurate public runbook; private website handoff identifies its notice/controller/operational gates and exact backend source/release. Actual notice publication and real-flow approval remain that feature's gate, not a synthetic backend claim. |
 
 ## Tasks
 
-None; additional scope is not accepted.
+None; concrete technical spec review precedes accepted implementation tasks and claim publication.
 
 ## Open Questions
 
-### Q1: Should the next specification use a protected inactive-contact match instead of retaining clear email and expired history?
-
-**Recommendation:** A. Specify the reduced representation while retaining the same userID and non-consenting state, the approved no-age-deletion/review rule and verified erasure.
-
-| Option | You get | It costs |
-| --- | --- | --- |
-| **A. Protected matching and reduced inactive records** | Same future verified ID and remembered choice with less retained clear data | A separate reviewed schema/shared-identity change, key recovery and integration tests before launch |
-| **B. Retain current fields with a supported necessity case** | Current implementation can remain if every retained field has a justified continuing purpose | A reasoned necessity/balancing conclusion explaining what reduced matching fails to achieve; product preference or a label alone is insufficient |
-
-**Why this is yours:** This is additional data-model and processing scope. The owner has already chosen stable IDs and review/erasure criteria; those are not being reopened. No adequate reason for the broader clear payload was found in the inspected source/product evidence.
+None for the product scope. The owner selected Q1 option A, protected matching and reduced inactive records, retaining stable IDs, opt-outs, the necessity-review points and verified erasure. Actual provider/key/host/backup/mailbox facts remain the private website rollout gates. This technical baseline still needs independent review before implementation tasks and a published claim.
 
 ## Review Log
 
@@ -123,4 +141,5 @@ None; additional scope is not accepted.
 
 - App 49468fd2aebf6b219c3758aa0e7cecdcbe533306, with inspected paths/lines above; no reduced matching implementation is claimed.
 - Private website assessment and focused notice review at d8b8ea2, field map/copy completion at 7d04298: this proposal follows a real unresolved review issue.
+- [SQLite ALTER TABLE](https://www.sqlite.org/lang_altertable.html): direct nullable-column alteration is available since 3.53.0; the pinned engine was independently probed as 3.54.1, avoiding a users-table rebuild.
 - [European Commission, legal grounds](https://commission.europa.eu/law/law-topic/data-protection/information-business-and-organisations/legal-grounds-processing-data_en): necessity/balancing, consent withdrawal and separate grounds. This source does not certify this proposed representation.
