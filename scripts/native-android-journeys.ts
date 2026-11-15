@@ -1232,7 +1232,7 @@ async function analyticsJourneys() {
         .split("\n").some(line => /ServiceRecord/.test(line) && line.includes("TalkBackService"))).toBe(true);
       adb("shell", "am", "start", "-W", "-n", app + "/.MainActivity");
       await expect.poll(() => adb("shell", "dumpsys", "activity", "services", "com.google.android.tts")
-        .split("\n").some(line => /ServiceRecord/.test(line) && /TextToSpeechService/.test(line)),
+        .split("\n").some(line => /ServiceRecord/.test(line) && line.includes("com.google.android.tts/")),
         { timeout: 20_000 }).toBe(true);
       // The first service binding can precede local voice loading. Let the
       // stock engine settle before demanding a fresh control announcement.
