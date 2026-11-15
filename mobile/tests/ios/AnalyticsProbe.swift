@@ -184,6 +184,27 @@ final class AnalyticsProbe: XCTestCase {
             XCUIElement.ElementType.link.rawValue, XCUIElement.ElementType.disclosureTriangle.rawValue)).firstMatch
         reveal(element); tapSettled(element)
     }
+    func pickerAction(save: Bool) {
+        // The HTML password dialog also has Cancel. Wait for the system
+        // navigation bar so the native picker owns this action.
+        let cancel = app.navigationBars.buttons["Cancel"].firstMatch
+        XCTAssertTrue(cancel.waitForExistence(timeout: 30), "System export picker must open")
+        if !save { tapSettled(cancel); return }
+        let local = app.staticTexts["On My iPhone"].firstMatch
+        if !local.exists || !local.isHittable {
+            for label in ["Browse", "Locations"] {
+                let back = app.navigationBars.buttons[label].firstMatch
+                if back.exists && back.isHittable { tapSettled(back); break }
+            }
+        }
+        if local.waitForExistence(timeout: 5) && local.isHittable { tapSettled(local) }
+        let downloads = app.staticTexts["Downloads"].firstMatch
+        if downloads.exists && downloads.isHittable { tapSettled(downloads) }
+        let saveButton = app.navigationBars.buttons["Save"].firstMatch
+        XCTAssertTrue(saveButton.waitForExistence(timeout: 15), "System picker Save must exist")
+        waitFor({ saveButton.isEnabled && saveButton.isHittable }, "System picker needs a writable local destination")
+        tapSettled(saveButton)
+    }
     func fill(_ label: String, _ text: String, secure: Bool = false) {
         print("Analytics iOS control: " + label)
         hasEnteredData = true
@@ -355,11 +376,7 @@ final class AnalyticsProbe: XCTestCase {
             mark("accessibility", "keyboardUnobstructed")
             tap("Download ZIP")
             // These controls belong to UIDocumentPicker, reached by OS UI taps.
-            if save {
-                let onDevice = app.staticTexts["On My iPhone"].firstMatch
-                if onDevice.waitForExistence(timeout: 5) { onDevice.tap() }
-                tap("Save")
-            } else { tap("Cancel") }
+            pickerAction(save: save)
             waitFor({ self.text(save ? "Your download is ready" : "Download cancelled.") }, "Native export result must match Save or Cancel")
             mark("lifecycle", save ? "nativeSave" : "nativeCancel")
         }

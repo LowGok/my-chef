@@ -95,7 +95,7 @@ jobs:
       github.event.deleted == false && github.event.after == github.sha &&
       github.ref == 'refs/heads/ci/analytics-installed-b9e9699'
     runs-on: xcode-27
-    timeout-minutes: 20
+    timeout-minutes: 30
     env:
       CI: "1"
       CAPACITOR_TELEMETRY_DISABLED: "1"
