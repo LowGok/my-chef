@@ -135,6 +135,7 @@ final class AnalyticsProbe: XCTestCase {
         let end = Date().addingTimeInterval(20)
         var previous = CGRect.null
         var unchanged = 0
+        var adjustments = 0
         while Date() < end {
             if !element.exists {
                 unchanged = 0
@@ -142,6 +143,14 @@ final class AnalyticsProbe: XCTestCase {
                 continue
             }
             let frame = element.frame
+            if !element.isHittable && adjustments < 3 {
+                // A late WebKit reflow can move a previously revealed control.
+                // Scroll toward its current position, including upward targets.
+                scrollContent(up: frame.midY > app.frame.midY)
+                adjustments += 1
+                unchanged = 0; previous = .null
+                continue
+            }
             let stable = !previous.isNull && abs(frame.minX - previous.minX) <= 1
                 && abs(frame.minY - previous.minY) <= 1 && abs(frame.width - previous.width) <= 1
                 && abs(frame.height - previous.height) <= 1
@@ -152,6 +161,7 @@ final class AnalyticsProbe: XCTestCase {
         }
         let exists = element.exists
         print("Analytics iOS tap state: type=\(element.elementType.rawValue) exists=\(exists) hittable=\(exists && element.isHittable) stable=\(unchanged)")
+        if exists { print("Analytics iOS tap rect: " + NSStringFromCGRect(element.frame)) }
         screenState()
         XCTFail("Native tap target must finish layout before input")
     }
@@ -199,8 +209,13 @@ final class AnalyticsProbe: XCTestCase {
     func pickerButton(_ label: String) -> XCUIElement? {
         let predicate = NSPredicate(format: "label == %@", label)
         let webFrames = app.webViews.buttons.matching(predicate).allElementsBoundByIndex.filter { $0.exists }.map { $0.frame }
-        let native = app.buttons.matching(predicate).allElementsBoundByIndex.filter {
-            $0.exists && $0.isHittable && !webFrames.contains($0.frame)
+        let native = app.buttons.matching(predicate).allElementsBoundByIndex.filter { element in
+            guard element.exists && element.isHittable else { return false }
+            let frame = element.frame
+            return !webFrames.contains { web in
+                abs(web.minX - frame.minX) <= 2 && abs(web.minY - frame.minY) <= 2
+                    && abs(web.width - frame.width) <= 2 && abs(web.height - frame.height) <= 2
+            }
         }
         return native.count == 1 ? native[0] : nil
     }
@@ -222,7 +237,28 @@ final class AnalyticsProbe: XCTestCase {
         // The HTML dialog also has Cancel. Require an actual system control
         // outside every WebView, including remote file-provider presentations.
         guard let cancel = waitPickerButton("Cancel") else { return }
-        if !save { tapSettled(cancel); return }
+        if !save {
+            var button = cancel
+            for attempt in 0..<3 {
+                tapSettled(button)
+                let end = Date().addingTimeInterval(5)
+                while Date() < end {
+                    if pickerButton("Cancel") == nil && app.webViews.allElementsBoundByIndex.contains(where: { $0.exists && $0.isHittable }) { return }
+                    RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+                }
+                // Native rename/search layers can have their own Cancel.
+                // Continue only with another native control; actual app result
+                // and callback are still required by the caller.
+                print("Analytics iOS picker cancel step: \(attempt + 1)")
+                guard let next = pickerButton("Cancel") else { break }
+                button = next
+            }
+            for name in ["Cancel", "Save", "Browse", "Locations", "On My iPhone", "Downloads"] {
+                let p = NSPredicate(format: "label == %@", name)
+                print("Analytics iOS picker control: " + name + " total=\(app.buttons.matching(p).count) web=\(app.webViews.buttons.matching(p).count)")
+            }
+            return
+        }
         let local = app.staticTexts["On My iPhone"].firstMatch
         if !local.exists || !local.isHittable {
             for label in ["Browse", "Locations"] {

@@ -5,22 +5,25 @@ import socket
 import time
 
 
-def axes(text):
-    found = []
+def axes(text, diagnostics=False):
+    found = set()
     for block in re.split(r'(?=add device [0-9]+: /dev/input/event[0-9]+)', text):
-        if 'BTN_TOUCH' not in block:
-            continue
         values = []
         for axis in ('X', 'Y'):
-            match = re.search(r'ABS_MT_POSITION_' + axis + r'\s*:\s*value\s+-?[0-9]+,\s*min\s+(-?[0-9]+),\s*max\s+([0-9]+)', block)
+            match = re.search(r'ABS_MT_POSITION_' + axis + r'\b[^\n]*?\bmin\s+(-?[0-9]+),?\s+max\s+([0-9]+)', block)
             if match is None:
                 break
             values.extend(map(int, match.groups()))
         if len(values) == 4 and all(0 <= values[i] < values[i+1] <= 65535 and values[i+1] - values[i] >= 64 for i in (0, 2)):
-            found.append((*values, 'ABS_MT_SLOT' in block))
+            found.add((*values, 'ABS_MT_SLOT' in block))
+    if diagnostics:
+        print('Analytics hardware geometry profiles: ' + str(len(found)), flush=True)
     if len(found) != 1:
         raise ValueError('Expected one emulator touch device')
-    return found[0]
+    touch = found.pop()
+    if diagnostics:
+        print('Analytics hardware touch protocol: ' + ('B' if touch[4] else 'A'), flush=True)
+    return touch
 
 
 def frames(kind, touch):
@@ -34,6 +37,8 @@ def frames(kind, touch):
     y = round((low_y + high_y) / 2)
     def frame(x=None, tracking=None, pressed=None):
         result = ['EV_ABS:ABS_MT_SLOT:0'] if slots else []
+        if tracking is None and x is not None and not slots:
+            tracking = 5
         if tracking is not None:
             result.append('EV_ABS:ABS_MT_TRACKING_ID:' + str(tracking))
         if x is not None:
@@ -54,7 +59,7 @@ def gesture(kind, native):
     if kind not in ('double-tap', 'next'):
         raise ValueError('Closed hardware gesture required')
     adb = str(Path(native.ENV['ANDROID_HOME']) / 'platform-tools/adb')
-    touch = axes(native.command(adb, '-s', 'emulator-5554', 'shell', 'getevent', '-lp', timeout=15))
+    touch = axes(native.command(adb, '-s', 'emulator-5554', 'shell', 'getevent', '-lp', timeout=15), diagnostics=True)
     token_path = Path(native.ENV['HOME']) / '.emulator_console_auth_token'
     if token_path.stat().st_size > 256:
         raise RuntimeError('Emulator console authentication refused')

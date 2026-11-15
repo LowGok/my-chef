@@ -12,10 +12,13 @@ CAPS = '''add device 1: /dev/input/event1
 '''
 
 class HardwareGestureTest(unittest.TestCase):
-    def test_exactly_one_real_touch_axis_pair_is_required(self):
+    def test_touch_devices_must_share_one_consistent_geometry_profile(self):
         self.assertEqual(axes(CAPS), (0, 32767, 0, 32767, True))
-        for text in ('', CAPS + CAPS, CAPS.replace('max 32767', 'max 1'),
-                     CAPS.replace('BTN_TOUCH', 'KEY_POWER')):
+        self.assertEqual(axes(CAPS + CAPS), axes(CAPS))
+        self.assertEqual(axes(CAPS.replace('BTN_TOUCH', 'KEY_POWER')), axes(CAPS))
+        self.assertEqual(axes(CAPS.replace('value 0, ', '')), axes(CAPS))
+        for text in ('', CAPS.replace('max 32767', 'max 1'),
+                     CAPS + CAPS.replace('max 32767', 'max 1080')):
             with self.subTest(text=text), self.assertRaises(ValueError):
                 axes(text)
 
@@ -31,6 +34,9 @@ class HardwareGestureTest(unittest.TestCase):
         self.assertGreater(len(swipe), 5)
         self.assertIn('EV_ABS:ABS_MT_TRACKING_ID:-1', swipe[-1][1])
         self.assertIn('EV_KEY:BTN_TOUCH:0', swipe[-1][1])
+        protocol_a = frames('next', (*touch[:4], False))
+        self.assertTrue(all('EV_ABS:ABS_MT_TRACKING_ID:5' in event for _, event in protocol_a[:-1]))
+        self.assertTrue(all('EV_SYN:SYN_MT_REPORT:0' in event for _, event in protocol_a))
         for kind in ('shell', 'click:1:2', '', None):
             with self.assertRaises(ValueError):
                 frames(kind, touch)

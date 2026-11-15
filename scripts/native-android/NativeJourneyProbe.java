@@ -372,8 +372,22 @@ public final class NativeJourneyProbe extends Instrumentation {
 
     private void speechTouchMode() {
         AccessibilityManager manager = getTargetContext().getSystemService(AccessibilityManager.class);
-        if (manager == null || !manager.isTouchExplorationEnabled())
-            throw new IllegalStateException("speech-touch-mode");
+        long end = SystemClock.uptimeMillis() + 15_000;
+        while (manager != null && SystemClock.uptimeMillis() < end) {
+            if (manager.isTouchExplorationEnabled()) return;
+            SystemClock.sleep(200);
+        }
+        if (manager != null) {
+            for (AccessibilityServiceInfo info : manager.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_SPOKEN)) {
+                if (!info.getId().startsWith("com.google.android.marvin.talkback/")) continue;
+                if ((info.flags & AccessibilityServiceInfo.FLAG_REQUEST_TOUCH_EXPLORATION_MODE) == 0)
+                    throw new IllegalStateException("speech-touch-request");
+                if ((info.getCapabilities() & AccessibilityServiceInfo.CAPABILITY_CAN_REQUEST_TOUCH_EXPLORATION) == 0)
+                    throw new IllegalStateException("speech-touch-capability");
+                throw new IllegalStateException("speech-touch-mode");
+            }
+        }
+        throw new IllegalStateException("speech-touch-service");
     }
 
     private void speechToggle(String before) throws Exception {
@@ -494,7 +508,7 @@ public final class NativeJourneyProbe extends Instrumentation {
             String reason = error.getMessage();
             if (reason != null && reason.contains("already registered")) reason = "automation-busy";
             else if (reason != null && (reason.contains("UiAutomation not connected") || reason.contains("connecting UiAutomation"))) reason = "automation-connect";
-            failure.putString("probeReason", reason != null && reason.matches("launch|webview|pinch-disabled|probe-timeout|native-control|native-window-(?:unfocused|bounds)|control-(?:timeout|target|geometry|viewport|outside-viewport|outside-webview|screen-bounds)|input-denied|picker-(?:window|target|activation|confirmation|return)|accessibility-controls|speech-(window|node|state|event|touch-mode)|automation-(busy|connect)") ? reason : "instrumentation");
+            failure.putString("probeReason", reason != null && reason.matches("launch|webview|pinch-disabled|probe-timeout|native-control|native-window-(?:unfocused|bounds)|control-(?:timeout|target|geometry|viewport|outside-viewport|outside-webview|screen-bounds)|input-denied|picker-(?:window|target|activation|confirmation|return)|accessibility-controls|speech-(window|node|state|event|touch-mode|touch-request|touch-capability|touch-service)|automation-(busy|connect)") ? reason : "instrumentation");
             finish(Activity.RESULT_CANCELED, failure);
         } finally {
             runOnMainSync(() -> WebView.setWebContentsDebuggingEnabled(false));
