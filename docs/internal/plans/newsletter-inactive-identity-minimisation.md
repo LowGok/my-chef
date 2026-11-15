@@ -179,6 +179,7 @@ None for the product scope. The owner selected Q1 option A, protected matching a
 | 2026-11-15 | R-1 | spec | `f102c46ceb437e5f0123ea5bbaa053a9ff578a23` | unknown | procedural | Two blocking factual findings: active SQLite remnants and ownership after promotion/address change/deletion. Model identity not attested. |
 | 2026-11-15 | R-2 | spec | `fa1881e211a98565e05503832c48a58326282d5f` | unknown | procedural | No findings after the complete correction review. Technical-baseline acceptance pending; model identity not attested. |
 | 2026-11-15 | R-2 | spec | `fa1881e211a98565e05503832c48a58326282d5f` | n/a | n/a | accepted by owner |
+| 2026-11-15 | R-3 | spec | `436e6822b08b08c383ba635c0faf5eb0f762c583` | unknown | procedural | No findings after merged-runtime/default freshness review; accepted normative baseline unchanged. Model identity not attested. |
 
 ### R-1
 
@@ -199,6 +200,10 @@ EVIDENCE: The draft introduces protected ownership in SQL and a durable identity
 PROPOSAL: Specify active-match and journal transitions for promotion, subsequent ordinary email changes, full-account deletion and address reuse, including atomic retirement and conservative restore behavior. Add a reduced-contact to app-account to changed-address to deletion scenario, with restart and older-snapshot replay at each ownership transition.
 
 ### R-2
+
+NO FINDINGS
+
+### R-3
 
 NO FINDINGS
 
