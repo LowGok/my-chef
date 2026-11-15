@@ -448,6 +448,18 @@ def android(state, stack, ca, apk):
                                 stdout=boot_output, stderr=boot_output)
     stack.callback(terminate, emulator)
     adb = lambda *args: command(adb_path, "-s", "emulator-5554", *args)
+    def root_adb():
+        def ready():
+            try:
+                adb("root")
+            except RuntimeError:
+                # Rooting restarts adbd. A closed connection is not success;
+                # require the reconnected disposable device's actual UID.
+                pass
+            adb("wait-for-device")
+            return adb("shell", "id", "-u") == "0"
+        wait_for(ready, "rooted disposable Android transport", seconds=30)
+
 
     def attached():
         if emulator.poll() is not None:
@@ -461,7 +473,7 @@ def android(state, stack, ca, apk):
         print(boot_log.read_text(errors="replace")[-5000:].replace(str(ROOT), "[workspace]"), flush=True)
         raise
     print("Android booted; installing the fixture CA", flush=True)
-    adb("root")
+    root_adb()
     adb("wait-for-device")
     remount = adb("remount")
     if "remount succeeded" not in remount.lower():
@@ -469,7 +481,7 @@ def android(state, stack, ca, apk):
         adb("reboot")
         adb("wait-for-device")
         wait_for(lambda: adb("shell", "getprop", "sys.boot_completed") == "1", "Android remount reboot", 120)
-        adb("root")
+        root_adb()
         adb("wait-for-device")
         adb("remount")
     fingerprint = command("openssl", "x509", "-in", ca, "-subject_hash_old", "-noout")

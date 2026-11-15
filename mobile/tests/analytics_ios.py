@@ -130,6 +130,12 @@ def run(state, control, account, identifier, container, layout_only=False, voice
             known = re.findall(r'Analytics iOS known control: ([A-Za-z ]{1,30}) types: ([0-9,]{0,30})', text)
             if known:
                 detail += '; known roles ' + ', '.join(name + '=' + types for name, types in known[-5:])
+            states = re.findall(r'Analytics iOS screen state: (signed out|profile|shopping|startup|inbox) present=(true|false)', text)
+            app_state = re.findall(r'Analytics iOS app state: ([0-9]) webview=([0-9]{1,2}) alert=([0-9]{1,2})', text)
+            if app_state:
+                detail += '; app state/webview/alert ' + '/'.join(app_state[-1])
+            if states:
+                detail += '; screens ' + ', '.join(name + '=' + value for name, value in states[-5:])
             speech = re.findall(r'Analytics iOS spoken control: role=(true|false) disabled=(true|false) state=(on|off|unknown)', text)
             if speech:
                 detail += '; spoken role/disabled/state ' + ', '.join('/'.join(row) for row in speech[-4:])

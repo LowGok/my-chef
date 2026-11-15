@@ -50,6 +50,13 @@ final class AnalyticsProbe: XCTestCase {
             observations[group]?[name] = true
         }
     }
+    func screenState() {
+        print("Analytics iOS app state: \(app.state.rawValue) webview=\(app.webViews.count) alert=\(app.alerts.count)")
+        for (name, phrase) in [("signed out", "Welcome back."), ("profile", "Your profile."), ("shopping", "Shopping list."), ("startup", "Loading MyChef"), ("inbox", "Check your inbox")] {
+            let present = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", phrase)).firstMatch.exists
+            print("Analytics iOS screen state: " + name + " present=\(present)")
+        }
+    }
     func waitFor(_ condition: @escaping () -> Bool, _ message: String) {
         let end = Date().addingTimeInterval(35)
         while Date() < end {
@@ -60,6 +67,7 @@ final class AnalyticsProbe: XCTestCase {
             let matches = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", label)).allElementsBoundByIndex
             print("Analytics iOS known control: " + name + " types: " + matches.prefix(6).map { String($0.elementType.rawValue) }.joined(separator: ","))
         }
+        screenState()
         XCTFail(message)
     }
     func scrollContent(up: Bool) {
@@ -100,6 +108,7 @@ final class AnalyticsProbe: XCTestCase {
                     try? data.write(to: URL(fileURLWithPath: output).deletingPathExtension().appendingPathExtension("json"), options: .atomic)
                 }
             }
+            screenState()
             for word in ["Shopping", "Profile", "Meals", "A few extras", "Extra item"] {
                 let matches = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", word)).allElementsBoundByIndex
                 let types = matches.prefix(6).map { String($0.elementType.rawValue) }.joined(separator: ",")
