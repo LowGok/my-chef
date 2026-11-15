@@ -3,6 +3,7 @@ module github.com/LowGok/my-chef
 go 1.27.4
 
 require (
+	github.com/fxamacker/cbor/v2 v2.10.0
 	github.com/gen2brain/h265 v0.2.4
 	github.com/jackc/pgx/v5 v5.12.0
 	github.com/jinzhu/inflection v1.0.0
@@ -21,5 +22,6 @@ require (
 	github.com/jinzhu/now v1.1.5 // indirect
 	github.com/ncruces/go-sqlite3-wasm/v6 v6.5.35401 // indirect
 	github.com/ncruces/julianday v1.0.0 // indirect
+	github.com/x448/float16 v0.8.4 // indirect
 	golang.org/x/sys v0.49.0 // indirect
 )

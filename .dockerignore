@@ -355,3 +355,4 @@ internal/billing/**
 !internal/billing/runtime.go
 !internal/billing/native_cancellation.go
 !internal/billing/apple_cancel_assertion.go
+!internal/billing/apple_attest_enrollment.go

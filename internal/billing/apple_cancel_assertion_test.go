@@ -11,6 +11,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/fxamacker/cbor/v2"
 )
 
 const fixtureAppleApp = "TEAM000000.example.mychef"
@@ -42,12 +44,24 @@ func (s *fixtureAppleKeys) AdvanceCancellationCounter(_ context.Context, c Nativ
 	return true, nil
 }
 
-func fixtureAppleAssertion(t *testing.T, key *ecdsa.PrivateKey, app string, c NativeCancellation, counter uint32) []byte {
+func fixtureAppleAssertion(t *testing.T, key *ecdsa.PrivateKey, app string, c NativeCancellation, counter uint32, build ...AppleAttestBuildPolicy) []byte {
 	t.Helper()
 	var auth [37]byte
 	appHash := sha256.Sum256([]byte(app))
 	copy(auth[:32], appHash[:])
 	binary.BigEndian.PutUint32(auth[33:], counter)
+	authData := auth[:]
+	if len(build) != 0 {
+		auth[32] |= 0x80
+		extensions, err := cbor.Marshal(map[string]any{
+			"apple_validation_category_01": build[0].Category,
+			"apple_bundle_version_01":      build[0].Version,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		authData = append(authData, extensions...)
+	}
 
 	// This is the byte transcript the native side must build, independent
 	// of the server implementation of the verifier.
@@ -55,7 +69,7 @@ func fixtureAppleAssertion(t *testing.T, key *ecdsa.PrivateKey, app string, c Na
 		c.Attempt.ID + "\x00" + c.Attempt.Binding + "\x00" + string(c.Attempt.Interval) + "\x00")
 	msg = append(msg, c.Challenge[:]...)
 	client := sha256.Sum256(msg)
-	nonce := sha256.Sum256(append(auth[:], client[:]...))
+	nonce := sha256.Sum256(append(append([]byte(nil), authData...), client[:]...))
 	sig, err := ecdsa.SignASN1(rand.Reader, key, nonce[:])
 	if err != nil {
 		t.Fatal(err)
@@ -67,8 +81,8 @@ func fixtureAppleAssertion(t *testing.T, key *ecdsa.PrivateKey, app string, c Na
 	wire = append(wire, sig...)
 	wire = append(wire, 0x71)
 	wire = append(wire, "authenticatorData"...)
-	wire = append(wire, 0x58, byte(len(auth)))
-	return append(wire, auth[:]...)
+	wire = append(wire, 0x58, byte(len(authData)))
+	return append(wire, authData...)
 }
 
 func TestAppleCancellationAssertionRejectsUntrustedOrReplayedProof(t *testing.T) {
@@ -97,7 +111,7 @@ func TestAppleCancellationAssertionRejectsUntrustedOrReplayedProof(t *testing.T)
 	}
 	valid := fixtureAppleAssertion(t, key, fixtureAppleApp, c, 6)
 	keys := &fixtureAppleKeys{owner: owner, family: family, key: &key.PublicKey, counter: 5}
-	v := AppleCancellationVerifier{AppID: fixtureAppleApp, Keys: keys}
+	v := AppleCancellationVerifier{AppID: fixtureAppleApp, Keys: keys, Build: AppleAttestBuildPolicy{Category: 2, Version: "8", AllowLegacy: true}}
 	modified := c
 	modified.Challenge[0] ^= 1
 	wrongInterval := c
@@ -134,6 +148,15 @@ func TestAppleCancellationAssertionRejectsUntrustedOrReplayedProof(t *testing.T)
 		t.Fatal("a replacement key signed for a launch it did not authorize", err)
 	}
 	keys.key = &key.PublicKey
+	v.Build.AllowLegacy = false
+	if err := v.VerifyCancellation(ctx, c, valid); !errors.Is(err, ErrPurchaseBinding) {
+		t.Fatal("a legacy assertion passed a signed build requirement", err)
+	}
+	wrongBuild := fixtureAppleAssertion(t, key, fixtureAppleApp, c, 6, AppleAttestBuildPolicy{Category: 2, Version: "7"})
+	if err := v.VerifyCancellation(ctx, c, wrongBuild); !errors.Is(err, ErrPurchaseBinding) {
+		t.Fatal("an assertion from another build was accepted", err)
+	}
+	valid = fixtureAppleAssertion(t, key, fixtureAppleApp, c, 6, v.Build)
 	clock := func() time.Time { return now.Add(time.Minute) }
 	if err := j.CompleteNativeCancellation(ctx, c, valid, v, liveNativeTestSession, clock); err != nil {
 		t.Fatal("valid Apple assertion did not release the matching launch", err)

@@ -27,6 +27,7 @@ type AppleCancellationKeys interface {
 type AppleCancellationVerifier struct {
 	AppID string
 	Keys  AppleCancellationKeys
+	Build AppleAttestBuildPolicy
 }
 
 func (v AppleCancellationVerifier) VerifyCancellation(ctx context.Context, c NativeCancellation, proof []byte) error {
@@ -37,7 +38,7 @@ func (v AppleCancellationVerifier) VerifyCancellation(ctx context.Context, c Nat
 		return ErrPurchaseBinding
 	}
 	auth, signature, ok := decodeAppleAssertion(proof)
-	if !ok {
+	if !ok || !v.Build.accepts(auth[32], auth[37:]) {
 		return ErrPurchaseBinding
 	}
 	app := sha256.Sum256([]byte(v.AppID))
@@ -49,7 +50,7 @@ func (v AppleCancellationVerifier) VerifyCancellation(ctx context.Context, c Nat
 		return err
 	}
 	key := credential.PublicKey
-	count := binary.BigEndian.Uint32(auth[33:])
+	count := binary.BigEndian.Uint32(auth[33:37])
 	if key == nil || key.Curve != elliptic.P256() || key.X == nil || key.Y == nil ||
 		!key.Curve.IsOnCurve(key.X, key.Y) || count <= credential.Count {
 		return ErrPurchaseBinding
@@ -59,10 +60,7 @@ func (v AppleCancellationVerifier) VerifyCancellation(ctx context.Context, c Nat
 		return ErrPurchaseBinding
 	}
 	client := appleCancellationClientHash(c)
-	var signed [37 + sha256.Size]byte
-	copy(signed[:37], auth)
-	copy(signed[37:], client[:])
-	nonce := sha256.Sum256(signed[:])
+	nonce := appleAttestNonce(auth, client)
 	if !ecdsa.VerifyASN1(key, nonce[:], signature) {
 		return ErrPurchaseBinding
 	}
@@ -85,48 +83,19 @@ func appleCancellationClientHash(c NativeCancellation) [sha256.Size]byte {
 	return sha256.Sum256(append(msg, c.Challenge[:]...))
 }
 
-// An App Attest assertion is a definite-length CBOR map of two byte
-// strings. Accept either field order, and reject duplicate or extra fields,
-// indefinite lengths, and data outside the exact supported shape.
+// Assertions share the same bounded CBOR decoder as key enrollment.
 func decodeAppleAssertion(proof []byte) (auth, signature []byte, ok bool) {
-	if len(proof) > 160 || len(proof) == 0 || proof[0] != 0xa2 {
+	if len(proof) == 0 || len(proof) > 1024 {
 		return nil, nil, false
 	}
-	proof = proof[1:]
-	for range 2 {
-		if len(proof) == 0 {
-			return nil, nil, false
-		}
-		var name string
-		switch {
-		case bytes.HasPrefix(proof, []byte("\x69signature")):
-			name, proof = "signature", proof[10:]
-		case bytes.HasPrefix(proof, []byte("\x71authenticatorData")):
-			name, proof = "authenticatorData", proof[18:]
-		default:
-			return nil, nil, false
-		}
-		if len(proof) < 2 || proof[0] != 0x58 {
-			return nil, nil, false
-		}
-		size := int(proof[1])
-		proof = proof[2:]
-		if size < 24 || size > len(proof) {
-			return nil, nil, false
-		}
-		switch name {
-		case "signature":
-			if signature != nil || size > 72 {
-				return nil, nil, false
-			}
-			signature = proof[:size]
-		case "authenticatorData":
-			if auth != nil || size != 37 {
-				return nil, nil, false
-			}
-			auth = proof[:size]
-		}
-		proof = proof[size:]
+	var object struct {
+		Signature []byte `cbor:"signature"`
+		Auth      []byte `cbor:"authenticatorData"`
 	}
-	return auth, signature, len(proof) == 0 && auth != nil && signature != nil
+	if err := appleAttestCBOR.Unmarshal(proof, &object); err != nil ||
+		len(object.Signature) < 8 || len(object.Signature) > 72 ||
+		len(object.Auth) < 37 || len(object.Auth) > 37+512 || object.Auth[32]&0x40 != 0 {
+		return nil, nil, false
+	}
+	return object.Auth, object.Signature, true
 }
