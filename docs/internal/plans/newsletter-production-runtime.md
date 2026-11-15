@@ -1,6 +1,6 @@
 ---
 status: in-progress
-status_description: "Claim published through owner-approved PR 34 after required CI; PR 33 is merged/released. Fresh spec review R-4 passed; seven implementation tasks remain."
+status_description: "Claim published through owner-approved PR 34 after required CI; PR 33 is merged/released. Fresh spec review R-4 passed; T1–T3 are recorded; dedicated runtime implementation is next."
 branch: feat/newsletter-production-runtime
 issue: null
 goal: "A durable newsletter-only runtime can safely receive the public website's authenticated capture and proof requests without exposing app routes or recipe credentials."
@@ -128,7 +128,8 @@ Rollback pauses site then backend capture, preserves proof routes, SQL, authorit
       Evidence: targeted Go config tests failed to compile with undefined LoadNewsletterEmail, establishing the absent role loader. Full-app validation, fake-mode limits and sender-only fields are asserted. Transcript: private staging evidence/role-t1-red.log; no real provider call.
 - [x] T2 `internal/config/email.go` and `internal/config/newsletter_email.go` - implement the role-specific mail loader while preserving normal app validation; T1 and existing email tests pass (AC-01, AC-03).
       Evidence: all config tests and uncached config race tests pass, including T1, six-template profile validation and unchanged full-app webhook/shared-profile requirements. The new role loader accepts only explicit sending mode and its protected profile, bounds input and does not invent a webhook secret. Staging role-t2-config.log and role-t2-race.log. No provider call or production configuration.
-- [ ] T3 `cmd/mychef/newsletter_serve_test.go` and `internal/http/newsletter_only_test.go` - add failing CLI/mux/config/readiness/shutdown tests, including no recipe credentials, forbidden app/native/operator routes, paused check vectors and proof actions (AC-01, AC-02, AC-04).
+- [x] T3 `cmd/mychef/newsletter_serve_test.go` and `internal/http/newsletter_only_test.go` - add failing CLI/mux/config/readiness/shutdown tests, including no recipe credentials, forbidden app/native/operator routes, paused check vectors and proof actions (AC-01, AC-02, AC-04).
+      Evidence: uncached targeted Go command tests and HTTP tests fail on the missing role loader, worker fence, server and dedicated mux. Tests cover loopback/config refusal, actual listener shutdown and lock release, protected paused readiness, forbidden routes and valid proof actions while paused. Transcript role-t3-red.log. Manual docs-impact review: this accepted feature document covers these contracts; operator README additions remain in T7.
 - [ ] T4 `cmd/mychef/newsletter.go`, `cmd/mychef/newsletter_serve.go` and `internal/http/newsletter.go` - implement the narrow role/mux and current-schema journal/worker wiring, explicit production capability and safe shutdown without normal app/reminder/analytics startup; T3 and full-app regressions pass (AC-01, AC-02, AC-04).
 - [ ] T5 `internal/email/newsletter_only_test.go` - add failing tests for unrelated queue rows in the role and capture exact six-template profile/withdrawal/retry behavior with fake transport (AC-03).
 - [ ] T6 `internal/email/service.go`, `internal/email/worker.go` and minimal mailqueue helper - restrict the dedicated role to newsletter templates while preserving normal workers; T5 and concurrent withdrawal/expiry/transfer tests pass (AC-03, AC-04).
