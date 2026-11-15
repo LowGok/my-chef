@@ -39,6 +39,14 @@ Local verification and production operation remain distinct. Acceptance authoriz
 
 ### Background and dependency
 
+After acceptance, default main advanced to weekly-reminders merge
+`7ff4669700` (full commit resolved by Git in the review target). It adds schema
+25/26 while preserving the schema-24 newsletter foundation. The current role
+must initialize the current published schema, not downgrade to 24, and must not
+start reminder/push workers. This is dependency integration, with no new
+newsletter schema or processing scope. Main was merged without rewriting any
+reviewed commit; renewed spec freshness is required before tasks.
+
 App main b9e9699755fa752a3816bd6f8172e35c65ed16f9 contains the signed 0.20.0 identity-compatibility foundation. Retention/sender PR 33, head 2f6aaa7e9d790e32f3acd3ce9ad54bbbebcebe3a, adds explicit none policies, dispatch/withdrawal fencing and purpose-specific sender configuration. It must pass CI and merge before this feature is claimed; do not duplicate or rewrite its implementation. Its independent review passed all eight criteria, but this spec requires its actual delivery receipt before production use.
 
 At that candidate, `cmd/mychef/newsletter_runtime.go:14-21` deliberately returns identityCompatibility false in production. `cmd/mychef/main.go:204-225` constructs the normal remote recipe provider; `internal/providers/gemini.go:45-48` requires a Gemini key. `internal/http/api.go:93-145` registers newsletter and app routes together. The newsletter-only role must avoid both dependencies and broad route exposure.
