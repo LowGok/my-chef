@@ -42,6 +42,8 @@ function fixture() {
   let allowFinish: () => Promise<boolean> = async () => true;
   let nativeQuotes = [quote, quote];
   let purchase: "pending" | "cancelled" | BillingReceipt = proof;
+  let unfinished = [proof];
+  let finish: (id: string) => Promise<void> = async () => {};
   const flow = createBillingFlow(
     {
       async status() {
@@ -60,7 +62,7 @@ function fixture() {
         return allowFinish();
       },
       async restore(value) {
-        expect(value).toBe(proof.receipt);
+        expect(unfinished.some((receipt) => receipt.receipt === value)).toBe(true);
         events.push("verify restore");
         return allowFinish();
       },
@@ -79,15 +81,16 @@ function fixture() {
       },
       async unfinished() {
         events.push("unfinished");
-        return [proof];
+        return unfinished;
       },
       async restore() {
         events.push("restore");
-        return [proof];
+        return unfinished;
       },
       async finish(value) {
-        expect(value).toBe(proof.id);
+        expect(unfinished.some((receipt) => receipt.id === value)).toBe(true);
         events.push("finish");
+        await finish(value);
       },
     },
     () => owned,
@@ -106,6 +109,12 @@ function fixture() {
     },
     onVerify: (verify: typeof allowFinish) => {
       allowFinish = verify;
+    },
+    setUnfinished: (...receipts: BillingReceipt[]) => {
+      unfinished = receipts;
+    },
+    onFinish: (callback: typeof finish) => {
+      finish = callback;
     },
     setPurchase: (v: typeof purchase) => {
       purchase = v;
@@ -239,4 +248,33 @@ test("sign-out during automatic verification prevents device acknowledgement", a
   complete(true);
   expect(await outcome).toEqual(new Error("The app session changed."));
   expect(f.events).toEqual(["unfinished", "verify restore"]);
+});
+
+
+test("a lost store finish can retry the same verified purchase without a second sheet", async () => {
+  const f = fixture();
+  const attempted: string[] = [];
+  f.onFinish(async (id) => {
+    attempted.push(id);
+    if (attempted.length === 1) throw new Error("Store finish connection lost");
+  });
+  expect(await f.flow.purchase("monthly")).toBe("pending");
+  expect(await f.flow.discover()).toBe("verified");
+  expect(attempted).toEqual([proof.id, proof.id]);
+  expect(f.events.filter((event) => event === "purchase")).toHaveLength(1);
+  expect(f.events.slice(-3)).toEqual(["unfinished", "verify restore", "finish"]);
+});
+
+test("a failed store finish does not block a second unfinished verified transaction", async () => {
+  const f = fixture();
+  const later = { ...proof, id: "fixture-renewal", receipt: "fixture-renewal-proof" };
+  const attempted: string[] = [];
+  f.setUnfinished(proof, later);
+  f.onFinish(async (id) => {
+    attempted.push(id);
+    if (id === proof.id) throw new Error("Deferred finish");
+  });
+  expect(await f.flow.restore()).toBe("verified");
+  expect(attempted).toEqual([proof.id, later.id]);
+  expect(f.events).toEqual(["restore", "verify restore", "finish", "verify restore", "finish"]);
 });

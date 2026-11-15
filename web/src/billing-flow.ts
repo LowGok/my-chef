@@ -131,7 +131,14 @@ export function createBillingFlow(
     const accepted = await verify(proof.receipt);
     requireSession();
     if (accepted !== true) return "pending";
-    await device.finish(proof.id);
+    try {
+      await device.finish(proof.id);
+    } catch {
+      requireSession();
+      // The purchase is already committed. Leave an unfinished store
+      // transaction eligible for discovery without blocking other receipts.
+      return "pending";
+    }
     requireSession();
     return "verified";
   }
