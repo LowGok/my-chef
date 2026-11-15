@@ -58,8 +58,27 @@ final class AnalyticsProbe: XCTestCase {
         }
         XCTFail(message)
     }
+    func scrollContent(up: Bool) {
+        let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: up ? 0.4 : 0.15))
+        let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: up ? 0.15 : 0.4))
+        start.press(forDuration: 0.05, thenDragTo: end)
+    }
     func reveal(_ element: XCUIElement) {
-        let exists = element.waitForExistence(timeout: 30)
+        // WebKit can omit offscreen controls from the OS accessibility tree.
+        // Search with actual content gestures before declaring the control absent.
+        var exists = element.waitForExistence(timeout: 3)
+        if !exists {
+            for _ in 0..<8 {
+                scrollContent(up: false)
+                if element.exists { exists = true; break }
+            }
+        }
+        if !exists {
+            for _ in 0..<16 {
+                scrollContent(up: true)
+                if element.exists { exists = true; break }
+            }
+        }
         if !exists {
             // Only the empty anonymous screen can be retained. After the first
             // field is touched, screenshots and arbitrary AX labels stay private.
@@ -89,9 +108,7 @@ final class AnalyticsProbe: XCTestCase {
             if element.isHittable { return }
             // Keep the content gesture above the software keyboard. A whole-
             // screen swipe can land entirely on the keyboard on a small phone.
-            let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4))
-            let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15))
-            start.press(forDuration: 0.05, thenDragTo: end)
+            scrollContent(up: true)
         }
         XCTAssertTrue(element.isHittable, "Control must be reachable at OS text size")
     }
@@ -108,6 +125,7 @@ final class AnalyticsProbe: XCTestCase {
         reveal(element); element.tap()
     }
     func fill(_ label: String, _ text: String, secure: Bool = false) {
+        print("Analytics iOS control: " + label)
         hasEnteredData = true
         let ordinary = app.textFields[label].firstMatch
         let element = secure ? app.secureTextFields[label].firstMatch : (ordinary.exists ? ordinary : app.textViews[label].firstMatch)
@@ -144,6 +162,7 @@ final class AnalyticsProbe: XCTestCase {
         waitFor({ self.text("Your profile.") }, "Installed Profile must open")
     }
     func details() {
+        print("Analytics iOS control: Account details")
         let summary = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Account details")).firstMatch
         reveal(summary); summary.tap()
         XCTAssertTrue(checkbox().waitForExistence(timeout: 20), "Profile privacy control is labelled")
@@ -214,7 +233,7 @@ final class AnalyticsProbe: XCTestCase {
         tap("Shopping list"); waitFor({ self.text("Saved") }, "Shopping snapshot must load")
         _ = try control("offline")
         let extra = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "A few extras?")).firstMatch
-        if extra.exists { reveal(extra); extra.tap() }
+        reveal(extra); extra.tap()
         fill("Extra item", "Analytics queued oats"); tap("Add extra")
         waitFor({ self.text("Pending sync") }, "Offline edit must enter durable queue")
         _ = try control("other-session-choice", ["enabled": false]); _ = try control("maintenance")

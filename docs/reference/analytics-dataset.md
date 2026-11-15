@@ -715,6 +715,37 @@ legal conclusion and the separate activation authorization; the command never
 turns collection on. Actual controller, native and deployment evidence remains
 pending for this release.
 
+### Assessment boundaries
+
+Approval must explain why each field and retained window is necessary compared
+with coarser, aggregate or shorter-lived alternatives. The ninety-day event and
+thirteen-bucket contribution windows are maximum implementation limits, not
+standalone legal justifications. A pseudonymous record remains personal data.
+
+Inventory cookies, RAM state, request headers, offline queue metadata, native
+protected storage and enabled SDKs separately. A default On choice is not consent
+for optional terminal access. A nonempty assessment field cannot establish an
+exemption. Unresolved purpose, device-access, provider, notice, age/health or DPIA
+conditions belong in the privacy record and block preflight readiness.
+
+The seven-day isolated-backup rule covers MyChef's analytics recovery copies.
+Provider email logs, installation identifiers, operational storage and newsletter
+records have separate retention/deletion duties. Verify and disclose the actual
+provider behavior before approving the customer notice; do not promise that an
+analytics withdrawal erases every provider record within seven days.
+
+### Disposable recovery verification
+
+After building the app, `python3 scripts/test_analytics_rehearsal.py` creates and
+removes a fresh fictional installation without accepting any customer database
+path. It exercises real migration, HTTP action, process restart and analytics/app
+backup and restore commands. The private clock/worker overlays are test-only;
+this command supplies no deployed-host, provider or native accessibility proof.
+Its bounded result records source/artifact hashes, dirty-source status, fixed
+outcomes and hashed registered-copy inventory. Re-run against the final committed
+candidate, and repeat the existing SQLite upgrade rehearsal for any changed app
+schema. Live activation remains a separate decision.
+
 ### Remaining simulator and emulator verification
 
 The integration remains in progress. Local checks passed the Go suites,

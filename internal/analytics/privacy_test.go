@@ -354,7 +354,7 @@ func TestCancelledReportOutputReleasesFence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer lock.Close()
+	defer func() { _ = lock.Close() }()
 	if err = syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 		t.Fatal("cancelled report retained process fence", err)
 	}
