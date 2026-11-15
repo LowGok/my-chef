@@ -333,9 +333,12 @@ final class MyChefBridgeViewController: CAPBridgeViewController {
         guard remaining > 0 else { return }
         webView?.evaluateJavaScript("""
             (() => {
-              const create = [...document.querySelectorAll('button')].find(x => x.textContent.trim() === 'Create an account');
-              if (create) { create.click(); return null; }
               const panel = document.querySelector('fieldset.analytics-control');
+              if (!panel) {
+                const create = document.querySelector('button[aria-label="Create an account"]');
+                if (create && create.getAttribute('aria-pressed') !== 'true') create.click();
+                return null;
+              }
               const box = panel?.querySelector('input[type=checkbox]');
               const label = box?.closest('label');
               if (!box || !panel.textContent.includes('Analytics is Off while unavailable.')) return null;

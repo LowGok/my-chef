@@ -1,4 +1,6 @@
 import { expect, test } from "@playwright/test";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 const notice = {
   available: true,
   defaultEnabled: true,
@@ -38,6 +40,17 @@ test("signup offers a visible On switch and preserves Off in the request", async
   expect((await request).postDataJSON()).toMatchObject({
     analyticsEnabled: false,
     analyticsNoticeVersion: "core-v1",
+  });
+});
+
+test("iOS installed disabled-state probe reaches signup through its accessible label", async ({ page }) => {
+  const swift = readFileSync(resolve(import.meta.dir, "../../mobile/ios/App/App/MyChefNativePlugin.swift"), "utf8");
+  const body = swift.split("private func checkDisabledAnalytics")[1];
+  const program = body?.match(/evaluateJavaScript\("""\n([\s\S]*?)\n\s*"""\)/)?.[1];
+  expect(program).toBeTruthy();
+  await page.goto("/app/");
+  await expect.poll(() => page.evaluate(program!), { timeout: 5000 }).toEqual({
+    disabled: true, unchecked: true, labelled: true, fits: true,
   });
 });
 
