@@ -257,7 +257,7 @@ func (a *API) billingReleaseUnused(w http.ResponseWriter, r *http.Request) {
 	_, attempt, err := a.billingAttempt(r)
 	if err == nil {
 		// This route never accepts a terminal store decision from the app.
-		err = a.Config.NativeBilling.Journal.Cancel(r.Context(), attempt, time.Now(), false)
+		err = a.Config.NativeBilling.Journal.ReleaseUnused(r.Context(), attempt)
 	}
 	if err != nil {
 		a.billingError(w, r, err)

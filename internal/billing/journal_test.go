@@ -72,16 +72,10 @@ func TestReserveOneCheckoutAcrossStoresAndKeepLaunchedAttempts(t *testing.T) {
 	if _, err := restarted.Reserve(ctx, owner, Sandbox, Play, Annual, now.Add(24*time.Hour)); !errors.Is(err, ErrCheckoutBusy) {
 		t.Fatalf("unresolved checkout let another store open: %v", err)
 	}
-	if err := restarted.Cancel(ctx, selected, now.Add(time.Minute), false); !errors.Is(err, ErrUnresolved) {
+	if err := restarted.ReleaseUnused(ctx, selected); !errors.Is(err, ErrUnresolved) {
 		t.Fatalf("ambiguous outcome cleared checkout: %v", err)
 	}
-	if err := restarted.Cancel(ctx, selected, now.Add(time.Minute), true); err != nil {
-		t.Fatal(err)
-	}
-	next, err := restarted.Reserve(ctx, owner, Sandbox, Play, Annual, now.Add(time.Minute))
-	if err != nil || next.Binding == selected.Binding {
-		t.Fatalf("expected a fresh checkout and binding: %v", err)
-	}
+
 }
 
 func TestPaidPeriodIsOwnerBoundExclusiveAndCannotResurrect(t *testing.T) {

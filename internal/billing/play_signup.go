@@ -143,6 +143,10 @@ func (i *PlayInbox) retainSignup(ctx context.Context, p *playSignup, token, expe
 		if _, err := tx.ExecContext(ctx, `UPDATE billing_attempts SET state='cancelled' WHERE binding=? AND state='launched'`, p.binding); err != nil {
 			return err
 		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM billing_cancel_challenges
+ WHERE attempt IN (SELECT id FROM billing_attempts WHERE binding=?)`, p.binding); err != nil {
+			return err
+		}
 		_, err := tx.ExecContext(ctx, `DELETE FROM billing_play_polls WHERE environment=? AND binding=?`, i.env, p.binding)
 		return err
 	})

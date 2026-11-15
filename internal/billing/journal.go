@@ -118,7 +118,7 @@ CREATE INDEX IF NOT EXISTS billing_subscriptions_owner ON billing_subscriptions(
 // against the ordinary application database or at application startup.
 func Migrate(ctx context.Context, db *sql.DB) error {
 	return transaction(ctx, db, func(tx *sql.Tx) error {
-		if _, err := tx.ExecContext(ctx, schema+appleReconciliationSchema+applePollSchema+playInboxSchema+playPollSchema+playReplacementSchema+playSignupSchema+privacySchema+runtimeSchema); err != nil {
+		if _, err := tx.ExecContext(ctx, schema+appleReconciliationSchema+applePollSchema+playInboxSchema+playPollSchema+playReplacementSchema+playSignupSchema+privacySchema+runtimeSchema+nativeCancellationSchema); err != nil {
 			return err
 		}
 		var key [32]byte
@@ -277,13 +277,13 @@ func (j *Journal) Launch(ctx context.Context, attempt Attempt, now time.Time) er
 		attempt.ID, attempt.Binding, attempt.Environment, attempt.Store, attempt.Interval, timeNS(now), j.generation)
 }
 
-func (j *Journal) Cancel(ctx context.Context, attempt Attempt, _ time.Time, terminal bool) error {
-	// A caller may cancel an unused, unlaunched reservation. Once launched,
-	// only the provider or the authorized native flow can disambiguate it.
+// ReleaseUnused cannot clear an attempt once the store sheet may have opened.
+func (j *Journal) ReleaseUnused(ctx context.Context, attempt Attempt) error {
 	return transition(ctx, j.db, `UPDATE billing_attempts SET state='cancelled'
- WHERE id=? AND binding=? AND environment=? AND store=? AND interval=?
- AND (state='reserved' OR (? AND state='launched')) AND `+currentGenerationSQL+`=?`,
-		attempt.ID, attempt.Binding, attempt.Environment, attempt.Store, attempt.Interval, terminal, j.generation)
+ WHERE id=? AND binding=? AND environment=? AND store=? AND interval=? AND state='reserved'
+ AND NOT EXISTS(SELECT 1 FROM lifecycle_deletions d WHERE d.incarnation=billing_attempts.incarnation AND d.state!='cancelled')
+ AND `+currentGenerationSQL+`=?`,
+		attempt.ID, attempt.Binding, attempt.Environment, attempt.Store, attempt.Interval, j.generation)
 }
 
 func transition(ctx context.Context, db *sql.DB, query string, args ...any) error {
@@ -404,6 +404,10 @@ func (j *Journal) fulfil(ctx context.Context, p VerifiedPeriod, expectedOwner st
 			return err
 		}
 		if err := j.confirmRuntimeProof(ctx, tx, p); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM billing_cancel_challenges
+ WHERE attempt IN (SELECT id FROM billing_attempts WHERE binding=?)`, p.Binding); err != nil {
 			return err
 		}
 		_, err = tx.ExecContext(ctx, "UPDATE billing_attempts SET state='fulfilled' WHERE binding=? AND state='launched'", p.Binding)

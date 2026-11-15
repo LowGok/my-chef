@@ -36,6 +36,7 @@ func StartRuntime(ctx context.Context, db *sql.DB) (*Journal, error) {
 		// Pending notices keep their references and backoff across restarts.
 		for _, query := range []string{
 			`DELETE FROM billing_runtime_proofs`,
+			`DELETE FROM billing_cancel_challenges`,
 			`UPDATE billing_play_polls SET lease='',lease_ns=0,due_ns=0`,
 			`UPDATE billing_play_notices SET lease='',lease_ns=0 WHERE state='ready'`,
 			`UPDATE billing_apple_notices SET lease='',lease_ns=0 WHERE state='ready'`,
