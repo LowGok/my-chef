@@ -51,6 +51,7 @@ export function editShopping(
 }
 
 export type QueuedShoppingEdit = {
+  analyticsRevision?: number | null;
   key: string;
   edit: ShoppingEdit;
   before?:

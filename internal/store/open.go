@@ -8,12 +8,14 @@ import (
 	"path/filepath"
 	"sync"
 
+	"github.com/LowGok/my-chef/internal/analytics"
 	"github.com/ncruces/go-sqlite3/gormlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
 
 type Store struct {
+	Analytics   *analytics.Service
 	AccountWork sync.RWMutex
 	DB          *gorm.DB
 	SQL         *sql.DB

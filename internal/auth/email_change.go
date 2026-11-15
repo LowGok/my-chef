@@ -16,9 +16,11 @@ import (
 const emailChangeWindow = 24 * time.Hour
 
 var ErrEmailChangeUnavailable = errors.New("email change unavailable")
+var errNewsletterDestination = errors.New("verified newsletter destination")
 
 type EmailChange struct {
 	*SignUp
+	retirementFault func(string) error
 }
 
 type EmailChangeView struct {
@@ -297,44 +299,68 @@ func (c *EmailChange) Decide(ctx context.Context, token string) (EmailChangeResu
 	}
 	var result EmailChangeResult
 	var unavailable bool
-	err = c.Store.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		now := c.now()
-		proof, pending, user, err := loadEmailChange(tx, hash, now)
-		if err != nil {
-			return err
+	var destination store.NewsletterContactAuthority
+	err = func() error {
+		c.Store.AccountWork.RLock()
+		defer c.Store.AccountWork.RUnlock()
+		if c.Lifecycle != nil && c.Lifecycle.CheckReady(ctx) != nil {
+			return ErrEmailChangeUnavailable
 		}
-		result.UserID = user.ID
-		if proof.Purpose == "cancel" {
-			result.Status = "cancelled"
-			return removeEmailChange(ctx, tx, now, pending)
-		}
-		switch proof.Purpose {
-		case "approve":
-			pending.CurrentApproved = true
-		case "confirm":
-			pending.ProposedApproved = true
-		default:
-			return ErrEmailProof
-		}
-		if pending.ProposedApproved && (pending.OriginalVerifiedAt == nil || pending.CurrentApproved) {
-			claimed, err := addressClaimed(tx, pending.ProposedKey)
+		return c.Store.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			now := c.now()
+			proof, pending, user, err := loadEmailChange(tx, hash, now)
 			if err != nil {
 				return err
 			}
-			if claimed || cooldownSeconds(now, user.EmailChangedAt) != 0 {
-				unavailable = true
+			result.UserID = user.ID
+			if proof.Purpose == "cancel" {
+				result.Status = "cancelled"
 				return removeEmailChange(ctx, tx, now, pending)
 			}
-			result.Status = "changed"
-			return c.finishChange(ctx, tx, now, user, pending)
-		}
-		if err := tx.Model(&proof).Update("consumed", now.Unix()).Error; err != nil {
-			return err
-		}
-		result.Status = "pending"
-		return tx.Model(&pending).Updates(map[string]any{"current_approved": pending.CurrentApproved,
-			"proposed_approved": pending.ProposedApproved}).Error
-	})
+			switch proof.Purpose {
+			case "approve":
+				pending.CurrentApproved = true
+			case "confirm":
+				pending.ProposedApproved = true
+			default:
+				return ErrEmailProof
+			}
+			if pending.ProposedApproved && (pending.OriginalVerifiedAt == nil || pending.CurrentApproved) {
+				var contact store.User
+				lookup := tx.Where("email_key=? AND isNewsletterOnly=1", pending.ProposedKey).Take(&contact).Error
+				if lookup == nil {
+					var incarnation string
+					if err := tx.Raw("SELECT incarnation FROM account_incarnations WHERE user_id=?", contact.ID).Row().Scan(&incarnation); err != nil {
+						return err
+					}
+					destination = store.NewsletterContactAuthority{UserID: contact.ID, EmailKey: contact.EmailKey, Incarnation: incarnation, RequestReference: "verified-app-email-change"}
+					return errNewsletterDestination
+				}
+				if !errors.Is(lookup, gorm.ErrRecordNotFound) {
+					return lookup
+				}
+				claimed, err := addressClaimed(tx, pending.ProposedKey)
+				if err != nil {
+					return err
+				}
+				if claimed || cooldownSeconds(now, user.EmailChangedAt) != 0 {
+					unavailable = true
+					return removeEmailChange(ctx, tx, now, pending)
+				}
+				result.Status = "changed"
+				return c.finishChange(ctx, tx, now, user, pending)
+			}
+			if err := tx.Model(&proof).Update("consumed", now.Unix()).Error; err != nil {
+				return err
+			}
+			result.Status = "pending"
+			return tx.Model(&pending).Updates(map[string]any{"current_approved": pending.CurrentApproved,
+				"proposed_approved": pending.ProposedApproved}).Error
+		})
+	}()
+	if errors.Is(err, errNewsletterDestination) {
+		return c.finishNewsletterDestination(ctx, hash, destination)
+	}
 	if err != nil {
 		return EmailChangeResult{}, changeError(err)
 	}
@@ -345,6 +371,9 @@ func (c *EmailChange) Decide(ctx context.Context, token string) (EmailChangeResu
 }
 
 func (c *EmailChange) finishChange(ctx context.Context, tx *gorm.DB, now time.Time, user store.User, pending store.PendingEmailChange) error {
+	if err := store.InvalidateNewsletterConsent(ctx, tx, user.ID, now); err != nil {
+		return err
+	}
 	if err := tx.Model(&user).Updates(map[string]any{
 		"email": pending.ProposedEmail, "email_key": pending.ProposedKey,
 		"email_verified_at": now.Unix(), "email_changed_at": now.Unix(),

@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/LowGok/my-chef/internal/analytics"
 	"github.com/LowGok/my-chef/internal/auth"
 	"github.com/LowGok/my-chef/internal/config"
 	"github.com/LowGok/my-chef/internal/email"
@@ -20,6 +21,7 @@ import (
 	httpapi "github.com/LowGok/my-chef/internal/http"
 	"github.com/LowGok/my-chef/internal/imports"
 	"github.com/LowGok/my-chef/internal/menus"
+	"github.com/LowGok/my-chef/internal/newsletter"
 	"github.com/LowGok/my-chef/internal/providers"
 	"github.com/LowGok/my-chef/internal/store"
 	webui "github.com/LowGok/my-chef/web"
@@ -37,6 +39,8 @@ func main() {
 			return
 		case "account-cleanup":
 			os.Exit(runAccountCleanupStatus(os.Args[2:]))
+		case "newsletter":
+			os.Exit(runNewsletter(os.Args[2:], os.Stdin, os.Stdout, os.Stderr))
 		case "import-photo-normalize":
 			os.Exit(runImportPhotoNormalize(os.Args[2:]))
 		case "photo-normalize":
@@ -82,6 +86,11 @@ func main() {
 	emailCfg, err := config.LoadEmail()
 	if err != nil {
 		logger.Error("invalid email configuration", "error", err)
+		os.Exit(1)
+	}
+	newsletterSettings, err := config.LoadNewsletter(cfg, emailCfg)
+	if err != nil {
+		logger.Error("invalid newsletter configuration")
 		os.Exit(1)
 	}
 	inboxSettings, err := config.LoadFixtureInbox(cfg, emailCfg, time.Now())
@@ -161,6 +170,11 @@ func main() {
 		logger.Error("account notice cleanup unavailable")
 		os.Exit(1)
 	}
+	closeAnalytics, analyticsErr := openAnalytics(ctx, s, os.Getenv("MYCHEF_ANALYTICS_CONFIG"))
+	if analyticsErr != nil {
+		logger.Error("analytics privacy unavailable; collection and reporting disabled", "code", "analytics_unavailable")
+	}
+	defer closeAnalytics()
 	var cleaner store.AccountAssetCleaner
 	var personalPhotos interface {
 		menus.PersonalPhotoUploader
@@ -264,14 +278,22 @@ func main() {
 	}
 	defer service.Close()
 	signUp := &auth.SignUp{Store: s, Keys: proofKeys, RateKey: proofSettings.RateKey, Origin: cfg.Origin,
-		AllowLoopbackLink: inboxSettings != nil && inboxSettings.AllowLoopbackLinks}
+		AllowLoopbackLink: inboxSettings != nil && inboxSettings.AllowLoopbackLinks, Lifecycle: journal}
 	recoveryWork := &store.RecoveryWork{}
 	recovery := &auth.Recovery{SignUp: signUp, Work: recoveryWork}
 	if err := recovery.Sweep(ctx); err != nil {
 		logger.Error("password recovery startup cleanup failed")
 		os.Exit(1)
 	}
-	mailService := email.NewWithFixtureInbox(email.Queue{Store: s, ProofKeys: proofKeys, RecoveryWork: recoveryWork}, emailCfg, fixtureInbox)
+	mailService := email.NewWithFixtureInbox(email.Queue{Store: s, ProofKeys: proofKeys, RecoveryWork: recoveryWork, Lifecycle: journal}, emailCfg, fixtureInbox)
+	var newsletterService *newsletter.Service
+	if newsletterSettings.Mode != "disabled" {
+		newsletterService = &newsletter.Service{Store: s, Keys: proofKeys, RateKey: proofSettings.RateKey, Origin: newsletterSettings.Origin, ConsentVersion: newsletterSettings.ConsentVersion, Lifecycle: journal}
+	}
+	signUp.Newsletter = newsletterService
+	if signUp.Newsletter == nil {
+		signUp.Newsletter = &newsletter.Service{Store: s, Keys: proofKeys, RateKey: proofSettings.RateKey, Origin: "https://mychef.dev", ConsentVersion: "newsletter-v1", Lifecycle: journal}
+	}
 	emailCtx, cancelEmail := context.WithCancel(ctx)
 	emailDone := make(chan struct{})
 	go func() {
@@ -308,6 +330,15 @@ func main() {
 		startRecovery("password recovery worker stopped", recovery.Run)
 	}
 	startRecovery("password recovery cleanup stopped", recovery.RunSweep)
+	if s.Analytics != nil {
+		recoveryWorkers.Go(func() {
+			_ = s.Analytics.Run(emailCtx, func(h analytics.Health) {
+				if h.Code != "healthy" {
+					logger.Error("analytics worker unavailable", "code", h.Code, "queued", h.Queued, "oldestSeconds", h.OldestSeconds)
+				}
+			})
+		})
+	}
 	var lifecycleFailed atomic.Bool
 	startLifecycle := func(name string, run func(context.Context) error) {
 		recoveryWorkers.Go(func() {
@@ -332,6 +363,19 @@ func main() {
 			}
 		})
 	}
+	var newsletterFailed atomic.Bool
+	if newsletterService != nil && proofKeys != nil && len(proofSettings.RateKey) == 32 {
+		for _, run := range []func(context.Context) error{newsletterService.Run, func(ctx context.Context) error {
+			return newsletterService.RunSweep(ctx, journal, newsletterSettings.PendingDays, newsletterSettings.WithdrawnDays, deletion)
+		}} {
+			recoveryWorkers.Go(func() {
+				if err := run(emailCtx); err != nil && emailCtx.Err() == nil {
+					newsletterFailed.Store(true)
+					logger.Error("newsletter worker stopped")
+				}
+			})
+		}
+	}
 	defer func() {
 		cancelEmail()
 		<-emailDone
@@ -351,11 +395,17 @@ func main() {
 		recoveryWorkers.Go(func() { runPushWorker(emailCtx, reminders, pushSender, logger) })
 	}
 	api := httpapi.New(s, service, httpapi.Config{
+		Newsletter: newsletterService, NewsletterSettings: newsletterSettings, NewsletterReady: func(ctx context.Context) bool {
+			return newsletterReady(newsletterSettings, !lifecycleFailed.Load() && journal.CheckReady(ctx) == nil && s.SQL.PingContext(ctx) == nil, mailService.Ready(ctx), proofKeys != nil && len(proofSettings.RateKey) == 32, newsletterFailed.Load())
+		},
+		NewsletterChecks: func(ctx context.Context) map[string]bool {
+			return newsletterChecks(newsletterSettings, !lifecycleFailed.Load() && journal.CheckReady(ctx) == nil && s.SQL.PingContext(ctx) == nil, mailService.Ready(ctx), proofKeys != nil && len(proofSettings.RateKey) == 32, newsletterFailed.Load())
+		},
 		Origin: cfg.Origin, Secure: cfg.Secure, Version: version,
 		Lifecycle: journal, TraceDir: os.Getenv("MYCHEF_TRACE_DIR"), AccountMail: !emailCfg.Disabled,
-		AccountReady: func(ctx context.Context) bool { return !lifecycleFailed.Load() && journal.CheckAvailable(ctx) == nil },
+		AccountReady: func(ctx context.Context) bool { return !lifecycleFailed.Load() && journal.CheckReady(ctx) == nil },
 		EmailWebhook: mailService.Webhook(), EmailReady: func(ctx context.Context) bool {
-			return !lifecycleFailed.Load() && journal.CheckAvailable(ctx) == nil && !signUpFailed.Load() && !recoveryFailed.Load() && mailService.Ready(ctx)
+			return !lifecycleFailed.Load() && journal.CheckReady(ctx) == nil && !signUpFailed.Load() && !recoveryFailed.Load() && mailService.Ready(ctx)
 		},
 		FixtureInbox: mailService.FixtureInbox(), TrustedProxies: cfg.TrustedProxies, EmailRateKey: proofSettings.RateKey, SignUp: signUp,
 		Verification:    &auth.EmailVerification{SignUp: signUp},

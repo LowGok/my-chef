@@ -111,7 +111,7 @@ public class MyChefNativePlugin: CAPPlugin, CAPBridgedPlugin, URLSessionDataDele
     private let lock = NSLock()
     private var pending: [Int: NativeRequestState] = [:]
     private let maximumResponse = 32 * 1024 * 1024
-    private let safeRequestHeaders: Set<String> = ["accept", "content-type", "authorization", "idempotency-key", "if-match", "if-none-match"]
+    private let safeRequestHeaders: Set<String> = ["accept", "content-type", "authorization", "idempotency-key", "x-mychef-analytics-revision", "if-match", "if-none-match"]
     private let safeResponseHeaders: Set<String> = ["content-type", "content-disposition", "date", "etag", "x-mychef-user", "retry-after"]
     private var http: URLSession?
     private func configureHTTP() {

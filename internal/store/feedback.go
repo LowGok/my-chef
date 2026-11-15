@@ -12,6 +12,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/LowGok/my-chef/internal/analytics"
 	"gorm.io/gorm"
 )
 
@@ -263,9 +264,12 @@ func (s *Store) WriteFeedback(ctx context.Context, actor FeedbackActor, in Feedb
 		if err != nil || outbox <= 0 {
 			return ErrFeedbackStorage
 		}
-		return tx.Exec(`INSERT INTO feedback_reports(user_id,request_key,request_hash,reference,topic,message,source_kind,source_id,priority,created_unix,outbox_id)
+		if err := tx.Exec(`INSERT INTO feedback_reports(user_id,request_key,request_hash,reference,topic,message,source_kind,source_id,priority,created_unix,outbox_id)
 VALUES(?,?,?,?,?,?,?,?,?,?,?)`, actor.UserID, in.RequestKey, hash, result.Reference, in.Topic, in.Message, kind, in.RecipeID,
-			priority, stamp, outbox).Error
+			priority, stamp, outbox).Error; err != nil {
+			return err
+		}
+		return analytics.CaptureEvent(ctx, tx, actor.UserID, "feedback_submitted", in.RequestKey)
 	})
 	if err != nil {
 		return FeedbackReceipt{}, feedbackError(err)

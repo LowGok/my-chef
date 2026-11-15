@@ -1,4 +1,8 @@
 import {
+  SignupAnalytics,
+  type SignupAnalyticsChoice,
+} from "./AnalyticsPreferences";
+import {
   useEffect,
   useLayoutEffect,
   useRef,
@@ -258,6 +262,9 @@ export function EmailProofPage({
   onExit: () => void;
 }) {
   const { kind, proof } = entry;
+  const [analyticsChoice, setAnalyticsChoice] = useState<SignupAnalyticsChoice>(
+    { analyticsEnabled: false, analyticsNoticeVersion: "" },
+  );
   const [profile, setProfile] = useState<Schemas["SignUpProfile"]>();
   const [change, setChange] = useState<Schemas["EmailChangeView"]>();
   const [problem, setProblem] = useState("");
@@ -324,6 +331,7 @@ export function EmailProofPage({
         return;
       }
       body = {
+        ...analyticsChoice,
         proof,
         password,
         firstName: get("firstName"),
@@ -460,6 +468,11 @@ export function EmailProofPage({
                   required
                 />
               </Field>
+              <SignupAnalytics
+                onChoice={setAnalyticsChoice}
+                initialEnabled={profile.analyticsEnabled ?? false}
+                initialNoticeVersion={profile.analyticsNoticeVersion}
+              />
               <button className="button primary full" disabled={busy}>
                 {busy ? "Creating…" : "Create account"}
               </button>

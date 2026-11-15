@@ -67,6 +67,28 @@ func (w *accountExportWriter) Write(data []byte) (int, error) {
 	w.started = true
 	return w.ResponseWriter.Write(data)
 }
+
+// The server also applies its thirty-second WriteTimeout. ResponseController
+// applies the earlier request deadline and interrupts a write on cancellation.
+func (w *accountExportWriter) WriteContext(ctx context.Context, data []byte) (int, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	controller := http.NewResponseController(w.ResponseWriter)
+	if deadline, ok := ctx.Deadline(); ok {
+		if err := controller.SetWriteDeadline(deadline); err != nil && !errors.Is(err, http.ErrNotSupported) {
+			return 0, err
+		}
+	}
+	done := make(chan struct{})
+	stop := context.AfterFunc(ctx, func() { _ = controller.SetWriteDeadline(time.Now()); close(done) })
+	defer func() {
+		if !stop() {
+			<-done
+		}
+	}()
+	return w.Write(data)
+}
 func (a *API) exportAccount(w http.ResponseWriter, r *http.Request) {
 	var input accountActionInput
 	if !a.decodeCredentials(w, r, &input) {

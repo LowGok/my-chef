@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/LowGok/my-chef/internal/analytics"
 	"github.com/LowGok/my-chef/internal/domain"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -134,7 +135,10 @@ func (s *Store) Shopping(ctx context.Context, owner int64, week string, actors .
 		result = reconcileShopping(old, recipes)
 		if !reflect.DeepEqual(old, result) {
 			result.Revision++
-			return persistShopping(tx, owner, result)
+			if err := persistShopping(tx, owner, result); err != nil {
+				return err
+			}
+			return nil
 		}
 		return nil
 	})
@@ -221,8 +225,43 @@ func (s *Store) SaveShopping(ctx context.Context, owner int64, week string, inpu
 			}
 		}
 		result.Items = derived
+		before := reconcileShopping(old, recipes)
+		changed := materialShoppingChange(before, result)
 		result.Revision = old.Revision + 1
-		return persistShopping(tx, owner, result)
+		if err := persistShopping(tx, owner, result); err != nil {
+			return err
+		}
+		if changed {
+			return analytics.CaptureEvent(ctx, tx, owner, "shopping_list_edited", "")
+		}
+		return nil
 	})
 	return result, err
+}
+
+func materialShoppingChange(before, after domain.ShoppingList) bool {
+	type manual struct {
+		Name        string
+		Quantity    *string
+		Unit, State string
+	}
+	projection := func(list domain.ShoppingList) (map[string]bool, map[string]string, map[string]manual) {
+		choices := map[string]bool{}
+		states := map[string]string{}
+		extras := map[string]manual{}
+		for _, m := range list.Meals {
+			choices[m.Position] = m.Selected
+		}
+		for _, i := range list.Items {
+			if i.Manual {
+				extras[i.ID] = manual{i.Name, i.Quantity, i.Unit, i.State}
+			} else {
+				states[i.ID] = i.State
+			}
+		}
+		return choices, states, extras
+	}
+	a, b, c := projection(before)
+	x, y, z := projection(after)
+	return !reflect.DeepEqual(a, x) || !reflect.DeepEqual(b, y) || !reflect.DeepEqual(c, z)
 }

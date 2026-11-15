@@ -13,8 +13,10 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/LowGok/my-chef/internal/analytics"
 	"github.com/LowGok/my-chef/internal/domain"
 	"github.com/LowGok/my-chef/internal/email/mailqueue"
+	"github.com/LowGok/my-chef/internal/newsletter"
 	"github.com/LowGok/my-chef/internal/store"
 	"github.com/ncruces/go-sqlite3"
 	"gorm.io/gorm"
@@ -30,12 +32,16 @@ type SignUp struct {
 	Origin            string
 	AllowLoopbackLink bool
 	Now               func() time.Time
+	Lifecycle         *store.LifecycleJournal
+	Newsletter        *newsletter.Service
 }
 
 type SignUpDetails struct {
-	FirstName string `json:"firstName"`
-	LastName  string `json:"lastName"`
-	Username  string `json:"username"`
+	AnalyticsEnabled       *bool  `json:"analyticsEnabled,omitempty"`
+	AnalyticsNoticeVersion string `json:"analyticsNoticeVersion,omitempty"`
+	FirstName              string `json:"firstName"`
+	LastName               string `json:"lastName"`
+	Username               string `json:"username"`
 }
 
 type SignUpRequest struct {
@@ -51,7 +57,11 @@ type SignUpCompletion struct {
 
 type signUpDraft struct {
 	SignUpRequest
-	EmailKey string
+	EmailKey           string
+	ContactID          int64
+	ContactIncarnation string
+	NewsletterOrder    int64
+	NewsletterBound    bool
 }
 
 func (s *SignUp) now() time.Time {
@@ -166,10 +176,6 @@ func (s *SignUp) Request(ctx context.Context, source string, request SignUpReque
 	now := s.now()
 	job := store.SignUpJob{ID: id, Requested: now.Unix(), Expires: now.Add(30 * time.Minute).Unix()}
 	request.Email = display
-	job.Draft, err = s.sealDraft("signup-job", signUpJobBinding(job), signUpDraft{SignUpRequest: request, EmailKey: key})
-	if err != nil {
-		return 0, err
-	}
 	var wait int
 	err = s.Store.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		rate, err := s.Store.ReserveEmailLimits(ctx, tx, now,
@@ -180,6 +186,17 @@ func (s *SignUp) Request(ctx context.Context, source string, request SignUpReque
 		}
 		if wait = rate.RetryAfter; wait != 0 {
 			return nil
+		}
+		draft := signUpDraft{SignUpRequest: request, EmailKey: key, NewsletterBound: true}
+		if err := tx.Raw("SELECT value FROM newsletter_sequence WHERE singleton=1").Scan(&draft.NewsletterOrder).Error; err != nil {
+			return err
+		}
+		job.Draft, err = s.sealDraft("signup-job", signUpJobBinding(job), draft)
+		if err != nil {
+			return err
+		}
+		if err := analytics.RecordSignupChoice(ctx, tx, key, analytics.SignupChoice{Enabled: request.AnalyticsEnabled, NoticeVersion: request.AnalyticsNoticeVersion}, s.Store.Analytics, now); err != nil {
+			return err
 		}
 		return tx.Create(&job).Error
 	})
@@ -192,6 +209,11 @@ func (s *SignUp) Request(ctx context.Context, source string, request SignUpReque
 // Step resolves one protected request. The token and delivery row share a
 // transaction with deletion of the job, so a retry cannot issue another link.
 func (s *SignUp) Step(ctx context.Context) (bool, error) {
+	s.Store.AccountWork.RLock()
+	defer s.Store.AccountWork.RUnlock()
+	if s.Lifecycle != nil && s.Lifecycle.CheckReady(ctx) != nil {
+		return false, ErrSignUpUnavailable
+	}
 	now := s.now()
 	var processed bool
 	err := s.Store.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -211,11 +233,31 @@ func (s *SignUp) Step(ctx context.Context) (bool, error) {
 		if err != nil {
 			return tx.Delete(&job).Error
 		}
-		claimed, err := addressClaimed(tx, draft.EmailKey)
+		erased, err := s.signupAddressErased(tx, draft)
 		if err != nil {
 			return err
 		}
-		if !claimed {
+		if erased {
+			return tx.Delete(&job).Error
+		}
+		var owner store.User
+		err = tx.Where("email_key=?", draft.EmailKey).Take(&owner).Error
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+		if errors.Is(err, gorm.ErrRecordNotFound) || owner.IsNewsletterOnly {
+			if !draft.NewsletterBound {
+				draft.NewsletterBound = true
+				if err := tx.Raw("SELECT value FROM newsletter_sequence WHERE singleton=1").Scan(&draft.NewsletterOrder).Error; err != nil {
+					return err
+				}
+			}
+			if owner.ID != 0 {
+				draft.ContactID = owner.ID
+				if err := tx.Raw("SELECT incarnation FROM account_incarnations WHERE user_id=?", owner.ID).Row().Scan(&draft.ContactIncarnation); err != nil {
+					return err
+				}
+			}
 			if err := s.issue(ctx, tx, now, job.ID, draft); err != nil {
 				return err
 			}
@@ -229,6 +271,9 @@ func (s *SignUp) Step(ctx context.Context) (bool, error) {
 }
 
 func (s *SignUp) clearExpired(ctx context.Context, tx *gorm.DB, now time.Time) error {
+	if err := tx.Exec("DELETE FROM analytics_signup WHERE expires_unix<=?", now.Unix()).Error; err != nil {
+		return err
+	}
 	if err := pruneEmailChanges(ctx, tx, now); err != nil {
 		return err
 	}
@@ -308,6 +353,11 @@ func (s *SignUp) Inspect(ctx context.Context, token string) (SignUpDetails, erro
 		return SignUpDetails{}, err
 	}
 	_, draft, err := s.readProof(s.Store.DB.WithContext(ctx), hash, s.now())
+	if err == nil {
+		enabled, notice := analytics.InspectSignupChoice(ctx, s.Store.DB, draft.EmailKey, s.Store.Analytics, s.now())
+		draft.AnalyticsEnabled = &enabled
+		draft.AnalyticsNoticeVersion = notice
+	}
 	return draft.SignUpDetails, err
 }
 
@@ -330,65 +380,112 @@ func (s *SignUp) Complete(ctx context.Context, anonymousToken string, input Sign
 	if err != nil {
 		return ErrSignUpUnavailable
 	}
-	err = s.Store.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		now := s.now()
-		var session store.Session
-		err := tx.Where("hash = ? AND user_id IS NULL AND expires_unix > ?", Hash(anonymousToken), now.Unix()).Take(&session).Error
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return ErrSession
-		}
-		if err != nil {
-			return err
-		}
-		proof, draft, err := s.readProof(tx, hash, now)
-		if err != nil {
-			return err
-		}
-		claimed, err := addressClaimed(tx, draft.EmailKey)
-		if err != nil {
-			return err
-		}
-		if claimed {
-			return ErrSignUpProof
-		}
-		prefs, _ := json.Marshal(domain.EmptyPreferences())
-		user := store.User{Email: draft.Email, EmailVerifiedAt: store.Ptr(now.Unix()), Password: credential,
-			Username: input.Username, FirstName: input.FirstName, LastName: input.LastName, PreferencesJSON: store.Ptr(string(prefs))}
-		if err = tx.Create(&user).Error; errors.Is(err, sqlite3.CONSTRAINT_UNIQUE) {
-			return ErrConflict
-		}
-		if err != nil {
-			return err
-		}
-		if err := invalidateRecovery(ctx, tx, now, user.ID, s.RateKey, draft.EmailKey); err != nil {
-			return err
-		}
-		var accountIncarnation string
-		if err := tx.Raw("SELECT incarnation FROM account_incarnations WHERE user_id=?", user.ID).Row().Scan(&accountIncarnation); err != nil {
-			return err
-		}
-		var claimedProofs []store.SignUpProof
-		if err := tx.Where("address_tag = ? AND consumed IS NULL", proof.AddressTag).Find(&claimedProofs).Error; err != nil {
-			return err
-		}
-		for _, claimedProof := range claimedProofs {
-			if err := tx.Exec("INSERT INTO account_signup_owners(proof_id,incarnation) VALUES(?,?) ON CONFLICT(proof_id) DO NOTHING", claimedProof.ID, accountIncarnation).Error; err != nil {
+	s.Store.AccountWork.RLock()
+	defer s.Store.AccountWork.RUnlock()
+	if s.Lifecycle != nil && s.Lifecycle.CheckReady(ctx) != nil {
+		return ErrSignUpUnavailable
+	}
+	run := func() error {
+		return s.Store.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			now := s.now()
+			var session store.Session
+			err := tx.Where("hash = ? AND user_id IS NULL AND expires_unix > ?", Hash(anonymousToken), now.Unix()).Take(&session).Error
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrSession
+			}
+			if err != nil {
 				return err
 			}
-			var outboxID int64
-			if err := tx.Raw("SELECT id FROM email_outbox WHERE key=?", "signup/"+claimedProof.ID).Row().Scan(&outboxID); err != nil {
+			proof, draft, err := s.readProof(tx, hash, now)
+			if err != nil {
 				return err
 			}
-			if err := store.LinkAccountMail(tx, user.ID, outboxID); err != nil {
+			erased, err := s.signupAddressErased(tx, draft)
+			if err != nil {
 				return err
 			}
-		}
-		return consumeSignUpAddress(ctx, tx, now, proof.AddressTag)
-	})
+			if erased {
+				return ErrSignUpProof
+			}
+			prefs, _ := json.Marshal(domain.EmptyPreferences())
+			user := store.User{Email: draft.Email, EmailVerifiedAt: store.Ptr(now.Unix()), Password: credential,
+				Username: input.Username, FirstName: input.FirstName, LastName: input.LastName, PreferencesJSON: store.Ptr(string(prefs))}
+			var owner store.User
+			lookup := tx.Where("email_key=?", draft.EmailKey).Take(&owner).Error
+			switch {
+			case lookup == nil:
+				if !owner.IsNewsletterOnly || !draft.NewsletterBound || draft.ContactID != 0 && draft.ContactID != owner.ID {
+					return ErrSignUpProof
+				}
+				if draft.ContactID != 0 {
+					var incarnation string
+					if err := tx.Raw("SELECT incarnation FROM account_incarnations WHERE user_id=?", owner.ID).Row().Scan(&incarnation); err != nil || incarnation != draft.ContactIncarnation {
+						return ErrSignUpProof
+					}
+				}
+				user.ID = owner.ID
+				err = tx.Model(&owner).Where("isNewsletterOnly=1 AND email_key=?", draft.EmailKey).Updates(map[string]any{
+					"isNewsletterOnly": false, "email": draft.Email, "email_verified_at": now.Unix(), "password": credential,
+					"username": input.Username, "firstname": input.FirstName, "lastname": input.LastName, "preferences_json": string(prefs),
+				}).Error
+			case errors.Is(lookup, gorm.ErrRecordNotFound):
+				if draft.ContactID != 0 {
+					return ErrSignUpProof
+				}
+				err = tx.Create(&user).Error
+			default:
+				return lookup
+			}
+			if errors.Is(err, sqlite3.CONSTRAINT_UNIQUE) {
+				return ErrConflict
+			}
+			if err != nil {
+				return err
+			}
+			if err := invalidateRecovery(ctx, tx, now, user.ID, s.RateKey, draft.EmailKey); err != nil {
+				return err
+			}
+			var accountIncarnation string
+			if err := tx.Raw("SELECT incarnation FROM account_incarnations WHERE user_id=?", user.ID).Row().Scan(&accountIncarnation); err != nil {
+				return err
+			}
+			var claimedProofs []store.SignUpProof
+			if err := tx.Where("address_tag = ? AND consumed IS NULL", proof.AddressTag).Find(&claimedProofs).Error; err != nil {
+				return err
+			}
+			for _, claimedProof := range claimedProofs {
+				if err := tx.Exec("INSERT INTO account_signup_owners(proof_id,incarnation) VALUES(?,?) ON CONFLICT(proof_id) DO NOTHING", claimedProof.ID, accountIncarnation).Error; err != nil {
+					return err
+				}
+				var outboxID int64
+				if err := tx.Raw("SELECT id FROM email_outbox WHERE key=?", "signup/"+claimedProof.ID).Row().Scan(&outboxID); err != nil {
+					return err
+				}
+				if err := store.LinkAccountMail(tx, user.ID, outboxID); err != nil {
+					return err
+				}
+			}
+			if err := analytics.EnrollSignup(ctx, tx, user.ID, draft.EmailKey, analytics.SignupChoice{Enabled: input.AnalyticsEnabled, NoticeVersion: input.AnalyticsNoticeVersion}, s.Store.Analytics, now); err != nil {
+				return err
+			}
+			return consumeSignUpAddress(ctx, tx, now, proof.AddressTag)
+		})
+	}
+	err = analytics.SignupTransaction(ctx, s.Store.Analytics, run)
 	if err == nil || errors.Is(err, ErrSignUpProof) || errors.Is(err, ErrConflict) || errors.Is(err, ErrSession) {
 		return err
 	}
 	return ErrSignUpUnavailable
+}
+
+func (s *SignUp) signupAddressErased(tx *gorm.DB, draft signUpDraft) (bool, error) {
+	tag, err := store.EmailRateBucket(s.RateKey, "newsletter/erasure", draft.EmailKey)
+	if err != nil {
+		return false, err
+	}
+	var erased int64
+	err = tx.Raw("SELECT count(*) FROM newsletter_erasures WHERE address_tag=? AND through_order>?", tag, draft.NewsletterOrder).Scan(&erased).Error
+	return erased != 0, err
 }
 
 func (s *SignUp) Run(ctx context.Context) error {

@@ -182,6 +182,23 @@ func TestLifecycleRuntimeReconcilesBeforeReadyAndBlocksJournalLoss(t *testing.T)
 	if err != nil || users != 0 {
 		t.Fatal("readiness preceded deleted account purge", users, err)
 	}
+	operation := strings.Repeat("d", 32)
+	if err := j.PrepareDeletion(ctx, operation, strings.Repeat("e", 32)); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"/readyz", "/api/v1/session"} {
+		response, err := client.Get(origin + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = response.Body.Close()
+		if response.StatusCode != 503 {
+			t.Fatalf("unresolved intent allowed %s: %d", path, response.StatusCode)
+		}
+	}
+	if err := j.CancelDeletion(ctx, operation); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.Rename(j.Path, j.Path+".lost"); err != nil {
 		t.Fatal(err)
 	}

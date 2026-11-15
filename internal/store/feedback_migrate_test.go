@@ -90,14 +90,20 @@ VALUES(1,'2026-11-02',3,'{"items":[]}');
 		if name == "meals" {
 			definition = strings.TrimSuffix(definition, ")") + ", personal_source TEXT CHECK(personal_source IS NULL OR json_valid(personal_source)))"
 		}
-		if after.objects[name] != definition {
+		if withoutNewsletterColumn(after.objects[name]) != definition {
 			t.Fatalf("migration changed existing schema object %s", name)
 		}
 		delete(after.objects, name)
 	}
-	for _, name := range []string{"feedback_reports", "feedback_ratings", "feedback_rating_receipts", "feedback_reports_by_owner_time", "feedback_rating_receipts_by_owner_time", "account_incarnations", "lifecycle_binding", "lifecycle_operations", "account_mail_owners", "account_mail_owner", "account_signup_owners", "account_incarnation_pair", "personal_recipes", "personal_recipes_page", "personal_recipe_copy", "personal_recipe_versions", "personal_recipe_operations", "personal_recipe_operation_source", "personal_photo_assets", "personal_photo_attempts", "personal_photo_attempt_leases", "personal_photo_limits", "personal_photo_limit_key", "personal_photo_requests", "meals_personal_photo", "personal_recipe_queue", "personal_recipe_queue_pending", "personal_queue_receipts", "recipe_import_operations", "recipe_import_owner", "recipe_import_expiry", "personal_recipe_import_sources", "native_families", "native_families_expiry", "native_accesses", "native_accesses_family", "native_refreshes", "native_refreshes_family", "entitlement_fixture", "entitlement_grants", "entitlement_grants_owner", "entitlement_fixture_operations", "entitlement_fixture_reserved", "entitlement_retired_leases", "reminder_preferences", "reminder_preferences_due", "reminder_installations", "reminder_installations_owner", "reminder_occurrences", "reminder_occurrences_due", "reminder_dispatches", "reminder_dispatches_due"} {
+	for _, name := range []string{"feedback_reports", "feedback_ratings", "feedback_rating_receipts", "feedback_reports_by_owner_time", "feedback_rating_receipts_by_owner_time", "account_incarnations", "lifecycle_binding", "lifecycle_operations", "account_mail_owners", "account_mail_owner", "account_signup_owners", "account_incarnation_pair", "personal_recipes", "personal_recipes_page", "personal_recipe_copy", "personal_recipe_versions", "personal_recipe_operations", "personal_recipe_operation_source", "personal_photo_assets", "personal_photo_attempts", "personal_photo_attempt_leases", "personal_photo_limits", "personal_photo_limit_key", "personal_photo_requests", "meals_personal_photo", "personal_recipe_queue", "personal_recipe_queue_pending", "personal_queue_receipts", "recipe_import_operations", "recipe_import_owner", "recipe_import_expiry", "personal_recipe_import_sources", "native_families", "native_families_expiry", "native_accesses", "native_accesses_family", "native_refreshes", "native_refreshes_family", "entitlement_fixture", "entitlement_grants", "entitlement_grants_owner", "entitlement_fixture_operations", "entitlement_fixture_reserved", "entitlement_retired_leases", "analytics_preferences", "analytics_receipts", "analytics_outbox", "analytics_outbox_delivery", "analytics_signup", "analytics_generation", "analytics_installation", "analytics_gaps", "reminder_preferences", "reminder_preferences_due", "reminder_installations", "reminder_installations_owner", "reminder_occurrences", "reminder_occurrences_due", "reminder_dispatches", "reminder_dispatches_due"} {
 		if after.objects[name] == "" {
 			t.Fatalf("missing feature schema object %s", name)
+		}
+		delete(after.objects, name)
+	}
+	for _, name := range []string{"newsletter_sequence", "newsletter_requests", "newsletter_subscriptions", "newsletter_proofs", "newsletter_proof_user", "newsletter_erasures"} {
+		if after.objects[name] == "" {
+			t.Fatalf("missing newsletter schema object %s", name)
 		}
 		delete(after.objects, name)
 	}

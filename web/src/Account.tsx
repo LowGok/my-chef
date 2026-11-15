@@ -1,4 +1,9 @@
 import {
+  SignupAnalytics,
+  AnalyticsPreferences,
+  type SignupAnalyticsChoice,
+} from "./AnalyticsPreferences";
+import {
   useId,
   useLayoutEffect,
   useRef,
@@ -39,6 +44,9 @@ export function Welcome({
   onSession: (value: Session) => void;
   onForgotPassword: () => void;
 }) {
+  const [analyticsChoice, setAnalyticsChoice] = useState<SignupAnalyticsChoice>(
+    { analyticsEnabled: false, analyticsNoticeVersion: "" },
+  );
   const [register, setRegister] = useState(false),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
@@ -52,6 +60,7 @@ export function Welcome({
     try {
       if (register) {
         await requestSignUp({
+          ...analyticsChoice,
           firstName: get("firstName"),
           lastName: get("lastName"),
           username: get("username"),
@@ -171,6 +180,7 @@ export function Welcome({
                   />
                 </Field>
               )}
+              {register && <SignupAnalytics onChoice={setAnalyticsChoice} />}
               <button
                 className="button primary full"
                 disabled={busy}
@@ -362,6 +372,10 @@ export function ProfileForm({
               })
             }
           />
+          <AnalyticsPreferences
+            active={active && detailsOpen}
+            scope={`${user.id}/${user.accountInstance ?? ""}`}
+          />
           <AccountLifecycle
             active={active && detailsOpen}
             onDeleted={onDeleted}
@@ -457,7 +471,6 @@ export function ProfileForm({
             About
           </summary>
           <p>MyChef organizes recipes and shopping lists.</p>
-          
         </details>
       </section>
       <div className="profile-actions">

@@ -16,6 +16,7 @@ import {
   completeLocalLogout,
   APIError,
   getSession,
+refreshAnalyticsPreference,
   forgetSession,
   isStale,
   sessionEpoch,
@@ -480,10 +481,17 @@ export function App() {
         if (reloadAccount) location.reload();
       }
     };
+const resumeAnalytics=()=>{if(document.visibilityState==="visible"&&sessionHasAccount()&&!signedOut())void refreshAnalyticsPreference().catch(()=>undefined)};
+ document.addEventListener("visibilitychange",resumeAnalytics);
+ window.addEventListener(nativeResumeEvent,resumeAnalytics);
+ window.addEventListener("pageshow",resumeAnalytics);
     window.addEventListener("pageshow", restored);
     window.addEventListener(SESSION_LOST, lost);
     window.addEventListener("storage", sharedLogout);
     return () => {
+document.removeEventListener("visibilitychange",resumeAnalytics);
+ window.removeEventListener(nativeResumeEvent,resumeAnalytics);
+ window.removeEventListener("pageshow",resumeAnalytics);
       window.removeEventListener("pageshow", restored);
       window.removeEventListener(SESSION_LOST, lost);
       window.removeEventListener("storage", sharedLogout);

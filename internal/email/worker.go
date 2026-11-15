@@ -71,6 +71,9 @@ func (w *Worker) delay(attempt int) time.Duration {
 func (w *Worker) Step(ctx context.Context) (bool, error) {
 	w.Queue.Store.AccountWork.RLock()
 	defer w.Queue.Store.AccountWork.RUnlock()
+	if w.Queue.Lifecycle != nil && w.Queue.Lifecycle.CheckReady(ctx) != nil {
+		return false, errStorage
+	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	now := w.Queue.now()

@@ -73,7 +73,7 @@ func (s *ReminderSettings) providerEnabled(provider string) bool {
 }
 
 func reminderSchemaChecksum() string {
-	sum := sha256.Sum256([]byte(nativeSchemaSQL() + migrations.EntitlementGrants + migrations.WeeklyReminders))
+	sum := sha256.Sum256([]byte(newsletterSchemaChecksum() + migrations.WeeklyReminders))
 	return hex.EncodeToString(sum[:])
 }
 
@@ -89,20 +89,20 @@ func (s *Store) migrateWeeklyReminders(ctx context.Context) error {
 	if err := tx.QueryRowContext(ctx, "SELECT version,checksum,dirty FROM schema_migrations").Scan(&version, &checksum, &dirty); err != nil {
 		return err
 	}
-	if version != 18 || checksum != entitlementSchemaChecksum() || dirty {
+	if version != 24 || checksum != newsletterSchemaChecksum() || dirty {
 		return errors.New("unexpected schema before weekly reminder migration")
 	}
 	if _, err := tx.ExecContext(ctx, migrations.WeeklyReminders); err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, "UPDATE schema_migrations SET version=19,checksum=?,dirty=0 WHERE version=18", reminderSchemaChecksum()); err != nil {
+	if _, err := tx.ExecContext(ctx, "UPDATE schema_migrations SET version=25,checksum=?,dirty=0 WHERE version=24", reminderSchemaChecksum()); err != nil {
 		return err
 	}
 	return tx.Commit()
 }
 
 func reminderDispatchExpirySchemaChecksum() string {
-	sum := sha256.Sum256([]byte(nativeSchemaSQL() + migrations.EntitlementGrants + migrations.WeeklyReminders + migrations.ReminderDispatchExpiry))
+	sum := sha256.Sum256([]byte(reminderSchemaChecksum() + migrations.ReminderDispatchExpiry))
 	return hex.EncodeToString(sum[:])
 }
 
@@ -118,13 +118,13 @@ func (s *Store) migrateReminderDispatchExpiry(ctx context.Context) error {
 	if err := tx.QueryRowContext(ctx, "SELECT version,checksum,dirty FROM schema_migrations").Scan(&version, &checksum, &dirty); err != nil {
 		return err
 	}
-	if version != 19 || checksum != reminderSchemaChecksum() || dirty {
+	if version != 25 || checksum != reminderSchemaChecksum() || dirty {
 		return errors.New("unexpected schema before reminder dispatch expiry migration")
 	}
 	if _, err := tx.ExecContext(ctx, migrations.ReminderDispatchExpiry); err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, "UPDATE schema_migrations SET version=20,checksum=?,dirty=0 WHERE version=19", reminderDispatchExpirySchemaChecksum()); err != nil {
+	if _, err := tx.ExecContext(ctx, "UPDATE schema_migrations SET version=26,checksum=?,dirty=0 WHERE version=25", reminderDispatchExpirySchemaChecksum()); err != nil {
 		return err
 	}
 	return tx.Commit()
