@@ -580,7 +580,8 @@ final class MyChefBridgeViewController: CAPBridgeViewController {
     private func runBillingFixture(remaining: Int) {
         guard remaining > 0 else { return }
         guard nativePlugin.billingFixtureOrigin, let view = webView,
-              view.url?.scheme == "capacitor", view.url?.host == "localhost" else {
+              view.url?.scheme == "capacitor", view.url?.host == "localhost",
+              view.traitCollection.preferredContentSizeCategory.isAccessibilityCategory else {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
                 self?.runBillingFixture(remaining: remaining - 1)
             }
@@ -606,7 +607,7 @@ final class MyChefBridgeViewController: CAPBridgeViewController {
         view.callAsyncJavaScript(source, arguments: ["fixture": input], in: nil, in: .page) { result in
             guard case .success(let value) = result,
                   let proof = value as? [String: Bool],
-                  Set(proof.keys) == ["terms", "checkout", "restore"], proof.values.allSatisfy({ $0 }),
+                  Set(proof.keys) == ["terms", "systemTextSize", "checkout", "restore"], proof.values.allSatisfy({ $0 }),
                   let output = try? JSONSerialization.data(withJSONObject: proof) else { return }
             try? output.write(to: directory.appendingPathComponent("mychef-ios-billing-result.json"), options: .atomic)
         }

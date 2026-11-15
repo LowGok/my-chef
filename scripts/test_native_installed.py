@@ -488,6 +488,7 @@ def ios(state, stack, ca, package, reminder_inputs=None, billing=False):
         scratch = container / "tmp"
         result = scratch / "mychef-ios-billing-result.json"
         result.unlink(missing_ok=True)
+        sim("ui", identifier, "content_size", "accessibility-medium")
         with (scratch / "mychef-ios-billing-input.json").open("x") as file:
             json.dump(inputs, file)
         sim("launch", identifier, APP, "--mychef-billing-fixture")
@@ -540,7 +541,7 @@ def ios_reminder_inputs(state):
 
 def ios_billing_verified(result, events):
     return (isinstance(result, dict)
-            and set(result) == {"terms", "checkout", "restore"}
+            and set(result) == {"terms", "systemTextSize", "checkout", "restore"}
             and all(value is True for value in result.values())
             and [event for event in events if event[0] == "POST" and event[1].startswith("billing/")] == [
                 ("POST", "billing/checkouts", 201), ("POST", "billing/launch", 204),
@@ -563,7 +564,8 @@ def ios_billing_journey(state, receipt, metadata, events, stop, start):
     wait_for(result.is_file, "iOS simulator subscription journey", seconds=100)
     if result.stat().st_size > 256 or not ios_billing_verified(json.loads(result.read_text()), events[first:]):
         raise RuntimeError("Unexpected iOS simulator billing result")
-    checks = ["enlarged price controls", "verified simulated Apple purchase", "simulated Apple restore"]
+    checks = ["iOS system large text and focusable subscription controls",
+              "verified simulated Apple purchase", "simulated Apple restore"]
     output = dict(source=receipt["candidate"], artifactSha256=receipt["artifactSha256"], device=metadata,
                   groups={"billing": checks}, passed=checks,
                   limitations="Installed iOS simulator WebView with simulated store responses; no TestFlight, real StoreKit purchase or VoiceOver.")

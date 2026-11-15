@@ -48,14 +48,32 @@ async function runIOSBillingFixture(
     return button && !button.disabled && panel.textContent?.includes("€6.99 per month.") &&
       panel.textContent.includes("€69.90 per year.") ? button : undefined;
   });
+  const controls = await wait(() => {
+    const annual = exact<HTMLButtonElement>("button", "Subscribe annually", panel);
+    const restore = exact<HTMLButtonElement>("button", "Restore purchases", panel);
+    if (annual && !annual.disabled && restore && !restore.disabled) return [buy, annual, restore];
+  });
   const root = document.documentElement;
+  await wait(() => parseFloat(getComputedStyle(root).fontSize) >= 24 ? true : undefined);
+  const fits = () =>
+    root.scrollWidth <= innerWidth + 1 && panel.scrollWidth <= panel.clientWidth + 1 &&
+    controls.every((button) => {
+      button.focus();
+      const box = button.getBoundingClientRect();
+      return document.activeElement === button && box.width > 0 && box.height > 0 &&
+        box.left >= 0 && box.right <= innerWidth + 1 && button.scrollWidth <= button.clientWidth + 1;
+    });
+  const fonts = () => controls.map((button) => parseFloat(getComputedStyle(button).fontSize));
+  const systemFonts = fonts();
+  if (!fits()) throw new Error("The subscription controls do not fit with iOS system large text.");
   const previous = root.style.fontSize;
   try {
-    const normal = parseFloat(getComputedStyle(buy).fontSize);
+    root.style.fontSize = "100%";
+    const normal = fonts();
+    if (!normal.every((size, index) => size > 0 && systemFonts[index] >= size * 1.45))
+      throw new Error("The subscription controls did not enlarge with iOS system text.");
     root.style.fontSize = "200%";
-    buy.focus();
-    if (!(parseFloat(getComputedStyle(buy).fontSize) > normal) ||
-        panel.scrollWidth > panel.clientWidth + 1 || document.activeElement !== buy)
+    if (!fits() || !fonts().every((size, index) => size >= normal[index] * 1.95))
       throw new Error("The iOS fixture subscription controls failed the enlarged-text check.");
   } finally {
     root.style.fontSize = previous;
@@ -77,7 +95,7 @@ async function runIOSBillingFixture(
   await wait(() => completed() === 2 &&
     panel.querySelector('[role="status"]')?.textContent === "Purchase verified." &&
     !exact("button", "Subscribe monthly", panel) ? true : undefined);
-  return { terms: true, checkout: true, restore: true };
+  return { terms: true, systemTextSize: true, checkout: true, restore: true };
 }
 
 export function iosBillingFixtureSource() {

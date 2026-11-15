@@ -13,7 +13,8 @@ SMOKE = ["install and launch", "native session over verified HTTPS", "refresh af
 BILLING = {
     "android": ["Android large text and Play purchase controls are accessible",
                 "Play restores the lost simulated result before completion"],
-    "ios-simulator": ["enlarged price controls", "verified simulated Apple purchase", "simulated Apple restore"],
+    "ios-simulator": ["iOS system large text and focusable subscription controls",
+                      "verified simulated Apple purchase", "simulated Apple restore"],
 }
 PRIVATE = re.compile(
     r"Bearer\s+|fixture\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}|"

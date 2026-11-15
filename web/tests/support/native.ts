@@ -10,7 +10,7 @@ import { personalPhoto } from "./personal-photo";
 export async function fakeNative(
   context: BrowserContext,
   server: APIRequestContext,
-  options: { platform?: "ios" | "android"; billingFixture?: boolean } = {},
+  options: { platform?: "ios" | "android"; billingFixture?: boolean; textScale?: number } = {},
 ) {
   const platform = options.platform ?? "android";
   let refresh: string | null = null,
@@ -31,7 +31,7 @@ export async function fakeNative(
   let exportResponse: Buffer | null = null;
   const exports: { filename: string; bytes: Buffer }[] = [],
     links: string[] = [];
-  let runtime: RuntimeSnapshot = { active: true, online: true, back: false };
+  let runtime: RuntimeSnapshot = { active: true, online: true, back: false, textScale: options.textScale };
   const bundle = resolve(import.meta.dirname, "../../dist/app");
   await context.route("**/app/**", async (route) => {
     const path =

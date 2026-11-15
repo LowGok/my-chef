@@ -142,7 +142,8 @@ class NativeVerificationTest(unittest.TestCase):
              ["Android large text and Play purchase controls are accessible", "Play restores the lost simulated result before completion"]),
             ("ios-simulator", "mychef-compile-simulator.app.zip",
              {"runtime": "com.apple.CoreSimulator.SimRuntime.iOS-18-6", "model": "iPhone 16"},
-             ["enlarged price controls", "verified simulated Apple purchase", "simulated Apple restore"]),
+             ["iOS system large text and focusable subscription controls",
+              "verified simulated Apple purchase", "simulated Apple restore"]),
         ):
             with self.subTest(platform=platform), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
@@ -165,13 +166,14 @@ class NativeVerificationTest(unittest.TestCase):
                 self.assertEqual(value["billing"], checks)
                 self.assertNotIn("privateNotes", json.dumps(value))
                 self.assertNotIn("compiler information", json.dumps(value))
-                if platform == "android":
-                    old_checks = ["Play simulated purchase has accessible terms", checks[1]]
-                    (root / "installed-journeys.json").write_text(json.dumps({
-                        **journey, "passed": old_checks, "groups": {"billing": old_checks},
-                    }))
-                    with self.assertRaises(ValueError):
-                        evidence(root, platform, source)
+                old_step = ("Play simulated purchase has accessible terms" if platform == "android"
+                            else "enlarged price controls")
+                old_checks = [old_step, *checks[1:]]
+                (root / "installed-journeys.json").write_text(json.dumps({
+                    **journey, "passed": old_checks, "groups": {"billing": old_checks},
+                }))
+                with self.assertRaises(ValueError):
+                    evidence(root, platform, source)
                 for invalid in (
                     {**journey, "passed": checks[:-1]},
                     {**journey, "artifactSha256": "a" * 64},
@@ -193,8 +195,10 @@ class NativeVerificationTest(unittest.TestCase):
     def test_ios_billing_receipt_is_exact_and_never_accepts_proofs(self):
         routes = [("POST", "billing/checkouts", 201), ("POST", "billing/launch", 204),
                   ("POST", "billing/verify", 200), ("POST", "billing/restore", 200)]
-        accepted = {"terms": True, "checkout": True, "restore": True}
+        accepted = {"terms": True, "systemTextSize": True, "checkout": True, "restore": True}
         self.assertTrue(installed.ios_billing_verified(accepted, routes))
+        self.assertFalse(installed.ios_billing_verified({"terms": True, "checkout": True, "restore": True}, routes))
+        self.assertFalse(installed.ios_billing_verified({**accepted, "systemTextSize": False}, routes))
         self.assertFalse(installed.ios_billing_verified({**accepted, "receipt": "synthetic"}, routes))
         self.assertFalse(installed.ios_billing_verified({**accepted, "terms": False}, routes))
         self.assertFalse(installed.ios_billing_verified({**accepted, "terms": 1}, routes))

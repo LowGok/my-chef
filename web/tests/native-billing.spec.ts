@@ -272,7 +272,7 @@ test("the packaged simulator fixture completes and restores the same Apple proof
   try {
     await registerFixture(page, account);
     await context.clearCookies();
-    await fakeNative(context, server, { platform: "ios", billingFixture: true });
+    await fakeNative(context, server, { platform: "ios", billingFixture: true, textScale: 1.5 });
     await page.goto("/app/");
     const result = await page.evaluate(({ source, input }) => {
       // Chromium runs the exact function body that WKWebView receives in CI.
@@ -287,7 +287,7 @@ test("the packaged simulator fixture completes and restores the same Apple proof
         expiresAt: Date.now() + 10 * 60_000,
       },
     });
-    expect(result).toEqual({ terms: true, checkout: true, restore: true });
+    expect(result).toEqual({ terms: true, systemTextSize: true, checkout: true, restore: true });
   } finally {
     await server.dispose();
   }
