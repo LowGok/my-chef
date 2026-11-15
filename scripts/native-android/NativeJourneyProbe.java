@@ -302,8 +302,8 @@ public final class NativeJourneyProbe extends Instrumentation {
 
     private AccessibilityNodeInfo speechNode(AccessibilityNodeInfo node, String label, int depth) {
         if (node == null || depth > 32) return null;
-        String text = String.valueOf(node.getText()).strip();
-        String description = String.valueOf(node.getContentDescription()).strip();
+        String text = String.valueOf(node.getText()).strip().replaceAll("\\s+", " ");
+        String description = String.valueOf(node.getContentDescription()).strip().replaceAll("\\s+", " ");
         if (node.isVisibleToUser() && (text.equals(label) || description.equals(label)
                 || text.startsWith(label + " ") || description.startsWith(label + " "))) {
             if (label.equals("Help improve MyChef")) {

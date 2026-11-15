@@ -1228,6 +1228,11 @@ async function analyticsJourneys() {
         .split("\n").some(line => /ServiceRecord/.test(line) && line.includes("TalkBackService"))).toBe(true);
       adb("shell", "am", "start", "-W", "-n", app + "/.MainActivity");
       await Bun.sleep(2000);
+      // TalkBack startup or its tutorial can move WebKit to another position.
+      // The existing spoken native test centers the target after startup.
+      await control.evaluate((node) => node.scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" }));
+      await expect(control).toBeVisible();
+      await Bun.sleep(350);
       await fixture("speech-start", { target });
       await probeAction(target === "order" ? "speech-order" : "speech-focus", target === "order" ? "on" : target);
       await Bun.sleep(target === "stale" || target === "offline" ? 12000 : 6500);
