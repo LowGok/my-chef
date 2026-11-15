@@ -206,15 +206,19 @@ until the separate launch decision. The production compatibility guard remains
 false in this feature. A fake fixture's readiness and captured headers do not
 prove production hosting, domain verification, mailbox delivery or legal approval.
 
-For sending from `newsletter@mychef.dev`, use the existing Resend account to
-retrieve the `mychef.dev` domain, its sending capability/status, region and exact
-generated DNS records. Under the later approved provider operation, add only
-its sending DKIM TXT, SPF TXT and return-path/bounce MX in Cloudflare. The usual
-names are `resend._domainkey` and `send`; use the retrieved values, never example
-keys or a guessed region. Keep receiving and tracking disabled and preserve
-website, existing MX, SPF/DMARC and other-provider records. A return-path MX
-handles delivery feedback; it does not require an inbound newsletter mailbox.
-See [Resend domain setup](https://resend.com/docs/guides/dns/cloudflare).
+For sending from `newsletter@mychef.dev`, retrieve `mychef.dev` in the existing
+Resend account and record its domain ID, sending capability/status, region and
+exact generated records. Use the provider's actual names, types, values,
+applicable priorities and proxy settings; do not prescribe a fixed TXT/MX layout.
+The current verified domain uses DKIM TXT at `resend._domainkey`, DNS-only CNAME
+`rsend` to `rsend-euw1.forge.rmta.net` and DNS-only CNAME `send` to
+`send.forge.rmta.net`. Public DNS confirms those records; the authenticated
+provider receipt separately establishes account status, region and settings.
+Do not infer a region from a hostname or add speculative TXT/MX beside a CNAME.
+Copy the actual provider DKIM key rather than an example. Keep receiving and
+tracking disabled and preserve website, apex MX, SPF/DMARC and other-provider
+records. Sending does not require a newsletter inbox. See
+[Resend domain setup](https://resend.com/docs/guides/dns/cloudflare).
 
 The selected newsletter Reply-To is `feedback@gkldevelopment.com`. Public Zoho
 MX records and the completed app-feedback specification establish a documented
@@ -225,15 +229,19 @@ the existing mailbox/alias, monitoring and any ingestion route through the Hub's
 authorized provider access; do not create a new inbox or send a real-recipient
 test as part of local verification.
 
-Before collecting real contacts, the controller must approve and document the
-purposes, lawful bases, necessity and objective retention/review criteria for
-keeping pending and withdrawn email/contact IDs, including whether a smaller
-suppression record would suffice. Approve the public controller/rights contact,
-localized notice, processor/transfer information, backup/recovery and verified
-export/erasure procedure. `none` disables automatic age deletion; it is not a
-legal determination that indefinite retention is permitted. Newsletter withdrawal
-does not change analytics consent. Sending campaigns, production configuration,
-real-recipient testing and activation remain separate approvals.
+Before collecting real contacts, document the controller's purposes, lawful
+bases, necessity and objective retention/review criteria for keeping pending and
+withdrawn email/contact IDs, including whether less data would suffice. The
+owner has selected the controller and public rights contact; operational mailbox
+verification remains separate from those choices. Complete the localized notice,
+processor/transfer record, backup/recovery and verified export/erasure procedure.
+`none` disables automatic age deletion; it does not establish a lawful basis for
+indefinite retention. Newsletter withdrawal does not change analytics consent.
+The owner separately authorized public newsletter activation when reviewed
+production readiness passes. That launch requires its own compatible runtime and
+exact backend/site evidence; this feature leaves the production guard and public
+controls unchanged. Campaigns and real-recipient testing retain their separate
+scope and authorization.
 
 For rollback, pause capture and stop the owned newsletter worker before changing
 policy or release. Version 0.20.0 rejects `none`; keep newsletter mode disabled
