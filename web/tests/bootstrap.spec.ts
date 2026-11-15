@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import type { Session } from "../src/api";
+import type { PlanningStatus, Session } from "../src/api";
 
 test("Go serves health and the embedded production frontend", async ({
   page,
@@ -66,6 +66,17 @@ test("entry and menu controls remain usable on narrow screens", async ({
   await page.route("**/api/v1/session", (route) =>
     route.fulfill({ json: session }),
   );
+  const calendar: PlanningStatus = {
+    zone: "Europe/Brussels",
+    premium: true,
+    today: "2026-12-28",
+    firstWeek: "2026-12-28",
+    lastWeek: "2027-01-25",
+  };
+  const viewer = { "X-MyChef-User": session.user!.id };
+  await page.route("**/api/v1/planning", (route) =>
+    route.fulfill({ headers: viewer, json: calendar }),
+  );
   await page.route("**/api/v1/favorite-weeks/*", (route) =>
     route.fulfill({
       headers: { "X-MyChef-User": session.user!.id },
@@ -119,9 +130,11 @@ test("entry and menu controls remain usable on narrow screens", async ({
   await page
     .getByRole("button", { name: "Increase children", exact: true })
     .click();
-  await page
-    .getByRole("button", { name: "Increase number of meals", exact: true })
-    .click();
+  const slots = page.getByRole("group", { name: "Dinner dates" });
+  await expect(slots.getByRole("checkbox")).toHaveCount(7);
+  const selected = ["2026-12-30", "2026-12-31", "2027-01-01", "2027-01-02"];
+  for (const date of ["2026-12-28", "2026-12-29", "2027-01-03"])
+    await slots.locator("input[value='" + date + "']").uncheck();
   for (const width of [320, 390]) {
     await page.setViewportSize({ width, height: 812 });
     await expect(
@@ -156,7 +169,6 @@ test("entry and menu controls remain usable on narrow screens", async ({
     path: "../test-results/branding/household-mobile.png",
     fullPage: true,
   });
-  await page.getByLabel("First meal date").fill("2026-12-30");
   await page.getByRole("button", { name: "Review menu", exact: true }).click();
   await expect(
     page.getByRole("listitem").filter({ hasText: "Review your menu" }),
@@ -167,7 +179,7 @@ test("entry and menu controls remain usable on narrow screens", async ({
       .evaluateAll((dates) =>
         dates.map((date) => date.getAttribute("datetime")),
       ),
-  ).toEqual(["2026-12-30", "2026-12-31", "2027-01-01", "2027-01-02"]);
+  ).toEqual(selected);
   for (const width of [320, 390, 460, 640, 900, 1280]) {
     await page.setViewportSize({ width, height: 812 });
     expect(
@@ -226,33 +238,36 @@ test("entry and menu controls remain usable on narrow screens", async ({
     fullPage: true,
   });
   await page.getByRole("button", { name: "Edit request", exact: true }).click();
-  await expect(page.getByLabel("First meal date")).toBeVisible();
-  await expect(page.getByLabel("First meal date")).toHaveValue("2026-12-30");
+  await expect(slots).toBeVisible();
+  expect(await slots.locator("input:checked").evaluateAll((inputs) =>
+    inputs.map((input) => (input as HTMLInputElement).value),
+  )).toEqual(selected);
   await expect(effort).toHaveValue("120");
   await expect(page.getByLabel("Adults", { exact: true })).toHaveValue("3");
   await expect(page.getByLabel("Children", { exact: true })).toHaveValue("1");
-  await expect(page.getByLabel("Number of meals", { exact: true })).toHaveValue(
-    "4",
-  );
-  await page.getByLabel("First meal date").fill("2027-01-02");
+  const saved = "2027-01-02";
   await page.route("**/api/v1/menus?*", (route) => {
-    if (new URL(route.request().url()).searchParams.get("limit") === "1")
+    if (new URL(route.request().url()).searchParams.get("from") === calendar.firstWeek)
       return route.fulfill({
-        headers: { "X-MyChef-User": session.user!.id },
-        json: { recipes: [{ id: "existing" }], nextOffset: null },
+        headers: viewer,
+        json: { recipes: [{ id: "existing", date: saved }], nextOffset: null },
       });
     return route.fallback();
   });
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await page.getByRole("button", { name: "Plan a menu", exact: true }).click();
+  await page.getByRole("button", { name: "Replace saved dinners", exact: true }).click();
+  await slots.locator("input[value='" + saved + "']").check();
   await page.getByRole("button", { name: "Review menu", exact: true }).click();
   const confirmation = page.getByRole("dialog", {
     name: "You have meals planned.",
     exact: true,
   });
   await expect(confirmation).toBeVisible();
-  await expect(confirmation.locator(".replacement-weeks li")).toHaveCount(2);
+  await expect(confirmation.locator(".replacement-weeks li")).toHaveCount(1);
   await page.keyboard.press("Escape");
   await expect(confirmation).not.toBeVisible();
-  await expect(page.getByLabel("First meal date")).toHaveValue("2027-01-02");
+  await expect(slots.locator("input[value='" + saved + "']")).toBeChecked();
 });
 
 test("startup loading gives way to minimal authentication", async ({
