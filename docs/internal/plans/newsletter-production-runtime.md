@@ -5,6 +5,9 @@ issue: null
 goal: "A durable newsletter-only runtime can safely receive the public website's authenticated capture and proof requests without exposing app routes or recipe credentials."
 covers:
   - cmd/mychef/
+  - cmd/mychef-migrate/
+  - migrations/
+  - .github/workflows/delivery.yml
   - internal/config/
   - internal/http/
   - internal/email/
@@ -78,7 +81,7 @@ Retain explicit none/none production policies. Preserve finite configurations fo
 
 ### Host templates and delivery
 
-Add declarative service/ingress/config templates under deploy/newsletter with placeholders only. Templates describe an owned service identity, restricted filesystem permissions, nonroot/read-only image, separate writable SQL/journal mounts, bounded logs/resources, automatic restart, and loopback listener. Do not embed real credentials, private recipients, account IDs or host-local protected paths in public Git. The private operator receipt records resolved values and verifies permissions, durable mounts, lock ownership, backup frequency/expiry and restore ownership. Reuse existing platform facilities; no new paid storage/provider is selected here.
+Add declarative service/ingress/config templates under deploy/newsletter with placeholders only. Reuse the existing digest-pinned distroless nonroot runtime and exec-form entrypoint; do not add a shell/package manager, use an unpinned image, or replace the existing shared release action/security controls. The pinned container conventions and release profile apply to actual final-image verification. Templates describe an owned service identity, restricted filesystem permissions, nonroot/read-only image, separate writable SQL/journal mounts, bounded logs/resources, automatic restart, and loopback listener. Do not embed real credentials, private recipients, account IDs or host-local protected paths in public Git. The private operator receipt records resolved values and verifies permissions, durable mounts, lock ownership, backup frequency/expiry and restore ownership. Reuse existing platform facilities; no new paid storage/provider is selected here.
 
 Provider/tunnel/Sites changes occur only through the owner's already-authorized operational workflow. Public ingress forwards only the three POST paths and falls back to 404. Verify direct unauthorized/malformed/hostile requests fail. Operator readiness stays loopback/private. Sender domain/DNS must use actual authenticated provider records, including the selected domain's TXT/CNAME configuration; do not add speculative MX/SPF alongside CNAMEs. Mailbox existence, monitoring and actual receipt are separate proof items. No new real test recipient is implied by deployment permission.
 
@@ -133,6 +136,7 @@ PROPOSAL: Make both pages available at the exact pinned revision and rerun the i
 
 ## Sources
 
+- Pinned `conventions/containers.md` and `knowledge/container-release.md` at d8f07c9dd69038375a535af8ad586086688f85ab: distroless nonroot, immutable inputs, explicit security profile and final-image/signature/SBOM verification; fetched unchanged after R-1 cache preflight.
 - App main b9e9699755fa752a3816bd6f8172e35c65ed16f9 and retention/sender PR 33 at 2f6aaa7e9d790e32f3acd3ce9ad54bbbebcebe3a: the source paths and behavior inspected above; no dependency merge is claimed.
 - The owner-directed newsletter launch and privacy/contact/review decisions were verified through the private Hub workstream on 15 November 2026. Private evidence remains outside this public source repository.
 - LowGok/mychef-website newsletter-public-activation feature: website-owned gateway, notices, UI and paired activation; independently reviewed local spec, not a live-backend claim.
