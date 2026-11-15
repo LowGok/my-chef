@@ -53,11 +53,7 @@ func (i *PlayInbox) ReconcileCheckout(ctx context.Context, owner string, attempt
 	if pending.binding != attempt.Binding || pending.offer != offer {
 		return CheckoutResult{}, ErrPurchaseBinding
 	}
-	commit := func() error { return i.retainSignup(ctx, pending, token, owner, nil) }
-	if fence != nil {
-		return CheckoutResult{}, fence(commit)
-	}
-	return CheckoutResult{}, commit()
+	return i.reconcileSignup(ctx, pending, token, owner, fence)
 }
 
 // Restore applies the same transaction rule to a recovered purchase.
@@ -66,6 +62,10 @@ func (i *PlayInbox) Restore(ctx context.Context, owner string, token string, fen
 		return CheckoutResult{}, ErrPurchaseBinding
 	}
 	result, err := i.journal.restoreWithHooks(ctx, owner, Play, i.env, i.offers, token, i.provider, fence, nil, i.remember(token))
+	var signup *playSignup
+	if errors.As(err, &signup) {
+		return i.reconcileSignup(ctx, signup, token, owner, fence)
+	}
 	if errors.Is(err, ErrUnresolved) {
 		// Retain a linked purchase without telling the device it can finish
 		// an unresolved period. The Play worker owns acknowledgement.

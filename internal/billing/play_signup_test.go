@@ -132,8 +132,16 @@ func TestPlaySignupReleasesOnlyKnownProviderCancelledPurchase(t *testing.T) {
 }
 
 func TestPlayKnownPendingRecoversWithoutNotification(t *testing.T) {
-	for _, state := range []string{"SUBSCRIPTION_STATE_ACTIVE", "SUBSCRIPTION_STATE_PENDING_PURCHASE_CANCELED"} {
-		t.Run(state, func(t *testing.T) {
+	for _, test := range []struct {
+		state    string
+		restored bool
+	}{
+		{state: "SUBSCRIPTION_STATE_ACTIVE"},
+		{state: "SUBSCRIPTION_STATE_PENDING_PURCHASE_CANCELED"},
+		{state: "SUBSCRIPTION_STATE_ACTIVE", restored: true},
+		{state: "SUBSCRIPTION_STATE_PENDING_PURCHASE_CANCELED", restored: true},
+	} {
+		t.Run(fmt.Sprintf("%s/restore=%t", test.state, test.restored), func(t *testing.T) {
 			db, journal, now := fixture(t)
 			ctx := t.Context()
 			attempt, err := journal.Reserve(ctx, owner, Sandbox, Play, Monthly, now)
@@ -177,7 +185,21 @@ func TestPlayKnownPendingRecoversWithoutNotification(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if result, err := inbox.ReconcileCheckout(ctx, owner, attempt, offer, token, nil); err != nil || result.CompleteStoreTransaction {
+			var result CheckoutResult
+			if test.restored {
+				const wrongOwner = "abcdef1234567890abcdef1234567890"
+				if _, err := inbox.Restore(ctx, wrongOwner, token, nil); !errors.Is(err, ErrPurchaseBinding) {
+					t.Fatalf("the other account could observe the pending purchase: %v", err)
+				}
+				var count int
+				if err := db.QueryRowContext(ctx, "SELECT count(*) FROM billing_play_polls").Scan(&count); err != nil || count != 0 {
+					t.Fatalf("the other account could schedule a pending purchase: %v", err)
+				}
+				result, err = inbox.Restore(ctx, owner, token, nil)
+			} else {
+				result, err = inbox.ReconcileCheckout(ctx, owner, attempt, offer, token, nil)
+			}
+			if err != nil || result.CompleteStoreTransaction {
 				t.Fatalf("could not journal pending purchase without acknowledging: %+v, %v", result, err)
 			}
 			var ciphertext []byte
@@ -193,7 +215,7 @@ func TestPlayKnownPendingRecoversWithoutNotification(t *testing.T) {
 				t.Fatal(err)
 			}
 			clock = now.Add(time.Hour)
-			currentState = state
+			currentState = test.state
 			var acks int
 			worker := PlayReconciler{Inbox: inbox, Now: func() time.Time { return clock }, WithLiveOwner: func(_ context.Context, found string, commit func() error) error {
 				if found != owner {
@@ -211,7 +233,7 @@ func TestPlayKnownPendingRecoversWithoutNotification(t *testing.T) {
 			if batch, err := worker.PollKnown(ctx); err != nil || batch.Processed != 1 || batch.Failed != 0 {
 				t.Fatalf("pending purchase was not recovered from the retry worker: %+v, %v", batch, err)
 			}
-			if state == "SUBSCRIPTION_STATE_ACTIVE" {
+			if test.state == "SUBSCRIPTION_STATE_ACTIVE" {
 				if acks != 1 {
 					t.Fatalf("paid purchase acknowledgements: %d", acks)
 				}

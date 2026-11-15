@@ -49,7 +49,7 @@ for (const scenario of [
     try {
       await registerFixture(page, account);
       await context.clearCookies();
-      await fakeNative(context, server, {
+      const native = await fakeNative(context, server, {
         platform: scenario.platform,
         billingFixture: true,
       });
@@ -122,6 +122,41 @@ for (const scenario of [
         if ((await panel.getAttribute("open")) === null) {
           await panel.getByText("Subscription", { exact: true }).tap();
         }
+        // The store fixture yields no unfinished proofs on foreground. A
+        // separate verified restore resolves the purchase on the real server
+        // without producing an event in this app view.
+        const receipt = await page.evaluate(async () => {
+          const cap = (window as unknown as {
+            Capacitor: {
+              nativePromise(
+                plugin: string,
+                method: string,
+                input: unknown,
+              ): Promise<{ receipts: { receipt: string }[] }>;
+            };
+          }).Capacitor;
+          const reply = await cap.nativePromise("MyChefNative", "billingRestore", {
+            _callNonce: crypto.randomUUID(),
+          });
+          return reply.receipts[0]?.receipt;
+        });
+        const response = await server.post("/api/native/v1/billing/restore", {
+          headers: { Authorization: native.access() },
+          data: { receipt },
+        });
+        expect(response.status()).toBe(200);
+        expect((await response.json()).completeStoreTransaction).toBe(true);
+        await native.runtime({ active: false });
+        await native.runtime({ active: true });
+        await expect(
+          panel.getByText("Premium · Monthly", { exact: true }),
+        ).toBeVisible();
+        await expect(
+          panel.getByText("A purchase is pending verification.", { exact: true }),
+        ).toHaveCount(0);
+        await expect(
+          panel.getByText(/Your purchase is still being checked/),
+        ).toHaveCount(0);
         await page
           .getByRole("button", { name: "Restore purchases", exact: true })
           .tap();

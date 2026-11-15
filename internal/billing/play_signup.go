@@ -57,6 +57,14 @@ func (p *PlayProvider) signupState(sub playSubscription, token string) error {
 	}
 }
 
+func (i *PlayInbox) reconcileSignup(ctx context.Context, p *playSignup, token, owner string, fence func(func() error) error) (CheckoutResult, error) {
+	commit := func() error { return i.retainSignup(ctx, p, token, owner, nil) }
+	if fence != nil {
+		return CheckoutResult{}, fence(commit)
+	}
+	return CheckoutResult{}, commit()
+}
+
 func (i *PlayInbox) retainSignup(ctx context.Context, p *playSignup, token, expectedOwner string, check journalWriteCheck) error {
 	if p == nil || p.offer.Store != Play || p.offer.Environment != i.env || !i.Offers(p.offer) ||
 		!accountUUID.MatchString(p.binding) || p.digest != playTokenDigest(token) {
