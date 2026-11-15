@@ -119,9 +119,37 @@ func TestNativeBillingCheckoutUsesVerifiedSessionPlatformAndFamily(t *testing.T)
 		replacement.ID == "" || replacement.ID == checkout.ID || replacement.Binding == "" || replacement.Binding == checkout.Binding {
 		t.Fatal("unused checkout was not released for a new reservation", err)
 	}
-	binding = replacement.Binding
 	at = start + "/" + replacement.ID
-	assert(http.StatusNoContent, "POST", at+"/launch", "", signed.AccessToken)
+	raceAt := at
+	ready := make(chan struct{})
+	launched, released := make(chan int, 1), make(chan int, 1)
+	go func() {
+		<-ready
+		launched <- callNative(h, "POST", raceAt+"/launch", "", signed.AccessToken).Code
+	}()
+	go func() {
+		<-ready
+		released <- callNative(h, "DELETE", raceAt, "", signed.AccessToken).Code
+	}()
+	close(ready)
+	launchCode, releaseCode := <-launched, <-released
+	switch {
+	case launchCode == http.StatusNoContent && releaseCode == http.StatusConflict:
+		// The device may open the sheet; the original reservation still owns it.
+	case releaseCode == http.StatusNoContent && (launchCode == http.StatusNotFound || launchCode == http.StatusConflict):
+		// A losing launch must never authorize the abandoned sheet.
+		var retry struct{ ID, Binding, Store string }
+		if err := json.NewDecoder(assert(http.StatusCreated, "POST", start, `{"interval":"monthly"}`, signed.AccessToken)).Decode(&retry); err != nil ||
+			retry.ID == "" || retry.ID == replacement.ID || retry.Binding == "" || retry.Binding == replacement.Binding {
+			t.Fatal("release won the race but the abandoned reservation still blocked checkout", err)
+		}
+		replacement = retry
+		at = start + "/" + replacement.ID
+		assert(http.StatusNoContent, "POST", at+"/launch", "", signed.AccessToken)
+	default:
+		t.Fatalf("concurrent launch and unused release did not have exactly one winner: launch %d, release %d", launchCode, releaseCode)
+	}
+	binding = replacement.Binding
 	assert(http.StatusConflict, "DELETE", at, "", signed.AccessToken)
 	assert(http.StatusConflict, "POST", at+"/launch", "", signed.AccessToken)
 	assert(http.StatusConflict, "POST", start, `{"interval":"monthly"}`, signed.AccessToken)
