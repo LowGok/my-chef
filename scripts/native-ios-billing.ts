@@ -7,6 +7,7 @@ type SimulatorInput = { email: string; password: string; proofKey: string; expir
 async function runIOSBillingFixture(
   input: SimulatorInput,
   install: typeof installBillingStoreFixture,
+  setStage: (stage: string) => void,
 ) {
   const deadline = Math.min(Date.now() + 75_000, input.expiresAt);
   async function wait<T>(read: () => T | undefined): Promise<T> {
@@ -22,11 +23,13 @@ async function runIOSBillingFixture(
   const form = await wait(() =>
     document.querySelector<HTMLInputElement>("#sign-in-email")?.form ?? undefined,
   );
+  setStage("fake-store");
   const completed = await install({
     platform: "ios", proofKey: input.proofKey,
     expiresAt: input.expiresAt, loseResult: false,
   });
   const email = form.querySelector<HTMLInputElement>("#sign-in-email");
+  setStage("sign-in");
   const password = form.querySelector<HTMLInputElement>("[autocomplete=current-password]");
   const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
   if (!email || !password || !setter || !input.email.endsWith("@example.test"))
@@ -40,6 +43,7 @@ async function runIOSBillingFixture(
 
   const profile = await wait(() => exact<HTMLButtonElement>("nav button", "Profile"));
   profile.click();
+  setStage("terms");
   const summary = await wait(() => exact("summary", "Subscription"));
   const panel = summary.parentElement as HTMLDetailsElement;
   panel.open = true;
@@ -54,6 +58,7 @@ async function runIOSBillingFixture(
     if (annual && !annual.disabled && restore && !restore.disabled) return [buy, annual, restore];
   });
   const root = document.documentElement;
+  setStage("system-text");
   await wait(() => parseFloat(getComputedStyle(root).fontSize) >= 24 ? true : undefined);
   const fits = () =>
     root.scrollWidth <= innerWidth + 1 && panel.scrollWidth <= panel.clientWidth + 1 &&
@@ -79,6 +84,7 @@ async function runIOSBillingFixture(
     root.style.fontSize = previous;
   }
 
+  setStage("checkout");
   buy.click();
   await wait(() => completed() === 1 &&
     panel.querySelector('[role="status"]')?.textContent === "Purchase verified." &&
@@ -87,6 +93,7 @@ async function runIOSBillingFixture(
     [...panel.querySelectorAll<HTMLAnchorElement>("a")].some(
       (link) => link.href === "https://apps.apple.com/account/subscriptions",
     ) ? true : undefined);
+  setStage("restore");
   const restore = await wait(() => {
     const button = exact<HTMLButtonElement>("button", "Restore purchases", panel);
     return button && !button.disabled ? button : undefined;
@@ -99,5 +106,12 @@ async function runIOSBillingFixture(
 }
 
 export function iosBillingFixtureSource() {
-  return `return await (${runIOSBillingFixture.toString()})(fixture, ${installBillingStoreFixture.toString()});\n`;
+  return `
+let stage = "sign-in-form";
+try {
+  return await (${runIOSBillingFixture.toString()})(fixture, ${installBillingStoreFixture.toString()}, next => { stage = next; });
+} catch {
+  return { failedStage: stage };
+}
+`;
 }

@@ -488,6 +488,7 @@ def ios(state, stack, ca, package, reminder_inputs=None, billing=False):
         scratch = container / "tmp"
         result = scratch / "mychef-ios-billing-result.json"
         result.unlink(missing_ok=True)
+        (scratch / "mychef-ios-billing-stage.txt").unlink(missing_ok=True)
         sim("ui", identifier, "content_size", "accessibility-medium")
         with (scratch / "mychef-ios-billing-input.json").open("x") as file:
             json.dump(inputs, file)
@@ -548,6 +549,21 @@ def ios_billing_verified(result, events):
                 ("POST", "billing/verify", 200), ("POST", "billing/restore", 200)])
 
 
+def ios_billing_timeout(stage_path, events):
+    stages = {"waiting-for-webview", "waiting-for-system-text", "fixture-input", "web-script",
+              "sign-in-form", "fake-store", "sign-in", "terms", "system-text", "checkout", "restore"}
+    routes = {"session", "refresh", "login", "billing/status", "billing/checkouts",
+              "billing/launch", "billing/verify", "billing/restore"}
+    try:
+        with stage_path.open("rb") as file:
+            stage = file.read(65).decode("ascii")
+    except (OSError, UnicodeError):
+        stage = ""
+    return (stage if stage in stages else "unreported",
+            [entry for entry in events if entry[0] in {"GET", "POST"} and entry[1] in routes
+             and type(entry[2]) is int and 100 <= entry[2] <= 599][-20:])
+
+
 def ios_billing_journey(state, receipt, metadata, events, stop, start):
     from native_fixture_account import fixture_billing_key, seed
 
@@ -561,7 +577,12 @@ def ios_billing_journey(state, receipt, metadata, events, stop, start):
         "proofKey": base64.urlsafe_b64encode(key).rstrip(b"=").decode(),
         "expiresAt": int(datetime.fromisoformat(lease["expires"]).timestamp() * 1000),
     })
-    wait_for(result.is_file, "iOS simulator subscription journey", seconds=100)
+    try:
+        wait_for(result.is_file, "iOS simulator subscription journey", seconds=100)
+    except RuntimeError:
+        stage, statuses = ios_billing_timeout(result.with_name("mychef-ios-billing-stage.txt"), events[first:])
+        print(f"Disposable iOS billing stage: {stage}; route statuses: {statuses}", flush=True)
+        raise
     if result.stat().st_size > 256 or not ios_billing_verified(json.loads(result.read_text()), events[first:]):
         raise RuntimeError("Unexpected iOS simulator billing result")
     checks = ["iOS system large text and focusable subscription controls",

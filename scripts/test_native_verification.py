@@ -205,6 +205,18 @@ class NativeVerificationTest(unittest.TestCase):
         self.assertFalse(installed.ios_billing_verified(accepted, routes[:-1]))
         self.assertFalse(installed.ios_billing_verified(accepted, [routes[0], routes[2], routes[1], routes[3]]))
 
+    def test_ios_billing_timeout_diagnostics_omit_unrecognized_values(self):
+        with tempfile.TemporaryDirectory() as directory:
+            stage = Path(directory) / "mychef-ios-billing-stage.txt"
+            events = [("POST", "login", 200), ("POST", "billing/launch", 204),
+                      ("POST", "unexpected-private-route", 404)]
+            stage.write_text("system-text")
+            self.assertEqual(installed.ios_billing_timeout(stage, events),
+                             ("system-text", events[:2]))
+            stage.write_text("unrecognized diagnostic")
+            self.assertEqual(installed.ios_billing_timeout(stage, events),
+                             ("unreported", events[:2]))
+
     def test_android_reminder_text_restores_the_emulator_setting_on_failure(self):
         for initial in ("null", "1.15"):
             with self.subTest(initial=initial):

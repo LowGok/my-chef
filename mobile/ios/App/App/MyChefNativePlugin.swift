@@ -477,7 +477,7 @@ final class MyChefBridgeViewController: CAPBridgeViewController {
         #endif
         #if targetEnvironment(simulator) && MYCHEF_BILLING_SIMULATOR
         if ProcessInfo.processInfo.arguments.contains("--mychef-billing-fixture") {
-            runBillingFixture(remaining: 40)
+            runBillingFixture(remaining: 80)
         }
         #endif
     }
@@ -577,11 +577,24 @@ final class MyChefBridgeViewController: CAPBridgeViewController {
 
 
     #if targetEnvironment(simulator) && MYCHEF_BILLING_SIMULATOR
+    private func reportBillingFixtureStage(_ stage: String) {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("mychef-ios-billing-stage.txt")
+        try? Data(stage.utf8).write(to: url, options: .atomic)
+    }
+
     private func runBillingFixture(remaining: Int) {
-        guard remaining > 0 else { return }
-        guard nativePlugin.billingFixtureOrigin, let view = webView,
+        let fixtureOrigin = nativePlugin.billingFixtureOrigin
+        if remaining == 80 && fixtureOrigin { reportBillingFixtureStage("waiting-for-webview") }
+        guard fixtureOrigin, let view = webView,
               view.url?.scheme == "capacitor", view.url?.host == "localhost",
               view.traitCollection.preferredContentSizeCategory.isAccessibilityCategory else {
+            if remaining == 0 {
+                if fixtureOrigin {
+                    let localView = webView?.url?.scheme == "capacitor" && webView?.url?.host == "localhost"
+                    reportBillingFixtureStage(localView ? "waiting-for-system-text" : "waiting-for-webview")
+                }
+                return
+            }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
                 self?.runBillingFixture(remaining: remaining - 1)
             }
@@ -589,6 +602,7 @@ final class MyChefBridgeViewController: CAPBridgeViewController {
         }
         let directory = FileManager.default.temporaryDirectory
         let file = directory.appendingPathComponent("mychef-ios-billing-input.json")
+        reportBillingFixtureStage("fixture-input")
         guard let attributes = try? file.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey]),
               attributes.isRegularFile == true, attributes.isSymbolicLink == false,
               let size = attributes.fileSize, size > 0, size <= 1024,
@@ -604,9 +618,17 @@ final class MyChefBridgeViewController: CAPBridgeViewController {
               let asset = Bundle.main.url(forResource: "mychef-ios-billing-fixture", withExtension: "js", subdirectory: "public/app"),
               let source = try? String(contentsOf: asset, encoding: .utf8) else { return }
         do { try FileManager.default.removeItem(at: file) } catch { return }
-        view.callAsyncJavaScript(source, arguments: ["fixture": input], in: nil, in: .page) { result in
-            guard case .success(let value) = result,
-                  let proof = value as? [String: Bool],
+        reportBillingFixtureStage("web-script")
+        view.callAsyncJavaScript(source, arguments: ["fixture": input], in: nil, in: .page) { [weak self] result in
+            guard case .success(let value) = result else { return }
+            if let failure = value as? [String: String], Set(failure.keys) == ["failedStage"],
+               let stage = failure["failedStage"], [
+                "sign-in-form", "fake-store", "sign-in", "terms", "system-text", "checkout", "restore"
+               ].contains(stage) {
+                self?.reportBillingFixtureStage(stage)
+                return
+            }
+            guard let proof = value as? [String: Bool],
                   Set(proof.keys) == ["terms", "systemTextSize", "checkout", "restore"], proof.values.allSatisfy({ $0 }),
                   let output = try? JSONSerialization.data(withJSONObject: proof) else { return }
             try? output.write(to: directory.appendingPathComponent("mychef-ios-billing-result.json"), options: .atomic)

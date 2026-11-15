@@ -274,10 +274,13 @@ test("the packaged simulator fixture completes and restores the same Apple proof
     await context.clearCookies();
     await fakeNative(context, server, { platform: "ios", billingFixture: true, textScale: 1.5 });
     await page.goto("/app/");
-    const result = await page.evaluate(({ source, input }) => {
+    const result = await page.evaluate(async ({ source, input }) => {
       // Chromium runs the exact function body that WKWebView receives in CI.
       const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor;
-      return new AsyncFunction("fixture", source)(input);
+      const execute = new AsyncFunction("fixture", source);
+      const expired = await execute({ ...input, expiresAt: 0 });
+      if (JSON.stringify(expired) !== '{"failedStage":"sign-in-form"}') return expired;
+      return await execute(input);
     }, {
       source: iosBillingFixtureSource(),
       input: {
