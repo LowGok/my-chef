@@ -79,7 +79,7 @@ public final class NativeJourneyProbe extends Instrumentation {
         if (!Arrays.asList("Save preferences", "Save password", "Send feedback", "Save rating", "Save", "Retry save",
                 "Review menu", "Plan my week", "Add extra", "Check page", "Read recipe pages",
                 "Download ZIP", "Permanently delete account", "Current password",
-                "Choose recipe photo", "Recipe-page photos").contains(label))
+                "Choose recipe photo", "Recipe-page photos", "Create my account", "Create account").contains(label))
             throw new IllegalStateException("native-control");
         double[][] point = {null};
         CountDownLatch evaluated = new CountDownLatch(1);

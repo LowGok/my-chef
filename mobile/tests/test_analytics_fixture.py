@@ -11,6 +11,15 @@ import analytics_ios
 
 
 class FixtureBoundaryTest(unittest.TestCase):
+    def test_xcode_failure_keeps_the_reason_without_private_input(self):
+        value = analytics_ios.safe_diagnostic(
+            'ignored secret stdout\nxcodebuild: error: Unable to load /private/project/Probe.xcodeproj user@example.test Bearer ' + 'x' * 43 + ' synthetic-password\nReason: missing target',
+            ['synthetic-password'])
+        self.assertIn('Unable to load', value)
+        self.assertIn('Reason: missing target', value)
+        for private in ('ignored secret stdout', '/private', 'user@example.test', 'x' * 43, 'synthetic-password'):
+            self.assertNotIn(private, value)
+
     def archive(self, **files):
         buffer = io.BytesIO()
         with zipfile.ZipFile(buffer, 'w') as archive:

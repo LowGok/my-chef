@@ -12,6 +12,19 @@ sys.path.insert(0, str(ROOT / 'scripts'))
 import test_native_installed as native
 
 
+def safe_diagnostic(text, secrets):
+    selected = [line for line in text.splitlines() if 'error:' in line or 'Reason:' in line]
+    value = '\n'.join(selected[-5:])
+    for secret in secrets:
+        if secret:
+            value = value.replace(secret, '[private]')
+    value = re.sub(r'https?://\S+', '[url]', value)
+    value = re.sub(r'[^\s<>"\']+@[^\s<>"\']+', '[address]', value)
+    value = re.sub(r'/[^\s"\'<>]+', '[path]', value)
+    value = re.sub(r'\b[A-Za-z0-9_-]{43,}\b', '[opaque]', value)
+    return value[:1200]
+
+
 def project(state):
     root = Path(state) / 'ios-analytics-probe'
     root.mkdir(mode=0o700)
@@ -94,6 +107,9 @@ def run(state, control, account, identifier, container):
                 detail += '; source lines ' + ', '.join(lines[-6:])
             if stages:
                 detail += '; controls ' + ', '.join(stages[-4:])
+            diagnostic = safe_diagnostic(text, [*account.values(), control['token'], str(input_path), str(container)])
+            if diagnostic:
+                detail += '; ' + diagnostic
             raise RuntimeError('Isolated iOS analytics probe failed: ' + detail)
     execute(['xcodebuild', '-project', str(source), '-scheme', 'AnalyticsProbe', '-sdk', 'iphonesimulator',
              '-destination', 'id=' + identifier, '-derivedDataPath', str(derived), 'CODE_SIGNING_ALLOWED=NO',
