@@ -32,7 +32,10 @@ if (
   (group !== "core" &&
     group !== "media" &&
     group !== "pages" &&
-    group !== "account" && group !== "reminders" && group !== "billing") ||
+    group !== "account" &&
+    group !== "reminders" &&
+    group !== "reminder-text" &&
+    group !== "billing") ||
   !state ||
   !/^\/.*mychef-installed-[A-Za-z0-9_-]+$/.test(state)
 )
@@ -1075,15 +1078,17 @@ async function accountJourneys() {
   });
 }
 
-async function reminderJourney() {
+async function openReminderSettings() {
+  await login();
+  await profile();
   const group = page.locator(".planning-reminders");
-  const settings = async () => {
-    await profile();
-    await group.locator("summary").click();
-  };
+  await group.locator("summary").click();
+  return group;
+}
+
+async function reminderJourney() {
+  const group = await openReminderSettings();
   await check("native reminders start disabled and require explicit consent", async () => {
-    await login();
-    await settings();
     await expect(group.getByText(/Monday at 17:00/)).toBeVisible();
     await expect(group.getByRole("button", { name: "Turn on for this device" })).toBeDisabled();
     await group.getByLabel("Time zone").fill("Europe/Brussels");
@@ -1091,21 +1096,6 @@ async function reminderJourney() {
     await button("Save reminder preferences").click();
     await expect(group.getByRole("status")).toHaveText("Reminder preferences saved.");
     await expect(button("Turn on for this device")).toBeEnabled();
-  });
-  await check("Android system large text and reminder accessibility nodes", async () => {
-    const optIn = group.getByRole("checkbox", { name: "Monday reminder", exact: true });
-    await expect(optIn).toBeChecked();
-    await optIn.scrollIntoViewIfNeeded();
-    await probeAction("accessibility", "reminder-opt-in");
-    const save = button("Save reminder preferences");
-    await save.scrollIntoViewIfNeeded();
-    await probeAction("accessibility", "reminder-save");
-    expect(await group.evaluate((element) => {
-      const canvas = document.documentElement;
-      const bounds = element.getBoundingClientRect();
-      return canvas.scrollWidth <= window.innerWidth + 1 && bounds.left >= 0 &&
-        bounds.right <= window.innerWidth + 1 && element.scrollWidth <= element.clientWidth + 1;
-    })).toBe(true);
   });
   await check("installed app registers only after notification permission and removes on opt out", async () => {
     await button("Turn on for this device").click();
@@ -1175,6 +1165,25 @@ async function billingJourneys() {
   });
 }
 
+async function reminderTextJourney() {
+  const group = await openReminderSettings();
+  await check("Android system large text and reminder accessibility nodes", async () => {
+    const optIn = group.getByRole("checkbox", { name: "Monday reminder", exact: true });
+    await optIn.check();
+    await expect(optIn).toBeChecked();
+    await optIn.scrollIntoViewIfNeeded();
+    await probeAction("accessibility", "reminder-opt-in");
+    const save = button("Save reminder preferences");
+    await save.scrollIntoViewIfNeeded();
+    await probeAction("accessibility", "reminder-save");
+    expect(await group.evaluate((element) => {
+      const canvas = document.documentElement;
+      const bounds = element.getBoundingClientRect();
+      return canvas.scrollWidth <= window.innerWidth + 1 && bounds.left >= 0 &&
+        bounds.right <= window.innerWidth + 1 && element.scrollWidth <= element.clientWidth + 1;
+    })).toBe(true);
+  });
+}
 
 try {
   await connect();
@@ -1184,6 +1193,7 @@ try {
     pages: pageImportJourney,
     account: accountJourneys,
     reminders: reminderJourney,
+    "reminder-text": reminderTextJourney,
     billing: billingJourneys,
   }[group]();
   await writeFile(

@@ -261,6 +261,52 @@ class NativeVerificationTest(unittest.TestCase):
             self.assertEqual({group: len(names) for group, names in result["groups"].items()}, counts)
             self.assertIn(page_check, result["passed"])
 
+    def test_android_reminder_permission_precedes_separate_large_text_session(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "fixture-inbox.json").write_text(json.dumps({"capability": "x" * 43}))
+            scale = "1.0"
+            cleared = False
+            events = []
+            checked = []
+            installation = [("DELETE", "planning-reminders/installation", 204),
+                            ("PUT", "planning-reminders/installation", 204),
+                            ("DELETE", "planning-reminders/installation", 204)]
+            baseline = ["native reminders start disabled and require explicit consent",
+                        "installed app registers only after notification permission and removes on opt out"]
+            text = "Android system large text and reminder accessibility nodes"
+
+            def execute(*args, **kwargs):
+                nonlocal cleared, scale
+                if args[0] == "bun":
+                    group = args[-1]
+                    checked.append((group, scale, cleared))
+                    events.extend(installation if group == "reminders" else [])
+                    (root / f"native-android-journeys-{group}.json").write_text(json.dumps({
+                        "group": group, "passed": baseline if group == "reminders" else [text],
+                    }))
+                elif args[4:6] == ("pm", "clear"):
+                    cleared = True
+                elif args[4:6] == ("settings", "get"):
+                    return scale
+                elif args[4:6] == ("settings", "put"):
+                    scale = args[-1]
+                return "Success"
+
+            build = {"candidate": {}, "artifactSha256": "c" * 64}
+            with patch.object(installed, "command", side_effect=execute), \
+                    patch.object(installed, "ARTIFACTS", root), \
+                    patch.dict(installed.ENV, {"ANDROID_HOME": "/synthetic-sdk"}), \
+                    patch.object(probe, "build", return_value=root / "probe.apk"), \
+                    patch.object(native_fixture_account, "seed", return_value={}), \
+                    patch.object(installed, "android_request_diagnostics"), redirect_stdout(io.StringIO()):
+                installed.android_journeys(root, build, {}, events, reminders=True)
+            self.assertEqual(checked, [("reminders", "1.0", False),
+                                       ("reminder-text", "1.5", True)])
+            self.assertEqual(scale, "1.0")
+            result = json.loads((root / "installed-journeys.json").read_text())
+            self.assertEqual(result["groups"], {"reminders": baseline + [text]})
+
     def test_wrong_simulator_archive_stops_before_a_device_is_opened(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
