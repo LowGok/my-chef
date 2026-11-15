@@ -335,6 +335,7 @@ internal/billing/**
 !internal/billing/journal.go
 !internal/billing/reconciliation.go
 !internal/http/native_billing.go
+!internal/http/native_billing_attest.go
 !internal/billing/apple.go
 !internal/billing/play.go
 !internal/billing/play_pull.go

@@ -13002,6 +13002,347 @@
         }
       }
     },
+    "/api/native/v1/billing/apple/enrollment/challenge": {
+      "post": {
+        "operationId": "startAppleBillingEnrollment",
+        "description": "Issue an App Attest enrollment challenge for a verified iOS sandbox account.",
+        "security": [
+          {
+            "nativeBearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A one-use server challenge for the original iOS installation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeAppleBillingChallenge"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed proof or request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Native sign-in required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Verified email required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not available for this app or device",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Challenge is expired or the checkout cannot be cancelled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Try again later",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Verification or storage is temporarily unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/native/v1/billing/apple/enrollment": {
+      "post": {
+        "operationId": "enrollAppleBillingInstallation",
+        "description": "Register an attested iOS key for the same native session family.",
+        "security": [
+          {
+            "nativeBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "challenge": {
+                    "type": "string",
+                    "minLength": 43,
+                    "maxLength": 43,
+                    "pattern": "^[A-Za-z0-9_-]{43}$"
+                  },
+                  "keyID": {
+                    "type": "string",
+                    "minLength": 43,
+                    "maxLength": 43,
+                    "pattern": "^[A-Za-z0-9_-]{43}$"
+                  },
+                  "attestation": {
+                    "type": "string",
+                    "minLength": 2,
+                    "maxLength": 87382,
+                    "pattern": "^[A-Za-z0-9_-]+$"
+                  }
+                },
+                "required": [
+                  "challenge",
+                  "keyID",
+                  "attestation"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Installation enrolled"
+          },
+          "400": {
+            "description": "Malformed proof or request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Native sign-in required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Verified email required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not available for this app or device",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Challenge is expired or the checkout cannot be cancelled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Try again later",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Verification or storage is temporarily unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/native/v1/billing/checkouts/{checkout}/cancel": {
+      "post": {
+        "operationId": "cancelAttestedAppleCheckout",
+        "description": "Release only the original iOS launch, after verifying the one-use assertion and confirming that no competing store evidence exists.",
+        "security": [
+          {
+            "nativeBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "checkout",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "challenge": {
+                    "type": "string",
+                    "minLength": 43,
+                    "maxLength": 43,
+                    "pattern": "^[A-Za-z0-9_-]{43}$"
+                  },
+                  "assertion": {
+                    "type": "string",
+                    "minLength": 2,
+                    "maxLength": 1366,
+                    "pattern": "^[A-Za-z0-9_-]+$"
+                  }
+                },
+                "required": [
+                  "challenge",
+                  "assertion"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Original checkout released"
+          },
+          "400": {
+            "description": "Malformed proof or request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Native sign-in required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Verified email required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not available for this app or device",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Challenge is expired or the checkout cannot be cancelled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Try again later",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Verification or storage is temporarily unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/native/v1/billing/checkouts/{checkout}/launch": {
       "post": {
         "operationId": "launchNativeCheckout",
@@ -13023,6 +13364,16 @@
           }
         ],
         "responses": {
+          "200": {
+            "description": "A one-use server challenge for the original iOS installation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeAppleBillingChallenge"
+                }
+              }
+            }
+          },
           "204": {
             "description": "Checkout may be launched"
           },
@@ -16881,6 +17232,21 @@
           "current"
         ]
       },
+      "NativeAppleBillingChallenge": {
+        "type": "object",
+        "properties": {
+          "challenge": {
+            "type": "string",
+            "minLength": 43,
+            "maxLength": 43,
+            "pattern": "^[A-Za-z0-9_-]{43}$"
+          }
+        },
+        "required": [
+          "challenge"
+        ],
+        "additionalProperties": false
+      },
       "NativeBillingStatus": {
         "type": "object",
         "properties": {
@@ -16893,6 +17259,10 @@
           },
           "checkoutEnabled": {
             "type": "boolean"
+          },
+          "appleAttestationRequired": {
+            "type": "boolean",
+            "description": "If present and true, the iOS app must enroll its App Attest key before reserving a checkout."
           },
           "restoreAvailable": {
             "type": "boolean"

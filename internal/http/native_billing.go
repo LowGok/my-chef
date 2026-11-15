@@ -23,9 +23,11 @@ type NativeBilling struct {
 	// Play routes require the same protected inbox used for background polling.
 	Play *billing.PlayInbox
 	// A usable Play restore and poll path cannot enable paid checkout itself.
-	PlayCheckoutEnabled   bool
-	Available             func() bool
-	SyntheticAccountsOnly bool
+	PlayCheckoutEnabled     bool
+	Available               func() bool
+	SyntheticAccountsOnly   bool
+	AppleAttestation        *AppleBillingAttestation
+	RequireAppleAttestation bool
 }
 
 func (b *NativeBilling) Entitlements(fallback store.PersonalEntitlementReader) store.PersonalEntitlementReader {
@@ -54,7 +56,17 @@ func (b *NativeBilling) hasPlay() bool {
 }
 
 func (b *NativeBilling) checkoutAllowed(store billing.Store) bool {
-	return b.CheckoutEnabled && (store != billing.Play || b.PlayCheckoutEnabled && b.hasPlay())
+	if !b.CheckoutEnabled {
+		return false
+	}
+	switch store {
+	case billing.Apple:
+		return !b.RequireAppleAttestation && b.AppleAttestation == nil || b.appleAttestationEnabled()
+	case billing.Play:
+		return b.PlayCheckoutEnabled && b.hasPlay()
+	default:
+		return false
+	}
 }
 
 func (b *NativeBilling) offer(s billing.Store, i billing.Interval) (billing.Offer, billing.Provider, bool) {
@@ -77,14 +89,20 @@ func (a *API) billingRoutes(mux *http.ServeMux) {
 	if a.Config.NativeBilling == nil || a.Config.NativeBilling.Journal == nil {
 		return
 	}
-	for path, handler := range map[string]http.HandlerFunc{
+	routes := map[string]http.HandlerFunc{
 		"GET /api/v1/billing/status":                       a.billingStatus,
 		"POST /api/v1/billing/checkouts":                   a.billingReserve,
 		"DELETE /api/v1/billing/checkouts/{checkout}":      a.billingReleaseUnused,
 		"POST /api/v1/billing/checkouts/{checkout}/launch": a.billingLaunch,
 		"POST /api/v1/billing/checkouts/{checkout}/verify": a.billingVerify,
 		"POST /api/v1/billing/restore":                     a.billingRestore,
-	} {
+	}
+	if a.Config.NativeBilling.appleAttestationEnabled() {
+		routes["POST /api/v1/billing/apple/enrollment/challenge"] = a.billingAppleEnrollmentChallenge
+		routes["POST /api/v1/billing/apple/enrollment"] = a.billingAppleEnroll
+		routes["POST /api/v1/billing/checkouts/{checkout}/cancel"] = a.billingAppleCancel
+	}
+	for path, handler := range routes {
 		mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
 			if available := a.Config.NativeBilling.Available; available != nil && !available() {
 				http.NotFound(w, r)
@@ -149,14 +167,15 @@ type nativeBillingPlan struct {
 }
 
 type nativeBillingStatus struct {
-	Store            billing.Store                   `json:"store"`
-	Plans            []nativeBillingPlan             `json:"plans"`
-	CheckoutEnabled  bool                            `json:"checkoutEnabled"`
-	RestoreAvailable bool                            `json:"restoreAvailable"`
-	Pending          bool                            `json:"pending"`
-	Subscription     *billing.SubscriptionSummary    `json:"subscription,omitempty"`
-	Management       *billing.SubscriptionManagement `json:"management,omitempty"`
-	Resume           *billing.PendingAttempt         `json:"resume,omitempty"`
+	Store                    billing.Store                   `json:"store"`
+	Plans                    []nativeBillingPlan             `json:"plans"`
+	CheckoutEnabled          bool                            `json:"checkoutEnabled"`
+	RestoreAvailable         bool                            `json:"restoreAvailable"`
+	Pending                  bool                            `json:"pending"`
+	Subscription             *billing.SubscriptionSummary    `json:"subscription,omitempty"`
+	Management               *billing.SubscriptionManagement `json:"management,omitempty"`
+	Resume                   *billing.PendingAttempt         `json:"resume,omitempty"`
+	AppleAttestationRequired bool                            `json:"appleAttestationRequired,omitempty"`
 }
 
 func (a *API) billingStatus(w http.ResponseWriter, r *http.Request) {
@@ -189,7 +208,7 @@ func (a *API) billingStatus(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	a.write(w, 200, nativeBillingStatus{
-		Store: s, CheckoutEnabled: len(plans) != 0, Plans: plans, RestoreAvailable: restore,
+		Store: s, CheckoutEnabled: len(plans) != 0, AppleAttestationRequired: s == billing.Apple && b.appleAttestationEnabled(), Plans: plans, RestoreAvailable: restore,
 		Pending: result.Pending, Subscription: result.Subscription, Management: result.Management, Resume: result.Resume,
 	})
 }
@@ -219,6 +238,12 @@ func (a *API) billingReserve(w http.ResponseWriter, r *http.Request) {
 	if !b.checkoutAllowed(s) {
 		a.billingError(w, r, billing.ErrPurchaseBinding)
 		return
+	}
+	if s == billing.Apple && b.appleAttestationEnabled() {
+		if _, err := b.AppleAttestation.Registry.EnrolledInstance(r.Context(), id, info(r).Family); err != nil {
+			a.billingError(w, r, err)
+			return
+		}
 	}
 	offer, _, ok := b.offer(s, body.Interval)
 	if !ok {
@@ -267,7 +292,8 @@ func (a *API) billingReleaseUnused(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) billingLaunch(w http.ResponseWriter, r *http.Request) {
-	if !a.Config.NativeBilling.CheckoutEnabled {
+	b := a.Config.NativeBilling
+	if !b.CheckoutEnabled {
 		a.billingError(w, r, billing.ErrPurchaseBinding)
 		return
 	}
@@ -280,12 +306,25 @@ func (a *API) billingLaunch(w http.ResponseWriter, r *http.Request) {
 	}
 	a.Store.AccountWork.RLock()
 	defer a.Store.AccountWork.RUnlock()
-	_, attempt, err := a.billingAttempt(r)
+	id, attempt, err := a.billingAttempt(r)
 	if err == nil {
-		if !a.Config.NativeBilling.checkoutAllowed(attempt.Store) {
+		if !b.checkoutAllowed(attempt.Store) {
 			err = billing.ErrPurchaseBinding
+		} else if attempt.Store == billing.Apple && b.appleAttestationEnabled() {
+			family := info(r).Family
+			instance, lookupErr := b.AppleAttestation.Registry.EnrolledInstance(r.Context(), id, family)
+			if lookupErr != nil {
+				a.billingError(w, r, lookupErr)
+				return
+			}
+			var claim billing.NativeCancellation
+			claim, err = b.Journal.LaunchForNativeCancellation(r.Context(), attempt, id, family, instance, time.Now())
+			if err == nil {
+				a.write(w, http.StatusOK, appleChallengeResponse(claim.Challenge))
+				return
+			}
 		} else {
-			err = a.Config.NativeBilling.Journal.Launch(r.Context(), attempt, time.Now())
+			err = b.Journal.Launch(r.Context(), attempt, time.Now())
 		}
 	}
 	if err != nil {

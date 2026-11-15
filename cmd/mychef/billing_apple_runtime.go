@@ -191,7 +191,7 @@ func (mode *appleBillingSandbox) start(ctx context.Context, journal *store.Lifec
 		return nil, nil, err
 	}
 	return &httpapi.NativeBilling{Journal: protected, Environment: billing.Sandbox, Offers: offers,
-		Available: allowed, CheckoutEnabled: mode.checkout, SyntheticAccountsOnly: true, Providers: map[billing.Store]billing.Provider{billing.Apple: provider}}, worker, nil
+		Available: allowed, CheckoutEnabled: mode.checkout, SyntheticAccountsOnly: true, RequireAppleAttestation: true, Providers: map[billing.Store]billing.Provider{billing.Apple: provider}}, worker, nil
 }
 
 // Apple Root CA G3, published at https://www.apple.com/certificateauthority/.

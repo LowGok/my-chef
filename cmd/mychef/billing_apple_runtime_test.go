@@ -84,7 +84,7 @@ func TestAppleSandboxRequiresPrivatePreviewAndAnOwnedCredential(t *testing.T) {
 			return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"hasMore":false,"notificationHistory":[]}`))}, nil
 		})}
 		native, worker, err := mode.start(child, journal, client, nil)
-		if err != nil || native == nil || worker == nil || native.CheckoutEnabled || native.PlayCheckoutEnabled ||
+		if err != nil || native == nil || worker == nil || native.CheckoutEnabled || native.PlayCheckoutEnabled || !native.RequireAppleAttestation ||
 			native.Play != nil || native.Environment != billing.Sandbox || !native.Available() {
 			t.Fatal("sandbox was not read only", err)
 		}
@@ -117,7 +117,7 @@ func TestAppleSandboxRequiresPrivatePreviewAndAnOwnedCredential(t *testing.T) {
 	}
 	_, checkoutJournal := runtimeDatabase(t)
 	native, _, err := checkoutMode.start(t.Context(), checkoutJournal, nil, nil)
-	if err != nil || native == nil || !native.CheckoutEnabled || native.PlayCheckoutEnabled ||
+	if err != nil || native == nil || !native.CheckoutEnabled || native.PlayCheckoutEnabled || !native.RequireAppleAttestation ||
 		native.Environment != billing.Sandbox || !native.SyntheticAccountsOnly {
 		t.Fatal("checkout was not bounded to the Apple sandbox and synthetic accounts", err)
 	}

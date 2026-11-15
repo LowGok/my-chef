@@ -687,9 +687,17 @@ export type AnalyticsPreferenceConflict = {
     current: AnalyticsPreference;
 };
 
+export type NativeAppleBillingChallenge = {
+    challenge: string;
+};
+
 export type NativeBillingStatus = {
     store: 'apple' | 'play';
     checkoutEnabled: boolean;
+    /**
+     * If present and true, the iOS app must enroll its App Attest key before reserving a checkout.
+     */
+    appleAttestationRequired?: boolean;
     restoreAvailable: boolean;
     pending: boolean;
     plans: Array<{
@@ -7404,6 +7412,162 @@ export type ReleaseUnusedNativeCheckoutResponses = {
 
 export type ReleaseUnusedNativeCheckoutResponse = ReleaseUnusedNativeCheckoutResponses[keyof ReleaseUnusedNativeCheckoutResponses];
 
+export type StartAppleBillingEnrollmentData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/native/v1/billing/apple/enrollment/challenge';
+};
+
+export type StartAppleBillingEnrollmentErrors = {
+    /**
+     * Malformed proof or request
+     */
+    400: Error;
+    /**
+     * Native sign-in required
+     */
+    401: Error;
+    /**
+     * Verified email required
+     */
+    403: Error;
+    /**
+     * Not available for this app or device
+     */
+    404: Error;
+    /**
+     * Challenge is expired or the checkout cannot be cancelled
+     */
+    409: Error;
+    /**
+     * Try again later
+     */
+    429: Error;
+    /**
+     * Verification or storage is temporarily unavailable
+     */
+    503: Error;
+};
+
+export type StartAppleBillingEnrollmentError = StartAppleBillingEnrollmentErrors[keyof StartAppleBillingEnrollmentErrors];
+
+export type StartAppleBillingEnrollmentResponses = {
+    /**
+     * A one-use server challenge for the original iOS installation
+     */
+    200: NativeAppleBillingChallenge;
+};
+
+export type StartAppleBillingEnrollmentResponse = StartAppleBillingEnrollmentResponses[keyof StartAppleBillingEnrollmentResponses];
+
+export type EnrollAppleBillingInstallationData = {
+    body: {
+        challenge: string;
+        keyID: string;
+        attestation: string;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/native/v1/billing/apple/enrollment';
+};
+
+export type EnrollAppleBillingInstallationErrors = {
+    /**
+     * Malformed proof or request
+     */
+    400: Error;
+    /**
+     * Native sign-in required
+     */
+    401: Error;
+    /**
+     * Verified email required
+     */
+    403: Error;
+    /**
+     * Not available for this app or device
+     */
+    404: Error;
+    /**
+     * Challenge is expired or the checkout cannot be cancelled
+     */
+    409: Error;
+    /**
+     * Try again later
+     */
+    429: Error;
+    /**
+     * Verification or storage is temporarily unavailable
+     */
+    503: Error;
+};
+
+export type EnrollAppleBillingInstallationError = EnrollAppleBillingInstallationErrors[keyof EnrollAppleBillingInstallationErrors];
+
+export type EnrollAppleBillingInstallationResponses = {
+    /**
+     * Installation enrolled
+     */
+    204: void;
+};
+
+export type EnrollAppleBillingInstallationResponse = EnrollAppleBillingInstallationResponses[keyof EnrollAppleBillingInstallationResponses];
+
+export type CancelAttestedAppleCheckoutData = {
+    body: {
+        challenge: string;
+        assertion: string;
+    };
+    path: {
+        checkout: string;
+    };
+    query?: never;
+    url: '/api/native/v1/billing/checkouts/{checkout}/cancel';
+};
+
+export type CancelAttestedAppleCheckoutErrors = {
+    /**
+     * Malformed proof or request
+     */
+    400: Error;
+    /**
+     * Native sign-in required
+     */
+    401: Error;
+    /**
+     * Verified email required
+     */
+    403: Error;
+    /**
+     * Not available for this app or device
+     */
+    404: Error;
+    /**
+     * Challenge is expired or the checkout cannot be cancelled
+     */
+    409: Error;
+    /**
+     * Try again later
+     */
+    429: Error;
+    /**
+     * Verification or storage is temporarily unavailable
+     */
+    503: Error;
+};
+
+export type CancelAttestedAppleCheckoutError = CancelAttestedAppleCheckoutErrors[keyof CancelAttestedAppleCheckoutErrors];
+
+export type CancelAttestedAppleCheckoutResponses = {
+    /**
+     * Original checkout released
+     */
+    204: void;
+};
+
+export type CancelAttestedAppleCheckoutResponse = CancelAttestedAppleCheckoutResponses[keyof CancelAttestedAppleCheckoutResponses];
+
 export type LaunchNativeCheckoutData = {
     body?: never;
     path: {
@@ -7443,6 +7607,10 @@ export type LaunchNativeCheckoutErrors = {
 export type LaunchNativeCheckoutError = LaunchNativeCheckoutErrors[keyof LaunchNativeCheckoutErrors];
 
 export type LaunchNativeCheckoutResponses = {
+    /**
+     * A one-use server challenge for the original iOS installation
+     */
+    200: NativeAppleBillingChallenge;
     /**
      * Checkout may be launched
      */
@@ -7979,6 +8147,7 @@ export interface components {
     "AnalyticsPreferenceUpdate": AnalyticsPreferenceUpdate;
     "AnalyticsNotice": AnalyticsNotice;
     "AnalyticsPreferenceConflict": AnalyticsPreferenceConflict;
+    "NativeAppleBillingChallenge": NativeAppleBillingChallenge;
     "NativeBillingStatus": NativeBillingStatus;
     "PlanningStatus": PlanningStatus;
     "NativeCheckoutRequest": NativeCheckoutRequest;
