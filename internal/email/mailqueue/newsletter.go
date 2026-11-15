@@ -1,9 +1,55 @@
 package mailqueue
 
 import (
+	"context"
 	htmltemplate "html/template"
+	"strings"
 	texttemplate "text/template"
+	"time"
+
+	"github.com/LowGok/my-chef/internal/store"
+	"gorm.io/gorm"
 )
+
+// NewsletterTemplate identifies the declared newsletter purposes only.
+func NewsletterTemplate(name string) bool {
+	switch name {
+	case NewsletterENTemplate, NewsletterFRTemplate, NewsletterNLTemplate,
+		NewsletterWithdrawalENTemplate, NewsletterWithdrawalFRTemplate, NewsletterWithdrawalNLTemplate:
+		return true
+	default:
+		return false
+	}
+}
+
+// NewsletterDispatchAllowed checks live identity and consent authority in the
+// same transaction that claims the queued envelope. It never authorizes campaigns.
+func NewsletterDispatchAllowed(ctx context.Context, tx *gorm.DB, row Record, now time.Time) (bool, error) {
+	hash, ok := strings.CutPrefix(row.Key, "newsletter/")
+	if !ok || len(hash) != 64 {
+		return false, nil
+	}
+	_, address, err := store.EmailIdentity(row.Recipient)
+	if err != nil {
+		return false, nil
+	}
+	purpose := "confirm"
+	if row.Template == NewsletterWithdrawalENTemplate || row.Template == NewsletterWithdrawalFRTemplate || row.Template == NewsletterWithdrawalNLTemplate {
+		purpose = "unsubscribe"
+	}
+	var count int64
+	err = tx.WithContext(ctx).Raw(`SELECT COUNT(*) FROM newsletter_proofs p
+JOIN users u ON u.user_id=p.user_id AND u.email_key=p.email_key
+JOIN newsletter_subscriptions n ON n.user_id=p.user_id AND n.email_key=p.email_key AND n.revision=p.revision
+JOIN account_incarnations a ON a.user_id=p.user_id
+JOIN account_mail_owners m ON m.incarnation=a.incarnation AND m.outbox_id=?
+WHERE p.hash=? AND p.purpose=? AND u.email_key=? AND p.consumed_unix IS NULL
+ AND (p.expires_unix IS NULL OR p.expires_unix>?)
+ AND ((p.purpose='confirm' AND n.status IN ('pending','unsubscribed') AND p.request_order>n.proved_order)
+   OR (p.purpose='unsubscribe' AND n.status='confirmed' AND p.request_order=n.proved_order))`,
+		row.ID, hash, purpose, address, now.Unix()).Scan(&count).Error
+	return count == 1, err
+}
 
 var newsletterENText = texttemplate.Must(texttemplate.New("newsletter-en").Parse("Confirm that you want to receive MyChef news:\n{{.confirm}}\n\nThis confirmation link expires at {{.expires}}.\nWithdraw your request or unsubscribe:\n{{.unsubscribe}}\n"))
 var newsletterENHTML = htmltemplate.Must(htmltemplate.New("newsletter-en").Parse("<h1>Keep up with MyChef</h1><p><a href=\"{{.confirm}}\">Confirm my subscription</a></p><p>This confirmation link expires at {{.expires}}.</p><p><a href=\"{{.unsubscribe}}\">Withdraw or unsubscribe</a></p>"))

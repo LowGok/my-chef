@@ -53,7 +53,9 @@ def main() -> None:
         email, capability = fixture_email(state)
         newsletter_token = secrets.token_urlsafe(40)
         newsletter_credentials = state / "newsletter-credentials.json"
-        newsletter_credentials.write_text(json.dumps({"newsletter_service_token": newsletter_token}))
+        newsletter_credentials.write_text(json.dumps({"newsletter_service_token": newsletter_token,
+            "newsletter_email_from": "MyChef <newsletter@mychef.dev>",
+            "newsletter_email_reply_to": "feedback@gkldevelopment.com"}))
         newsletter_credentials.chmod(0o444)
         for setting in ("MYCHEF_FIXTURE_INBOX_FILE", "MYCHEF_EMAIL_PROOF_KEYS_FILE"):
             # Docker binds these individual files; their parent is still private
@@ -248,7 +250,7 @@ def main() -> None:
                 newsletter_settings = ["--mount", f"type=bind,src={newsletter_credentials},dst=/tmp/newsletter-credentials.json,readonly",
                     "--env", "MYCHEF_CREDENTIALS=/tmp/newsletter-credentials.json", "--env", "MYCHEF_NEWSLETTER_MODE=fixture",
                     "--env", "MYCHEF_NEWSLETTER_ORIGIN=https://mychef.dev", "--env", "MYCHEF_NEWSLETTER_CONTACT=preview@example.test",
-                    "--env", "MYCHEF_NEWSLETTER_PENDING_DAYS=7", "--env", "MYCHEF_NEWSLETTER_WITHDRAWN_DAYS=30",
+                    "--env", "MYCHEF_NEWSLETTER_PENDING_DAYS=none", "--env", "MYCHEF_NEWSLETTER_WITHDRAWN_DAYS=none",
                     "--env", "MYCHEF_NEWSLETTER_OPERATIONS_READY=1"]
             container = output("run", "--detach", *options, *import_mounts, *lifecycle_mounts, "--network=host", "--mount", f"type=volume,src={storage},dst=/data",
                                "--env", "MYCHEF_ADDR=127.0.0.1:18138", "--env", "MYCHEF_ORIGIN=http://127.0.0.1:18138",
@@ -302,6 +304,11 @@ def main() -> None:
                 assert response.status == expected
                 return json.load(response)
         newsletter_container = start(volume, inbox=True, newsletter=True)
+        readiness_request = urllib.request.Request("http://127.0.0.1:18138/internal/newsletter/readiness",
+            headers={"Authorization": "Bearer " + newsletter_token})
+        with urllib.request.urlopen(readiness_request, timeout=10) as response:
+            readiness = json.load(response)
+            assert readiness["ready"] and all(readiness["checks"].values()), "explicit no-expiry fixture was not ready"
         assert newsletter_call("subscribe", {"email": "container-newsletter@example.test", "locale": "fr-BE", "consentVersion": "newsletter-v1"}, expected=202) == {"status": "pending-confirmation"}
         message = ""
         for _ in range(150):
@@ -321,6 +328,10 @@ def main() -> None:
         newsletter_container = start(volume, inbox=True, newsletter=True)
         assert newsletter_call("unsubscribe", {"proof": withdrawal}, expected=200) == {"status": "unsubscribed"}
         run("exec", newsletter_container, "/app/mychef-migrate", "backup", "--db", "/data/mychef.db", "--file", "/data/newsletter-backup.db")
+        run("cp", f"{newsletter_container}:/data/newsletter-backup.db", str(state / "newsletter-backup.db"))
+        with closing(sqlite3.connect(state / "newsletter-backup.db")) as database:
+            newsletter_identity = database.execute("SELECT u.user_id,u.isNewsletterOnly,n.status FROM users u JOIN newsletter_subscriptions n ON n.user_id=u.user_id WHERE u.email_key='container-newsletter@example.test'").fetchone()
+            assert newsletter_identity and newsletter_identity[1:] == (1, "unsubscribed"), "withdrawal lost its retained contact"
         stop(newsletter_container)
         first = start(volume, inbox=True)
         assert subprocess.run(docker + ["exec", first, "/app/mychef-migrate", "up", "--db", "/forbidden.db"], env=env,
@@ -370,6 +381,8 @@ def main() -> None:
         with closing(sqlite3.connect(state / "restored.db")) as database:
             assert database.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
             assert database.execute("PRAGMA foreign_key_check").fetchall() == []
+            retained = database.execute("SELECT u.user_id,u.isNewsletterOnly,n.status FROM users u JOIN newsletter_subscriptions n ON n.user_id=u.user_id WHERE u.email_key='container-newsletter@example.test'").fetchone()
+            assert retained == (newsletter_identity[0], 1, "pending"), "restore lost the contact ID or revived newsletter consent"
             assert database.execute("SELECT COUNT(*) FROM generations").fetchone()[0] == 1
             assert database.execute("SELECT quantity FROM ingredients").fetchone()[0] == "0.12345678901234567890123456789"
             for table in ("personal_recipes", "personal_recipe_versions", "personal_recipe_queue", "personal_photo_assets", "personal_photo_attempts", "personal_photo_requests", "recipe_import_operations", "personal_recipe_import_sources"):

@@ -6,10 +6,12 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
 	"github.com/LowGok/my-chef/internal/auth"
+	"github.com/LowGok/my-chef/internal/config"
 	"github.com/LowGok/my-chef/internal/email/mailqueue"
 	"github.com/LowGok/my-chef/internal/newsletter"
 	"github.com/LowGok/my-chef/internal/store"
@@ -130,6 +132,10 @@ func TestRestoreNewsletterRequiresFreshConfirmationAndKeepsAppAccount(t *testing
 		t.Fatal(err)
 	}
 	backup := filepath.Join(t.TempDir(), "before-withdrawal.db")
+	var originalIDs []int64
+	if err := s.DB.Model(&store.User{}).Order("user_id").Pluck("user_id", &originalIDs).Error; err != nil {
+		t.Fatal(err)
+	}
 	if err := s.Backup(t.Context(), backup); err != nil {
 		t.Fatal(err)
 	}
@@ -150,6 +156,14 @@ func TestRestoreNewsletterRequiresFreshConfirmationAndKeepsAppAccount(t *testing
 			t.Fatal(err)
 		}
 		n.Store, n.Lifecycle = restored, paired
+		now = now.Add(90 * 24 * time.Hour)
+		if err := n.Sweep(t.Context(), paired, config.NewsletterRetention{NoExpiry: true}, config.NewsletterRetention{NoExpiry: true}, store.AccountDeletionOptions{}); err != nil {
+			t.Fatal(err)
+		}
+		var keptIDs []int64
+		if err := restored.DB.Model(&store.User{}).Order("user_id").Pluck("user_id", &keptIDs).Error; err != nil || !reflect.DeepEqual(originalIDs, keptIDs) {
+			t.Fatal("no-expiry restore lost original account/contact IDs", err)
+		}
 		var active int
 		if err := restored.SQL.QueryRow("SELECT count(*) FROM newsletter_subscriptions WHERE status!='pending'").Scan(&active); err != nil || active != 0 {
 			t.Fatalf("restore revived consent: %d %v", active, err)

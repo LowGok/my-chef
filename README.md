@@ -142,8 +142,8 @@ addresses ending in `.test` or `.invalid`.
 | `MYCHEF_NEWSLETTER_ORIGIN` | Exact public HTTPS origin, default `https://mychef.dev` |
 | `MYCHEF_NEWSLETTER_CONSENT_VERSION` | Published localized consent version, default `newsletter-v1` |
 | `MYCHEF_NEWSLETTER_CONTACT` | Approved controller contact email |
-| `MYCHEF_NEWSLETTER_PENDING_DAYS` | Approved pending-contact retention, 1–3650 days |
-| `MYCHEF_NEWSLETTER_WITHDRAWN_DAYS` | Approved withdrawn-contact retention, 1–3650 days |
+| `MYCHEF_NEWSLETTER_PENDING_DAYS` | Explicit pending-contact policy: `none` for no automatic age deletion, or 1–3650 days |
+| `MYCHEF_NEWSLETTER_WITHDRAWN_DAYS` | Explicit withdrawn-contact policy: `none` for no automatic age deletion, or 1–3650 days |
 | `MYCHEF_NEWSLETTER_OPERATIONS_READY` | Set to `1` after verifying contact export/erasure procedures |
 | `MYCHEF_NEWSLETTER_COLLECT` | Set to `0` to pause new capture while preserving proof actions |
 | `MYCHEF_CREDENTIALS` | Existing protected credential JSON, extended with `newsletter_service_token` |
@@ -153,6 +153,18 @@ The service credential is 32–256 visible ASCII characters. Store it in the
 protected credential file and the Sites server environment. Preserve the rate
 key through key rotation because it binds durable rate and erasure records.
 Retain encryption keys needed by outstanding protected messages and proposals.
+
+Newsletter-only sender overrides use `newsletter_email_from` and optional
+`newsletter_email_reply_to` in that protected JSON. The selected MyChef values
+are `MyChef <newsletter@mychef.dev>` and `feedback@gkldevelopment.com`.
+They apply only to the six newsletter confirmation/withdrawal templates.
+App/security mail continues using `email_from` and `email_reply_to`.
+With no newsletter From, the legacy shared profile is preserved. With an explicit
+newsletter From, an absent newsletter Reply-To is omitted instead of inheriting
+the app Reply-To. A newsletter Reply-To without its From is invalid. Existing
+attempted mail stops rather than retrying under a changed effective sender,
+Reply-To or provider credential. Fixture mode can load the same override while
+still using its fake sender; tests never need real recipient delivery.
 
 The authenticated backend accepts only the newsletter JSON contracts through
 `POST /api/v1/newsletter/subscribe`, `/confirm` and `/unsubscribe`. The Sites
@@ -177,13 +189,83 @@ the approved controller/privacy and retention information, durable hosted
 backend and backup, verified sender/reply route, service connection and release
 approval. A fixture's synthetic compatibility result supports local testing.
 
-The worker checks expiry hourly in batches of at most 100 contacts. Pending and
+Both policies must be specified; unset values keep readiness false and zero is
+invalid. MyChef's selected policy is `none` for both statuses, subject to the
+separate production privacy and launch approvals. Finite policies remain
+independent: `none` on one side does not disable the other side's finite sweep.
+Retaining a contact does not extend a confirmation link or permit newsletter
+mail. Expired queued requests and confirmation proposals/mail are invalidated
+without deleting the contact. Current withdrawal links remain available until
+invalidated by a later consent/identity decision or erasure.
+
+The worker checks expiry hourly in batches of at most 100 contacts. With a finite policy, pending and
 withdrawn contact erasure rechecks the exact email, incarnation, account type,
 consent status, revision and cutoff inside the lifecycle deletion transaction.
 Confirmed contacts and promoted app users remain governed by their own request
-process. Expired queued requests are removed. Routine tests use fake delivery.
+process. Explicit verified erasure remains available under every policy.
+Expired queued requests are removed. Routine tests use fake delivery.
+
+### Production readiness and sender setup
+
+Keep website `NEWSLETTER_COLLECTION_ENABLED=0` and backend collection paused
+until the separate launch decision. The production compatibility guard remains
+false in this feature. A fake fixture's readiness and captured headers do not
+prove production hosting, domain verification, mailbox delivery or legal approval.
+
+For sending from `newsletter@mychef.dev`, retrieve `mychef.dev` in the existing
+Resend account and record its domain ID, sending capability/status, region and
+exact generated records. Use the provider's actual names, types, values,
+applicable priorities and proxy settings; do not prescribe a fixed TXT/MX layout.
+The current verified domain uses DKIM TXT at `resend._domainkey`, DNS-only CNAME
+`rsend` to `rsend-euw1.forge.rmta.net` and DNS-only CNAME `send` to
+`send.forge.rmta.net`. Public DNS confirms those records; the authenticated
+provider receipt separately establishes account status, region and settings.
+Do not infer a region from a hostname or add speculative TXT/MX beside a CNAME.
+Copy the actual provider DKIM key rather than an example. Keep receiving and
+tracking disabled and preserve website, apex MX, SPF/DMARC and other-provider
+records. Sending does not require a newsletter inbox. See
+[Resend domain setup](https://resend.com/docs/guides/dns/cloudflare).
+
+The selected newsletter Reply-To is `feedback@gkldevelopment.com`. Public Zoho
+MX records and the completed app-feedback specification establish a documented
+destination, not an independently verified mailbox or ingestion automation.
+`MYCHEF_FEEDBACK_TO` routes app-form reports outward. The current email webhook
+processes outbound delivery events and does not ingest received messages. Verify
+the existing mailbox/alias, monitoring and any ingestion route through the Hub's
+authorized provider access; do not create a new inbox or send a real-recipient
+test as part of local verification.
+
+Before collecting real contacts, document the controller's purposes, lawful
+bases, necessity and objective retention/review criteria for keeping pending and
+withdrawn email/contact IDs, including whether less data would suffice. The
+owner has selected the controller and public rights contact; operational mailbox
+verification remains separate from those choices. Complete the localized notice,
+processor/transfer record, backup/recovery and verified export/erasure procedure.
+`none` disables automatic age deletion; it does not establish a lawful basis for
+indefinite retention. Newsletter withdrawal does not change analytics consent.
+The owner separately authorized public newsletter activation when reviewed
+production readiness passes. That launch requires its own compatible runtime and
+exact backend/site evidence; this feature leaves the production guard and public
+controls unchanged. Campaigns and real-recipient testing retain their separate
+scope and authorization.
+
+For rollback, pause capture and stop the owned newsletter worker before changing
+policy or release. Version 0.20.0 rejects `none`; keep newsletter mode disabled
+when reverting to it. Do not replace `none` with positive ages to make an old
+release ready, run an older finite sweeper on retained contacts, restore consent
+from a backup or change shared beta mail settings. Preserve the schema-24 data,
+independent journal and verified backup throughout.
 
 ### Transfer recovery and restored subscriptions
+
+Withdrawal commits `newsletter_subscriptions.status='unsubscribed'`, invalidates
+old newsletter proof/proposal and queued-mail authority, and retains the contact
+identity. It does not change app or analytics consent. Dispatch checks live
+newsletter authority before claiming a message. Withdrawal waits for any provider
+call already holding the shared account-work fence to settle (the send timeout
+is ten seconds) before it commits and reports success. Mail already accepted by
+the provider cannot be recalled. Retrying an old withdrawal does not reactivate
+or overwrite a newer subscription decision.
 
 Placeholder retirement prepares an independent journal intent, then commits
 the address/consent transfer, placeholder deletion and application receipt in

@@ -117,6 +117,29 @@ func TestProofConfirmationWithdrawalAndFreshResubscription(t *testing.T) {
 	}
 }
 
+func TestWithdrawalScrubsProposalsAndKeepsContact(t *testing.T) {
+	s, _ := fixture(t)
+	request(t, s, "withdraw-retain@example.test", "en")
+	step(t, s)
+	confirmation, withdrawal := links(t, s)
+	if err := s.Unsubscribe(t.Context(), withdrawal); err != nil {
+		t.Fatal(err)
+	}
+	if status(t, s) != "unsubscribed" || count(t, s, "users") != 1 {
+		t.Fatal("withdrawal changed contact identity")
+	}
+	var remaining int64
+	if err := s.Store.DB.Table("newsletter_proofs").Where("consumed_unix IS NULL OR proposal<>''").Count(&remaining).Error; err != nil {
+		t.Fatal(err)
+	}
+	if remaining != 0 {
+		t.Fatal("withdrawal retained old proof authority or sealed proposal")
+	}
+	if err := s.Confirm(t.Context(), confirmation); !errors.Is(err, ErrProof) {
+		t.Fatal("old confirmation reactivated consent", err)
+	}
+}
+
 func TestProofPurposeExpiryAndAddressBinding(t *testing.T) {
 	for _, scenario := range []string{"wrong-purpose", "expired", "address-changed", "withdraw-first"} {
 		t.Run(scenario, func(t *testing.T) {

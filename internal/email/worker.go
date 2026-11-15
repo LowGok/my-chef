@@ -30,13 +30,14 @@ type sender interface {
 }
 
 type Worker struct {
-	onlyID         int64
-	Queue          Queue
-	sender         sender
-	From, ReplyTo  string
-	FingerprintKey []byte
-	Random         func() float64
-	mu             sync.Mutex
+	onlyID                            int64
+	Queue                             Queue
+	sender                            sender
+	From, ReplyTo                     string
+	NewsletterFrom, NewsletterReplyTo string
+	FingerprintKey                    []byte
+	Random                            func() float64
+	mu                                sync.Mutex
 }
 
 type sendPayload struct {
@@ -109,6 +110,15 @@ func (w *Worker) Step(ctx context.Context) (bool, error) {
 			}
 			return tx.Model(&row).Updates(update).Error
 		}
+		if mailqueue.NewsletterTemplate(row.Template) {
+			allowed, err := mailqueue.NewsletterDispatchAllowed(ctx, tx, row, now)
+			if err != nil {
+				return err
+			}
+			if !allowed {
+				return fail("newsletter_consent_changed")
+			}
+		}
 		if row.Attempts >= maxAttempts || !now.Before(time.Unix(row.CreatedAt, 0).Add(retryHorizon)) {
 			return fail("retry_exhausted")
 		}
@@ -128,7 +138,11 @@ func (w *Worker) Step(ctx context.Context) (bool, error) {
 		if err != nil {
 			return fail("invalid_template")
 		}
-		body, err = json.Marshal(sendPayload{From: w.From, To: []string{row.Recipient}, ReplyTo: w.ReplyTo, Subject: msg.Subject, Text: msg.Text, HTML: msg.HTML})
+		from, replyTo := w.From, w.ReplyTo
+		if mailqueue.NewsletterTemplate(row.Template) && w.NewsletterFrom != "" {
+			from, replyTo = w.NewsletterFrom, w.NewsletterReplyTo
+		}
+		body, err = json.Marshal(sendPayload{From: from, To: []string{row.Recipient}, ReplyTo: replyTo, Subject: msg.Subject, Text: msg.Text, HTML: msg.HTML})
 		if err != nil {
 			return err
 		}
