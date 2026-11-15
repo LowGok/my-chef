@@ -32,6 +32,19 @@ func New(q Queue, cfg config.Email) *Service {
 	return NewWithFixtureInbox(q, cfg, nil)
 }
 
+// NewNewsletter restricts a dedicated namespace to newsletter mail. It exposes
+// neither a delivery webhook nor a fixture inbox.
+func NewNewsletter(q Queue, cfg config.Email) *Service {
+	s := New(q, cfg)
+	s.worker.newsletterOnly = true
+	s.webhook = nil
+	if cfg.Disabled || cfg.NewsletterFrom == "" || cfg.NewsletterReplyTo == "" {
+		s.disabled = true
+		s.failed.Store(true)
+	}
+	return s
+}
+
 func NewWithFixtureInbox(q Queue, cfg config.Email, inbox *FixtureInbox) *Service {
 	if cfg.Disabled {
 		inbox.close()

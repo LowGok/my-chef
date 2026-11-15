@@ -131,8 +131,8 @@ func serveNewsletter(parent context.Context) error {
 	if service.Sweep(ctx, journal, cfg.settings.PendingDays, cfg.settings.WithdrawnDays, deletion) != nil {
 		return errNewsletterRole
 	}
-	// T6 narrows dispatch further; this mux already has no email webhook or inbox.
-	mailService := email.New(email.Queue{Store: db, ProofKeys: cfg.keys, Lifecycle: journal}, cfg.mail)
+	// The purpose-scoped worker rejects unrelated app/security queue rows.
+	mailService := email.NewNewsletter(email.Queue{Store: db, ProofKeys: cfg.keys, Lifecycle: journal}, cfg.mail)
 	var failed atomic.Bool
 	var workers sync.WaitGroup
 	for _, run := range []func(context.Context) error{
