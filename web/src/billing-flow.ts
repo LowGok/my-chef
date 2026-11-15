@@ -38,6 +38,7 @@ export type CheckoutServer = {
   status(): Promise<BillingStatus>;
   reserve(interval: Interval): Promise<Reserved>;
   launch(id: string): Promise<void>;
+  releaseUnused(id: string): Promise<void>;
   verify(id: string, receipt: string): Promise<boolean>;
   restore(receipt: string): Promise<boolean>;
 };
@@ -184,7 +185,15 @@ export function createBillingFlow(
       )
         return "unavailable";
       const [fresh] = await quotePlans(current, plans);
-      if (!fresh) return "unavailable";
+      if (!fresh) {
+        try {
+          await server.releaseUnused(attempt.id);
+        } catch {
+          // If the release is lost, an unused reservation still expires.
+        }
+        requireSession();
+        return "unavailable";
+      }
       await server.launch(attempt.id);
       requireSession();
       const evidence = await device.purchase(fresh, attempt.binding);

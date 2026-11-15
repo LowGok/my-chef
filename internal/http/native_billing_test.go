@@ -110,7 +110,19 @@ func TestNativeBillingCheckoutUsesVerifiedSessionPlatformAndFamily(t *testing.T)
 	at := start + "/" + checkout.ID
 	assert(http.StatusNotFound, "POST", at+"/launch", "", sibling.AccessToken)
 	assert(http.StatusConflict, "POST", start, `{"interval":"monthly"}`, sibling.AccessToken)
+	assert(http.StatusNotFound, "DELETE", at, "", sibling.AccessToken)
+	assert(http.StatusBadRequest, "DELETE", at, `{"terminal":true}`, signed.AccessToken)
+	assert(http.StatusNoContent, "DELETE", at, "", signed.AccessToken)
+	assert(http.StatusNotFound, "POST", at+"/launch", "", signed.AccessToken)
+	var replacement struct{ ID, Binding, Store string }
+	if err := json.NewDecoder(assert(http.StatusCreated, "POST", start, `{"interval":"monthly"}`, signed.AccessToken)).Decode(&replacement); err != nil ||
+		replacement.ID == "" || replacement.ID == checkout.ID || replacement.Binding == "" || replacement.Binding == checkout.Binding {
+		t.Fatal("unused checkout was not released for a new reservation", err)
+	}
+	binding = replacement.Binding
+	at = start + "/" + replacement.ID
 	assert(http.StatusNoContent, "POST", at+"/launch", "", signed.AccessToken)
+	assert(http.StatusConflict, "DELETE", at, "", signed.AccessToken)
 	assert(http.StatusConflict, "POST", at+"/launch", "", signed.AccessToken)
 	assert(http.StatusConflict, "POST", start, `{"interval":"monthly"}`, signed.AccessToken)
 	resolve := at + "/verify"

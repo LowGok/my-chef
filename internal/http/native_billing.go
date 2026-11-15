@@ -80,6 +80,7 @@ func (a *API) billingRoutes(mux *http.ServeMux) {
 	for path, handler := range map[string]http.HandlerFunc{
 		"GET /api/v1/billing/status":                       a.billingStatus,
 		"POST /api/v1/billing/checkouts":                   a.billingReserve,
+		"DELETE /api/v1/billing/checkouts/{checkout}":      a.billingReleaseUnused,
 		"POST /api/v1/billing/checkouts/{checkout}/launch": a.billingLaunch,
 		"POST /api/v1/billing/checkouts/{checkout}/verify": a.billingVerify,
 		"POST /api/v1/billing/restore":                     a.billingRestore,
@@ -241,6 +242,28 @@ func (a *API) billingAttempt(r *http.Request) (string, billing.Attempt, error) {
 	b := a.Config.NativeBilling
 	attempt, err := b.Journal.NativeAttempt(r.Context(), id, info(r).Family, r.PathValue("checkout"), b.Environment, s)
 	return id, attempt, err
+}
+
+func (a *API) billingReleaseUnused(w http.ResponseWriter, r *http.Request) {
+	if !a.personalNoQuery(w, r) {
+		return
+	}
+	if r.ContentLength != 0 {
+		a.fail(w, r, 400, "invalid_input", "This request does not accept a body.")
+		return
+	}
+	a.Store.AccountWork.RLock()
+	defer a.Store.AccountWork.RUnlock()
+	_, attempt, err := a.billingAttempt(r)
+	if err == nil {
+		// This route never accepts a terminal store decision from the app.
+		err = a.Config.NativeBilling.Journal.Cancel(r.Context(), attempt, time.Now(), false)
+	}
+	if err != nil {
+		a.billingError(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (a *API) billingLaunch(w http.ResponseWriter, r *http.Request) {

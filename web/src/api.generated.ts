@@ -7353,6 +7353,53 @@ export type ReserveNativeCheckoutResponses = {
 
 export type ReserveNativeCheckoutResponse = ReserveNativeCheckoutResponses[keyof ReserveNativeCheckoutResponses];
 
+export type ReleaseUnusedNativeCheckoutData = {
+    body?: never;
+    path: {
+        checkout: string;
+    };
+    query?: never;
+    url: '/api/native/v1/billing/checkouts/{checkout}';
+};
+
+export type ReleaseUnusedNativeCheckoutErrors = {
+    /**
+     * Malformed input
+     */
+    400: Error;
+    /**
+     * Native sign-in required
+     */
+    401: Error;
+    /**
+     * Verified email required
+     */
+    403: Error;
+    /**
+     * Unavailable checkout or offer
+     */
+    404: Error;
+    /**
+     * Checkout has already been launched or fulfilled
+     */
+    409: Error;
+    /**
+     * Verification or storage is temporarily unavailable
+     */
+    503: Error;
+};
+
+export type ReleaseUnusedNativeCheckoutError = ReleaseUnusedNativeCheckoutErrors[keyof ReleaseUnusedNativeCheckoutErrors];
+
+export type ReleaseUnusedNativeCheckoutResponses = {
+    /**
+     * Unused reservation released
+     */
+    204: void;
+};
+
+export type ReleaseUnusedNativeCheckoutResponse = ReleaseUnusedNativeCheckoutResponses[keyof ReleaseUnusedNativeCheckoutResponses];
+
 export type LaunchNativeCheckoutData = {
     body?: never;
     path: {

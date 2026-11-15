@@ -103,6 +103,10 @@ export function nativeBillingFlow() {
         method: "POST",
         body: JSON.stringify({ interval }),
       }),
+    releaseUnused: (id) =>
+      api<void>(`/billing/checkouts/${encodeURIComponent(id)}`, {
+        method: "DELETE",
+      }),
     launch: (id) =>
       api<void>(`/billing/checkouts/${encodeURIComponent(id)}/launch`, {
         method: "POST",

@@ -56,6 +56,10 @@ function fixture() {
       async launch() {
         events.push("launch");
       },
+      async releaseUnused(value) {
+        expect(value).toBe(id);
+        events.push("release unused");
+      },
       async verify(_, value) {
         expect(value).toBe(proof.receipt);
         events.push("verify");
@@ -129,7 +133,7 @@ test("a storefront switch or unexpected terms stop before the store sheet", asyn
   const f = fixture();
   f.setQuotes(quote, { ...quote, region: "FRA" });
   expect(await f.flow.purchase("monthly")).toBe("unavailable");
-  expect(f.events).toEqual(["quote", "reserve", "quote"]);
+  expect(f.events).toEqual(["quote", "reserve", "quote", "release unused"]);
   for (const changed of [
     { amountMinor: 700 },
     { introductory: true },
