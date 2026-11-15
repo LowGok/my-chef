@@ -474,9 +474,12 @@ def android(state, stack, ca, apk):
     adb("install", str(apk))
     # Instrumentation sends real input, so a background WebView is insufficient.
     # Keep this disposable emulator's screen on for the bounded 25-minute job.
-    adb("shell", "settings", "put", "system", "screen_off_timeout", "1800000")
-    if adb("shell", "settings", "get", "system", "screen_off_timeout") != "1800000":
-        raise RuntimeError("Disposable Android display timeout was not applied")
+    def display_ready():
+        # SettingsProvider may still be applying boot defaults after installation.
+        # Require a fresh read-back; never continue with an unconfirmed timeout.
+        adb("shell", "settings", "put", "system", "screen_off_timeout", "1800000")
+        return adb("shell", "settings", "get", "system", "screen_off_timeout") == "1800000"
+    wait_for(display_ready, "disposable Android display timeout", seconds=20)
     version = adb("shell", "getprop", "ro.build.version.sdk")
     webview = next((x.strip() for x in adb("shell", "dumpsys", "webviewupdate").splitlines() if "Current WebView package" in x), "unreported")
     signature = command(str(sdk / "build-tools/36.0.0/apksigner"), "verify", "--print-certs", str(apk))
