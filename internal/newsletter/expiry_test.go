@@ -34,7 +34,7 @@ func TestNewsletterRetentionKeepsConfirmedAndPromotedAccounts(t *testing.T) {
 	}
 	defer func() { _ = journal.Close() }()
 	*now = now.Add(31 * 24 * time.Hour)
-	if err := s.Sweep(t.Context(), journal, 7, 30, store.AccountDeletionOptions{}); err != nil {
+	if err := s.Sweep(t.Context(), journal, config.NewsletterRetention{Days: 7}, config.NewsletterRetention{Days: 30}, store.AccountDeletionOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	var emails []string

@@ -136,8 +136,8 @@ addresses ending in `.test` or `.invalid`.
 | `MYCHEF_NEWSLETTER_ORIGIN` | Exact public HTTPS origin, default `https://mychef.dev` |
 | `MYCHEF_NEWSLETTER_CONSENT_VERSION` | Published localized consent version, default `newsletter-v1` |
 | `MYCHEF_NEWSLETTER_CONTACT` | Approved controller contact email |
-| `MYCHEF_NEWSLETTER_PENDING_DAYS` | Approved pending-contact retention, 1–3650 days |
-| `MYCHEF_NEWSLETTER_WITHDRAWN_DAYS` | Approved withdrawn-contact retention, 1–3650 days |
+| `MYCHEF_NEWSLETTER_PENDING_DAYS` | Explicit pending-contact policy: `none` for no automatic age deletion, or 1–3650 days |
+| `MYCHEF_NEWSLETTER_WITHDRAWN_DAYS` | Explicit withdrawn-contact policy: `none` for no automatic age deletion, or 1–3650 days |
 | `MYCHEF_NEWSLETTER_OPERATIONS_READY` | Set to `1` after verifying contact export/erasure procedures |
 | `MYCHEF_NEWSLETTER_COLLECT` | Set to `0` to pause new capture while preserving proof actions |
 | `MYCHEF_CREDENTIALS` | Existing protected credential JSON, extended with `newsletter_service_token` |
@@ -171,11 +171,21 @@ the approved controller/privacy and retention information, durable hosted
 backend and backup, verified sender/reply route, service connection and release
 approval. A fixture's synthetic compatibility result supports local testing.
 
-The worker checks expiry hourly in batches of at most 100 contacts. Pending and
+Both policies must be specified; unset values keep readiness false and zero is
+invalid. MyChef's selected policy is `none` for both statuses, subject to the
+separate production privacy and launch approvals. Finite policies remain
+independent: `none` on one side does not disable the other side's finite sweep.
+Retaining a contact does not extend a confirmation link or permit newsletter
+mail. Expired queued requests and confirmation proposals/mail are invalidated
+without deleting the contact. Current withdrawal links remain available until
+invalidated by a later consent/identity decision or erasure.
+
+The worker checks expiry hourly in batches of at most 100 contacts. With a finite policy, pending and
 withdrawn contact erasure rechecks the exact email, incarnation, account type,
 consent status, revision and cutoff inside the lifecycle deletion transaction.
 Confirmed contacts and promoted app users remain governed by their own request
-process. Expired queued requests are removed. Routine tests use fake delivery.
+process. Explicit verified erasure remains available under every policy.
+Expired queued requests are removed. Routine tests use fake delivery.
 
 ### Transfer recovery and restored subscriptions
 

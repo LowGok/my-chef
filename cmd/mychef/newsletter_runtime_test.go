@@ -7,7 +7,7 @@ import (
 )
 
 func TestNewsletterExecutableReadiness(t *testing.T) {
-	settings := config.Newsletter{Mode: "fixture", ServiceToken: "01234567890123456789012345678901", Origin: "https://mychef.dev", ConsentVersion: "newsletter-v1", Contact: "preview@example.test", PendingDays: 7, WithdrawnDays: 30, OperationsReady: true, CollectionEnabled: true}
+	settings := config.Newsletter{Mode: "fixture", ServiceToken: "01234567890123456789012345678901", Origin: "https://mychef.dev", ConsentVersion: "newsletter-v1", Contact: "preview@example.test", PendingDays: config.NewsletterRetention{Days: 7}, WithdrawnDays: config.NewsletterRetention{Days: 30}, OperationsReady: true, CollectionEnabled: true}
 	if !newsletterReady(settings, true, true, true, false) {
 		t.Fatal("fixture did not become ready")
 	}

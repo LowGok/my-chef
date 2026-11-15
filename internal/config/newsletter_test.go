@@ -30,7 +30,7 @@ func TestNewsletterFixtureAndReadiness(t *testing.T) {
 	if settings.Readiness(true, true, true, false)["identityCompatibility"] {
 		t.Fatal("production bypassed missing app compatibility")
 	}
-	for _, change := range []func(*Newsletter){func(c *Newsletter) { c.ServiceToken = "" }, func(c *Newsletter) { c.Contact = "" }, func(c *Newsletter) { c.PendingDays = 0 }, func(c *Newsletter) { c.WithdrawnDays = 0 }, func(c *Newsletter) { c.OperationsReady = false }} {
+	for _, change := range []func(*Newsletter){func(c *Newsletter) { c.ServiceToken = "" }, func(c *Newsletter) { c.Contact = "" }, func(c *Newsletter) { c.PendingDays = NewsletterRetention{} }, func(c *Newsletter) { c.WithdrawnDays = NewsletterRetention{} }, func(c *Newsletter) { c.OperationsReady = false }} {
 		candidate := settings
 		change(&candidate)
 		ready := true
