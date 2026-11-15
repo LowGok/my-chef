@@ -188,6 +188,9 @@ func (s *Service) withProofTransition(ctx context.Context, proof proofRecord, pu
 	if err := s.Store.DB.WithContext(ctx).Take(&sub, "user_id=?", proof.UserID).Error; err != nil {
 		return err
 	}
+	if _, err := s.proofOwner(ctx, s.Store.DB.WithContext(ctx), proof); err != nil {
+		return err
+	}
 	if proof.ConsumedUnix != nil {
 		if purpose == "unsubscribe" {
 			return nil

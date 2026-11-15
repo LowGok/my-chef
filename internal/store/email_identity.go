@@ -34,7 +34,15 @@ func (u *User) BeforeCreate(tx *gorm.DB) error {
 		return err
 	}
 	u.Email, u.EmailKey = display, key
-	return guardNewsletterIdentityCreate(tx, display)
+	if err := guardNewsletterIdentityCreate(tx, display); err != nil {
+		return err
+	}
+	if value, ok := tx.Get("mychef:newsletter-store"); ok {
+		if s, ok := value.(*Store); ok {
+			return s.reserveNewsletterCreate(tx, u)
+		}
+	}
+	return nil
 }
 
 func (s *Store) migrateEmailIdentity(ctx context.Context) error {

@@ -346,7 +346,7 @@ func (j *LifecycleJournal) PrepareNewsletterIdentity(ctx context.Context, operat
 		if err != nil {
 			return err
 		}
-		if found && (current.Incarnation != record.Incarnation || current.Sequence != record.Sequence || current.Class == "app" && record.Class == "contact" || record.Class != "retired" && (record.Revision < current.Revision || record.DecisionOrder < current.DecisionOrder)) || !found && record.Sequence != 0 {
+		if found && (current.Incarnation != record.Incarnation || current.Sequence != record.Sequence || current.Class == "app" && record.Class == "contact" || current.Class == "contact" && record.Class == "contact" && (current.KeyVersion != record.KeyVersion || current.AddressTag != record.AddressTag) || record.Class != "retired" && (record.Revision < current.Revision || record.DecisionOrder < current.DecisionOrder)) || !found && record.Sequence != 0 {
 			return ErrLifecycleConflict
 		}
 		var sequence int64
@@ -424,7 +424,7 @@ func (j *LifecycleJournal) validateNewsletterIdentityPostState(ctx context.Conte
 		return ErrLifecycleConflict
 	}
 	date := sub.RequestedUnix
-	if user.NewsletterMinimised {
+	if user.NewsletterMinimised || date == nil && sub.Status == "pending" {
 		date = sub.DecisionUnix
 	} else {
 		switch sub.Status {

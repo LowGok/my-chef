@@ -19,7 +19,7 @@ type NewsletterContactAuthority struct {
 	RequestReference string `json:"requestReference"`
 }
 
-func newsletterContactAuthority(tx *gorm.DB, actor NewsletterContactAuthority) error {
+func (s *Store) newsletterContactAuthority(tx *gorm.DB, actor NewsletterContactAuthority) error {
 	if actor.UserID <= 0 || !opaqueLifecycleID(actor.Incarnation) || actor.RequestReference == "" || len(actor.RequestReference) > 128 || strings.ContainsAny(actor.RequestReference, "\r\n") {
 		return ErrAccountAccess
 	}
@@ -27,8 +27,15 @@ func newsletterContactAuthority(tx *gorm.DB, actor NewsletterContactAuthority) e
 	if err != nil || key != actor.EmailKey {
 		return ErrAccountAccess
 	}
+	owner, found, err := s.ResolveEmailOwnerTx(tx.Statement.Context, tx, actor.EmailKey)
+	if err != nil {
+		return err
+	}
+	if !found || owner.ID != actor.UserID || !owner.IsNewsletterOnly {
+		return ErrAccountAccess
+	}
 	var count int64
-	if err := tx.Raw(`SELECT count(*) FROM users u JOIN account_incarnations a ON a.user_id=u.user_id WHERE u.user_id=? AND u.email_key=? AND u.isNewsletterOnly=1 AND a.incarnation=?`, actor.UserID, actor.EmailKey, actor.Incarnation).Scan(&count).Error; err != nil {
+	if err := tx.Raw(`SELECT count(*) FROM account_incarnations WHERE user_id=? AND incarnation=?`, actor.UserID, actor.Incarnation).Scan(&count).Error; err != nil {
 		return err
 	}
 	if count != 1 {
@@ -42,7 +49,7 @@ func (s *Store) ExportNewsletterContact(ctx context.Context, actor NewsletterCon
 	defer s.AccountWork.RUnlock()
 	var output []byte
 	err := s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := newsletterContactAuthority(tx, actor); err != nil {
+		if err := s.newsletterContactAuthority(tx, actor); err != nil {
 			return err
 		}
 		var user User
@@ -87,7 +94,7 @@ func (j *LifecycleJournal) EraseNewsletterContact(ctx context.Context, actor New
 	}
 	cleanup := opts.Cleanup
 	opts.Cleanup = func(tx *gorm.DB, user User) error {
-		if err := RecordNewsletterErasure(ctx, tx, rateKey, user.EmailKey); err != nil {
+		if err := RecordNewsletterErasure(ctx, tx, rateKey, actor.EmailKey); err != nil {
 			return err
 		}
 		if cleanup != nil {
@@ -95,7 +102,7 @@ func (j *LifecycleJournal) EraseNewsletterContact(ctx context.Context, actor New
 		}
 		return nil
 	}
-	return j.deleteAccount(ctx, actor.UserID, operation, now, opts, func(tx *gorm.DB) error { return newsletterContactAuthority(tx, actor) })
+	return j.deleteAccount(ctx, actor.UserID, operation, now, opts, func(tx *gorm.DB) error { return j.app.newsletterContactAuthority(tx, actor) })
 }
 
 // ExpireNewsletterContact adds consent-state authority to the normal guarded
@@ -110,7 +117,7 @@ func (j *LifecycleJournal) ExpireNewsletterContact(ctx context.Context, actor Ne
 	}
 	cleanup := opts.Cleanup
 	opts.Cleanup = func(tx *gorm.DB, user User) error {
-		if err := RecordNewsletterErasure(ctx, tx, rateKey, user.EmailKey); err != nil {
+		if err := RecordNewsletterErasure(ctx, tx, rateKey, actor.EmailKey); err != nil {
 			return err
 		}
 		if cleanup != nil {
@@ -119,7 +126,7 @@ func (j *LifecycleJournal) ExpireNewsletterContact(ctx context.Context, actor Ne
 		return nil
 	}
 	return j.deleteAccount(ctx, actor.UserID, operation, now, opts, func(tx *gorm.DB) error {
-		if err := newsletterContactAuthority(tx, actor); err != nil {
+		if err := j.app.newsletterContactAuthority(tx, actor); err != nil {
 			return err
 		}
 		var count int64

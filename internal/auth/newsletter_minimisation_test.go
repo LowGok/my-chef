@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -105,7 +106,7 @@ func TestNewsletterMinimisationSignupPreservesIDChoiceAndWithdrawal(t *testing.T
 }
 
 func TestNewsletterMinimisationPromotionChangeReuseDeleteSequence(t *testing.T) {
-	signup, n, now, contact, j, _ := reducedContactFixture(t, "pending")
+	signup, n, now, contact, j, oldWithdrawal := reducedContactFixture(t, "pending")
 	anonymous, proof := requestContactSignup(t, signup, contact.Email)
 	if err := signup.Complete(t.Context(), anonymous, contactCompletion(proof)); err != nil {
 		t.Fatal(err)
@@ -132,6 +133,9 @@ func TestNewsletterMinimisationPromotionChangeReuseDeleteSequence(t *testing.T) 
 	}
 	if result, err := change.Decide(t.Context(), second); err != nil || result.Status != "changed" {
 		t.Fatal("email change failed", err)
+	}
+	if err := n.Unsubscribe(t.Context(), oldWithdrawal); !errors.Is(err, newsletter.ErrProof) {
+		t.Fatal("changed mailbox accepted an old withdrawal token", err)
 	}
 	changed, err := manager.Login(t.Context(), "next@example.test", contactCompletion(proof).Password)
 	if err != nil || changed.ID != contact.ID || changed.NewsletterOwnershipEpoch == nil || *changed.NewsletterOwnershipEpoch == originalEpoch {
@@ -199,5 +203,64 @@ func TestNewsletterMinimisationCreationRespectsReservedHighWater(t *testing.T) {
 	}
 	if record, found, err := j.NewsletterIdentity(t.Context(), user.ID); err != nil || !found || record.Incarnation == "" {
 		t.Fatal("new contact was not journaled with its incarnation", err)
+	}
+}
+
+func TestNewsletterMinimisationReducedDestinationKeepsAppIDAndChoice(t *testing.T) {
+	signup, n, now, contact, j, _ := reducedContactFixture(t, "pending")
+	anonymous, proof := requestContactSignup(t, signup, contact.Email)
+	if err := signup.Complete(t.Context(), anonymous, contactCompletion(proof)); err != nil {
+		t.Fatal(err)
+	}
+	manager := New(signup.Store)
+	account, err := manager.Login(t.Context(), contact.Email, contactCompletion(proof).Password)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := n.Request(t.Context(), "192.0.2.64", newsletter.Input{Email: "destination@example.test", Locale: "en", ConsentVersion: n.ConsentVersion}); err != nil {
+		t.Fatal(err)
+	}
+	if worked, err := n.Step(t.Context()); err != nil || !worked {
+		t.Fatal(err)
+	}
+	destination, found, err := signup.Store.ResolveEmailOwner(t.Context(), "destination@example.test")
+	if err != nil || !found {
+		t.Fatal(err)
+	}
+	*now = now.Add(25 * time.Hour)
+	if err := n.Minimise(t.Context(), j); err != nil {
+		t.Fatal(err)
+	}
+	if err := j.CleanupNewsletterFiles(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	before := readContactConsent(t, signup.Store, destination.ID)
+	cookie, err := manager.Rotate(t.Context(), &account.ID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	signup.Newsletter = n
+	change := &EmailChange{SignUp: signup}
+	if _, err := change.Start(t.Context(), account.ID, cookie, "192.0.2.65", destination.Email, contactCompletion(proof).Password); err != nil {
+		t.Fatal(err)
+	}
+	first := deliveredChangeProof(t, change, *now, mailqueue.EmailChangeCurrentTemplate, "approve")
+	second := deliveredChangeProof(t, change, *now, mailqueue.EmailChangeProposedTemplate, "link")
+	if _, err := change.Decide(t.Context(), first); err != nil {
+		t.Fatal(err)
+	}
+	if result, err := change.Decide(t.Context(), second); err != nil || result.Status != "changed" || result.UserID != account.ID {
+		t.Fatal("reduced destination transfer failed", err)
+	}
+	after := readContactConsent(t, signup.Store, account.ID)
+	if after.Status != before.Status || after.ConsentVersion != before.ConsentVersion || after.Locale != "" || after.Source != "" {
+		t.Fatal("verified transfer changed choice or fabricated absent metadata")
+	}
+	if _, found, err := j.NewsletterIdentity(t.Context(), destination.ID); err != nil || found {
+		t.Fatal("retired destination still active in journal", err)
+	}
+	current, found, err := j.NewsletterIdentity(t.Context(), account.ID)
+	if err != nil || !found || current.Class != "app" || current.Status != before.Status {
+		t.Fatal("app/destination journal batch incomplete", err)
 	}
 }

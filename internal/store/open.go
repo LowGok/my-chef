@@ -20,6 +20,7 @@ type Store struct {
 	AccountWork               sync.RWMutex
 	newsletterIdentity        atomic.Pointer[NewsletterIdentityKey]
 	newsletterJournalRequired atomic.Bool
+	newsletterJournal         atomic.Pointer[LifecycleJournal]
 	DB                        *gorm.DB
 	SQL                       *sql.DB
 	Path                      string
@@ -88,6 +89,7 @@ func open(path string, create, readOnly bool) (*Store, error) {
 	if err := db.Callback().Create().Before("gorm:before_create").Register("mychef:newsletter-identity-key", func(tx *gorm.DB) {
 		if tx.Statement.Table == "users" {
 			tx.Statement.Settings.Store(newsletterIdentitySetting, &s.newsletterIdentity)
+			tx.Statement.Settings.Store("mychef:newsletter-store", s)
 		}
 	}); err != nil {
 		_ = pool.Close()

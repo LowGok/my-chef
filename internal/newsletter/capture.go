@@ -62,6 +62,7 @@ type subscription struct {
 	RequestedUnix  int64
 	ConfirmedUnix  *int64
 	WithdrawnUnix  *int64
+	DecisionUnix   *int64
 	Revision       int64
 	ProvedOrder    int64
 }
@@ -203,13 +204,13 @@ func (s *Service) Step(ctx context.Context) (bool, error) {
 	if !s.valid() {
 		return false, ErrUnavailable
 	}
-	s.Store.AccountWork.RLock()
-	defer s.Store.AccountWork.RUnlock()
+	s.Store.AccountWork.Lock()
+	defer s.Store.AccountWork.Unlock()
 	if s.Lifecycle != nil && s.Lifecycle.CheckReady(ctx) != nil {
 		return false, ErrUnavailable
 	}
 	var worked bool
-	err := s.Store.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := s.Store.NewsletterTransaction(ctx, s.Lifecycle, func(tx *gorm.DB) error {
 		var job requestRecord
 		err := tx.Order("order_id").Take(&job).Error
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -259,6 +260,7 @@ func (s *Service) resolve(ctx context.Context, tx *gorm.DB, now time.Time, job r
 	if err != nil {
 		return err
 	}
+	store.TrackNewsletterIdentity(tx, user.ID)
 	var sub subscription
 	err = tx.Where("user_id=?", user.ID).Take(&sub).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -415,8 +417,10 @@ func proofHash(token string) (string, error) {
 
 // ContactConsent is an internal transaction snapshot, never a public contract.
 type ContactConsent struct {
-	state subscription
-	found bool
+	state        subscription
+	found        bool
+	protectedTag string
+	keyVersion   int
 }
 
 func ReadContactConsent(tx *gorm.DB, userID int64) (ContactConsent, error) {
@@ -426,6 +430,13 @@ func ReadContactConsent(tx *gorm.DB, userID int64) (ContactConsent, error) {
 		return saved, nil
 	}
 	saved.found = err == nil
+	if err == nil && saved.state.EmailKey == "" {
+		var match store.NewsletterIdentityMatch
+		if err := tx.Take(&match, "user_id=?", userID).Error; err != nil {
+			return saved, err
+		}
+		saved.protectedTag, saved.keyVersion = match.AddressTag, match.KeyVersion
+	}
 	return saved, err
 }
 
@@ -446,7 +457,17 @@ func (s *Service) TransferContactConsent(ctx context.Context, tx *gorm.DB, now t
 		return err
 	}
 	sub := saved.state
-	if sub.EmailKey != account.EmailKey {
+	reduced := sub.EmailKey == ""
+	if reduced {
+		key, err := store.DeriveNewsletterIdentityKey(s.RateKey)
+		if err != nil {
+			return err
+		}
+		tag, err := key.Tag(account.Email)
+		if err != nil || saved.protectedTag != tag || saved.keyVersion != key.Version() {
+			return ErrProof
+		}
+	} else if sub.EmailKey != account.EmailKey {
 		return ErrProof
 	}
 	sub.UserID, sub.EmailKey = account.ID, account.EmailKey
@@ -454,7 +475,14 @@ func (s *Service) TransferContactConsent(ctx context.Context, tx *gorm.DB, now t
 	if err := tx.Where("user_id=?", account.ID).Delete(&subscription{}).Error; err != nil {
 		return err
 	}
-	if err := tx.Create(&sub).Error; err != nil {
+	if reduced {
+		if sub.Status == "confirmed" {
+			return ErrProof
+		}
+		if err := tx.Exec(`INSERT INTO newsletter_subscriptions(user_id,email_key,status,locale,consent_version,source,requested_unix,confirmed_unix,withdrawn_unix,revision,proved_order,decision_unix) VALUES(?,?,?,NULL,?,NULL,NULL,NULL,?,?,?,?)`, sub.UserID, sub.EmailKey, sub.Status, sub.ConsentVersion, sub.WithdrawnUnix, sub.Revision, sub.ProvedOrder, sub.DecisionUnix).Error; err != nil {
+			return err
+		}
+	} else if err := tx.Create(&sub).Error; err != nil {
 		return err
 	}
 	if sub.Status != "confirmed" {

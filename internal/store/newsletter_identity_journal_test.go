@@ -277,3 +277,86 @@ func TestNewsletterIdentityJournalCannotAdoptOlderUnboundJournal(t *testing.T) {
 		t.Fatal("an older unbound journal was adopted as fresh authority")
 	}
 }
+
+func TestNewsletterIdentityJournalCannotReassignContactMatch(t *testing.T) {
+	_, j, key, record := newsletterIdentityJournalFixture(t)
+	current := commitNewsletterIdentityFixture(t, j, strings.Repeat("a", 32), record)
+	different, err := key.Tag("another@example.test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	current.AddressTag = different
+	if _, err := j.PrepareNewsletterIdentity(t.Context(), strings.Repeat("b", 32), current); err == nil {
+		t.Fatal("contact identity changed to another address without a verified app ownership transition")
+	}
+}
+
+func TestNewsletterIdentityTransactionBatchRollsBackAndRetries(t *testing.T) {
+	s, j, _, record := newsletterIdentityJournalFixture(t)
+	commitNewsletterIdentityFixture(t, j, strings.Repeat("a", 32), record)
+	if err := j.CompleteNewsletterIdentityBootstrap(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if err := j.CleanupNewsletterFiles(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	second := User{Email: "second@example.test", Username: "second-opaque", IsNewsletterOnly: true}
+	if err := s.NewsletterTransaction(t.Context(), j, func(tx *gorm.DB) error { return tx.Create(&second).Error }); err != nil {
+		t.Fatal(err)
+	}
+	original, found, err := j.NewsletterIdentity(t.Context(), second.ID)
+	if err != nil || !found {
+		t.Fatal(err)
+	}
+	minimisationSQL(t, s, `CREATE TRIGGER refuse_second_identity BEFORE INSERT ON newsletter_identity_commits WHEN NEW.user_id=2 AND NEW.disposition='committed' BEGIN SELECT RAISE(ABORT,'injected marker write failure'); END`)
+	update := func(tx *gorm.DB) error {
+		TrackNewsletterIdentity(tx, record.UserID)
+		TrackNewsletterIdentity(tx, second.ID)
+		if err := tx.Exec("UPDATE newsletter_subscriptions SET status='unsubscribed',revision=revision+1,proved_order=5,withdrawn_unix=2000 WHERE user_id=?", record.UserID).Error; err != nil {
+			return err
+		}
+		return tx.Exec("INSERT INTO newsletter_subscriptions(user_id,email_key,status,locale,consent_version,source,requested_unix) VALUES(?,'second@example.test','pending','en','notice-test','/blog/',1000)", second.ID).Error
+	}
+	if err := s.NewsletterTransaction(t.Context(), j, update); err == nil {
+		t.Fatal("injected second marker failure was ignored")
+	}
+	current, found, err := j.NewsletterIdentity(t.Context(), record.UserID)
+	if err != nil || !found || current.Status != "pending" {
+		t.Fatal("first identity committed alone", err)
+	}
+	after, found, err := j.NewsletterIdentity(t.Context(), second.ID)
+	if err != nil || !found || after.Sequence != original.Sequence || after.Revision != 0 {
+		t.Fatal("rolled-back second identity changed", err)
+	}
+	var status string
+	if err := s.SQL.QueryRowContext(t.Context(), "SELECT status FROM newsletter_subscriptions WHERE user_id=?", record.UserID).Scan(&status); err != nil || status != "pending" {
+		t.Fatal("SQL partially committed", err)
+	}
+	if err := j.CheckReady(t.Context()); err != nil {
+		t.Fatal("known rolled-back batch was not cancelled", err)
+	}
+	minimisationSQL(t, s, "DROP TRIGGER refuse_second_identity")
+	if err := s.NewsletterTransaction(t.Context(), j, update); err != nil {
+		t.Fatal("safe batch retry failed", err)
+	}
+	current, found, err = j.NewsletterIdentity(t.Context(), record.UserID)
+	if err != nil || !found || current.Status != "unsubscribed" {
+		t.Fatal("retry did not commit first decision", err)
+	}
+	after, found, err = j.NewsletterIdentity(t.Context(), second.ID)
+	if err != nil || !found || after.Revision != 1 {
+		t.Fatal("retry did not commit second decision", err)
+	}
+}
+
+func TestNewsletterIdentityTransactionRejectsAnotherStore(t *testing.T) {
+	_, j, _, record := newsletterIdentityJournalFixture(t)
+	commitNewsletterIdentityFixture(t, j, strings.Repeat("a", 32), record)
+	if err := j.CompleteNewsletterIdentityBootstrap(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	other := minimisationSchemaStore(t)
+	if err := other.NewsletterTransaction(t.Context(), j, func(tx *gorm.DB) error { return nil }); err == nil {
+		t.Fatal("a different application store borrowed the journal's authority")
+	}
+}

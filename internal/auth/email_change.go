@@ -2,6 +2,8 @@ package auth
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"strconv"
 	"strings"
@@ -301,12 +303,12 @@ func (c *EmailChange) Decide(ctx context.Context, token string) (EmailChangeResu
 	var unavailable bool
 	var destination store.NewsletterContactAuthority
 	err = func() error {
-		c.Store.AccountWork.RLock()
-		defer c.Store.AccountWork.RUnlock()
+		c.Store.AccountWork.Lock()
+		defer c.Store.AccountWork.Unlock()
 		if c.Lifecycle != nil && c.Lifecycle.CheckReady(ctx) != nil {
 			return ErrEmailChangeUnavailable
 		}
-		return c.Store.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		return c.Store.NewsletterTransaction(ctx, c.Lifecycle, func(tx *gorm.DB) error {
 			now := c.now()
 			proof, pending, user, err := loadEmailChange(tx, hash, now)
 			if err != nil {
@@ -326,19 +328,19 @@ func (c *EmailChange) Decide(ctx context.Context, token string) (EmailChangeResu
 				return ErrEmailProof
 			}
 			if pending.ProposedApproved && (pending.OriginalVerifiedAt == nil || pending.CurrentApproved) {
-				var contact store.User
-				lookup := tx.Where("email_key=? AND isNewsletterOnly=1", pending.ProposedKey).Take(&contact).Error
-				if lookup == nil {
+				contact, found, lookup := c.Store.ResolveEmailOwnerTx(ctx, tx, pending.ProposedEmail)
+				if lookup != nil {
+					return lookup
+				}
+				if found && contact.IsNewsletterOnly {
 					var incarnation string
 					if err := tx.Raw("SELECT incarnation FROM account_incarnations WHERE user_id=?", contact.ID).Row().Scan(&incarnation); err != nil {
 						return err
 					}
-					destination = store.NewsletterContactAuthority{UserID: contact.ID, EmailKey: contact.EmailKey, Incarnation: incarnation, RequestReference: "verified-app-email-change"}
+					destination = store.NewsletterContactAuthority{UserID: contact.ID, EmailKey: pending.ProposedKey, Incarnation: incarnation, RequestReference: "verified-app-email-change"}
 					return errNewsletterDestination
 				}
-				if !errors.Is(lookup, gorm.ErrRecordNotFound) {
-					return lookup
-				}
+
 				claimed, err := addressClaimed(tx, pending.ProposedKey)
 				if err != nil {
 					return err
@@ -371,6 +373,16 @@ func (c *EmailChange) Decide(ctx context.Context, token string) (EmailChangeResu
 }
 
 func (c *EmailChange) finishChange(ctx context.Context, tx *gorm.DB, now time.Time, user store.User, pending store.PendingEmailChange) error {
+	store.TrackNewsletterIdentity(tx, user.ID)
+	if user.NewsletterOwnershipEpoch != nil {
+		var nonce [16]byte
+		if _, err := rand.Read(nonce[:]); err != nil {
+			return err
+		}
+		if err := tx.Model(&user).Update("newsletter_ownership_epoch", hex.EncodeToString(nonce[:])).Error; err != nil {
+			return err
+		}
+	}
 	if err := store.InvalidateNewsletterConsent(ctx, tx, user.ID, now); err != nil {
 		return err
 	}

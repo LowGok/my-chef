@@ -112,7 +112,7 @@ func (s *Service) applyProof(ctx context.Context, token, purpose string) error {
 			}
 		}
 		sub.ProvedOrder = order
-		if user.NewsletterMinimised {
+		if user.NewsletterMinimised || purpose == "unsubscribe" && sub.Locale == "" {
 			return tx.Model(&subscription{}).Where("user_id=?", user.ID).Updates(map[string]any{"status": sub.Status, "revision": sub.Revision, "proved_order": order, "withdrawn_unix": sub.WithdrawnUnix, "decision_unix": now.Unix()}).Error
 		}
 		return tx.Save(&sub).Error

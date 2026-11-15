@@ -61,15 +61,17 @@ ALTER TABLE newsletter_subscriptions ALTER requested_unix DROP NOT NULL;
 CREATE TRIGGER newsletter_subscription_identity_insert BEFORE INSERT ON newsletter_subscriptions
 WHEN NOT (
  (NEW.email_key IS NOT NULL AND NEW.email_key<>'' AND NEW.locale IS NOT NULL AND NEW.source IS NOT NULL AND NEW.requested_unix IS NOT NULL)
- OR (NEW.email_key IS NULL AND NEW.locale IS NULL AND NEW.source IS NULL AND NEW.requested_unix IS NULL
-  AND EXISTS(SELECT 1 FROM users WHERE user_id=NEW.user_id AND newsletter_minimised=1))
+ OR (NEW.locale IS NULL AND NEW.source IS NULL AND NEW.requested_unix IS NULL
+  AND ((NEW.email_key IS NULL AND EXISTS(SELECT 1 FROM users WHERE user_id=NEW.user_id AND newsletter_minimised=1))
+   OR (NEW.status<>'confirmed' AND EXISTS(SELECT 1 FROM users WHERE user_id=NEW.user_id AND isNewsletterOnly=0 AND email_key=NEW.email_key))))
 )
 BEGIN SELECT RAISE(ABORT,'invalid newsletter subscription identity'); END;
 CREATE TRIGGER newsletter_subscription_identity_update BEFORE UPDATE ON newsletter_subscriptions
 WHEN NOT (
  (NEW.email_key IS NOT NULL AND NEW.email_key<>'' AND NEW.locale IS NOT NULL AND NEW.source IS NOT NULL AND NEW.requested_unix IS NOT NULL)
- OR (NEW.email_key IS NULL AND NEW.locale IS NULL AND NEW.source IS NULL AND NEW.requested_unix IS NULL
-  AND EXISTS(SELECT 1 FROM users WHERE user_id=NEW.user_id AND newsletter_minimised=1))
+ OR (NEW.locale IS NULL AND NEW.source IS NULL AND NEW.requested_unix IS NULL
+  AND ((NEW.email_key IS NULL AND EXISTS(SELECT 1 FROM users WHERE user_id=NEW.user_id AND newsletter_minimised=1))
+   OR (NEW.status<>'confirmed' AND EXISTS(SELECT 1 FROM users WHERE user_id=NEW.user_id AND isNewsletterOnly=0 AND email_key=NEW.email_key))))
 )
 BEGIN SELECT RAISE(ABORT,'invalid newsletter subscription identity'); END;
 

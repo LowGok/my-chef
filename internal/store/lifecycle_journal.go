@@ -250,7 +250,11 @@ func (s *Store) lifecycleJournal(ctx context.Context, path string, initialize, r
 		return nil, ErrLifecycleJournal
 	}
 	ok = true
-	return &LifecycleJournal{store: external, app: s, Path: absolute, identity: identity, binding: binding}, nil
+	j := &LifecycleJournal{store: external, app: s, Path: absolute, identity: identity, binding: binding}
+	if !readOnly {
+		s.newsletterJournal.Store(j)
+	}
+	return j, nil
 }
 func (j *LifecycleJournal) CheckAvailable(ctx context.Context) error {
 	current, err := os.Lstat(j.Path)
@@ -264,6 +268,7 @@ func (j *LifecycleJournal) CheckAvailable(ctx context.Context) error {
 	return nil
 }
 func (j *LifecycleJournal) Close() error {
+	j.app.newsletterJournal.CompareAndSwap(j, nil)
 	j.workMu.Lock()
 	var cancellations []context.CancelFunc
 	for _, group := range j.active {
