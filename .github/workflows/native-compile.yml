@@ -71,7 +71,7 @@ jobs:
         if: startsWith(github.event.label.name, 'native-installed') || github.event.label.name == 'native-reminder-fixture' || github.event.label.name == 'native-subscription-fixture'
         run: python3 scripts/test_native_installed.py
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: always()
+        if: always() && github.event.label.name != 'native-subscription-fixture'
         with:
           name: native-compile-${{ matrix.platform }}-${{ github.event.pull_request.head.sha }}
           path: |
@@ -79,5 +79,19 @@ jobs:
             mobile/.generated/artifacts/installed-smoke.json
             mobile/.generated/artifacts/installed-journeys.json
           if-no-files-found: warn
+          retention-days: 1
+          include-hidden-files: false
+
+      - name: Verify public subscription evidence
+        if: github.event.label.name == 'native-subscription-fixture'
+        env:
+          NATIVE_SUBSCRIPTION_SOURCE: ${{ github.event.pull_request.head.sha }}
+        run: python3 scripts/verify_native_subscription_evidence.py
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: github.event.label.name == 'native-subscription-fixture'
+        with:
+          name: native-subscription-${{ matrix.platform }}-${{ github.event.pull_request.head.sha }}
+          path: mobile/.generated/artifacts/subscription-evidence.json
+          if-no-files-found: error
           retention-days: 1
           include-hidden-files: false

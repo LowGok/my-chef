@@ -736,7 +736,11 @@ def main():
                 "reminder labels and controls scale at 200 percent in iOS WebView",
             ], limitations="Synthetic tap and WebView text scaling; no production APNs, lock-screen, OS text setting or VoiceOver verification.")
             (ARTIFACTS / "installed-journeys.json").write_text(json.dumps(result, indent=2) + "\n")
-        if journeys:
+        if subscription and PLATFORM == "android":
+            android_journeys(state, receipt, metadata, events, billing=True)
+        elif subscription:
+            ios_billing_journey(state, receipt, metadata, events, stop, ios_billing)
+        elif journeys:
             android_journeys(state, receipt, metadata, events, reminders)
 
 
