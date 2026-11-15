@@ -120,6 +120,16 @@ None for the technical scope. Controller, contact, retention-review criteria and
 
 | Date | Review | Kind | Commit | Model | Isolation | Outcome |
 | --- | --- | --- | --- | --- | --- | --- |
+| 2026-11-15 | R-1 | spec | `4c3722702a4a45f3b37350281f5fdf3bfbe2cc71` | unknown | procedural | Review stopped because required pinned container pages were absent from cache. Model identity not attested. |
+
+### R-1
+
+FINDING: F-01
+KIND: factual
+SEVERITY: blocking
+WHERE: Design > Host templates and delivery; Acceptance Criteria > AC-05; Test Plan > AC-05
+EVIDENCE: The pinned docs README.md routes container work to conventions/containers.md and knowledge/container-release.md. Reading both from /home/lowgok/.cache/vh-adlc/docs/d8f07c9dd69038375a535af8ad586086688f85ab returned "No such file or directory". This review therefore cannot verify the proposed container/service templates against their required pinned conventions. The reviewer instructions require stopping when a required convention page cannot be read.
+PROPOSAL: Make both pages available at the exact pinned revision and rerun the independent specification review before acceptance.
 
 ## Sources
 
