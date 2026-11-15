@@ -20,6 +20,16 @@ class SpeechEvidenceTest(unittest.TestCase):
         self.assertTrue(matches('offline', 'Turning off was not confirmed. Analytics may still be On.'))
         self.assertFalse(matches('offline', 'Analytics On'))
 
+    def test_state_before_label_requires_adjacent_control_state_and_no_conflict(self):
+        self.assertTrue(matches('on', 'Checked. Help improve MyChef. Checkbox.'))
+        self.assertTrue(matches('off', 'Not checked. Help improve MyChef. Checkbox.'))
+        self.assertTrue(matches('on', 'Checked checkbox, Help improve MyChef.'))
+        self.assertFalse(matches('on', 'TalkBack on. Help improve MyChef.'))
+        self.assertFalse(matches('on', 'Checked. Other control. Help improve MyChef.'))
+        self.assertFalse(matches('on', 'Help improve MyChef. Checkbox. Double tap to turn on.'))
+        self.assertFalse(matches('on', 'Checked. Help improve MyChef. Not checked.'))
+        self.assertFalse(matches('off', 'Checked. Help improve MyChef. Not checked.'))
+
     def test_signup_states_and_cleanup_announcements_require_the_actual_words(self):
         self.assertTrue(matches('signup-on', 'Help improve MyChef, checked, checkbox'))
         self.assertTrue(matches('signup-off', 'Help improve MyChef, unchecked, checkbox'))

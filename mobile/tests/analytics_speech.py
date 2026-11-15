@@ -24,9 +24,16 @@ def matches(target, transcript):
         label = re.search(r'help improve my\s?chef', text)
         if not label:
             return False
-        state = text[label.end():].split('double tap', 1)[0][:55]
-        off = re.search(r'\b(?:not checked|unchecked|not selected|off)\b', state) is not None
-        return off if target == 'off' else not off and re.search(r'\b(?:checked|selected|on)\b', state) is not None
+        # TalkBack may speak the checked state before the label. Require
+        # adjacency to this control, rather than accepting earlier UI speech
+        # or the action hint as its current state.
+        before = re.search(r'\b(not checked|unchecked|not selected|checked|selected)(?: (?:check ?box|switch|button))? $',
+                           text[:label.start()])
+        after = re.match(r' *(?:(?:check ?box|switch|button) )?(not checked|unchecked|not selected|checked|selected|on|off)\b',
+                         text[label.end():])
+        states = {('off' if match[1] in ('not checked', 'unchecked', 'not selected', 'off') else 'on')
+                  for match in (before, after) if match is not None}
+        return states == {target}
     phrase = {'stale': 'your setting changed elsewhere', 'offline': 'turning off was not confirmed',
               'order': 'refresh analytics setting', 'cleanup': 'active deletion is in progress',
               'backup': 'isolated backup cleanup is pending'}.get(target)
