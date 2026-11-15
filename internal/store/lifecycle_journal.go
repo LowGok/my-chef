@@ -394,7 +394,7 @@ func (j *LifecycleJournal) prepareDeletion(ctx context.Context, operation, incar
 	if err := j.CheckAvailable(ctx); err != nil {
 		return err
 	}
-	if err := billing.CheckDeletionStorage(ctx, j.store.SQL); err != nil {
+	if err := billing.CheckStorage(ctx, j.store.SQL); err != nil {
 		return ErrLifecycleJournal
 	}
 	if !opaqueLifecycleID(operation) || !opaqueLifecycleID(incarnation) {

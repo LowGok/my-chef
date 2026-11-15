@@ -1,6 +1,7 @@
 package billing
 
 import (
+	"errors"
 	"testing"
 	"time"
 )
@@ -68,5 +69,50 @@ func TestNativeOverviewUsesVerifiedRenewalWithoutChangingPaidThrough(t *testing.
 	view, err := j.NativeOverview(ctx, owner, owner, Sandbox, Apple, p.PaidThrough)
 	if err != nil || view.Subscription != nil || view.Management == nil || view.Management.State != "ended" {
 		t.Fatalf("an ending subscription still granted access at the cutoff: %+v, %v", view, err)
+	}
+}
+
+func TestBillingRuntimeRequiresExplicitRenewalMigration(t *testing.T) {
+	db, j, now := fixture(t)
+	ctx := t.Context()
+	a, err := j.Reserve(ctx, owner, Sandbox, Apple, Annual, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := j.Launch(ctx, a, now); err != nil {
+		t.Fatal(err)
+	}
+	p := VerifiedPeriod{Store: Apple, Environment: Sandbox, Binding: a.Binding,
+		Subscription: "lineage", Transaction: "order", Interval: Annual,
+		StartsAt: now, PaidThrough: now.Add(time.Hour), ObservedAt: now}
+	if err := j.Fulfil(ctx, p); err != nil {
+		t.Fatal(err)
+	}
+	// The preceding journal schema contained these paid facts, but it had no
+	// renewal table. Starting billing must fail without flipping its runtime.
+	if _, err := db.ExecContext(ctx, "DROP TABLE billing_period_renewals"); err != nil {
+		t.Fatal(err)
+	}
+	if runtime, err := StartRuntime(ctx, db); runtime != nil || !errors.Is(err, ErrStoreUnavailable) {
+		t.Fatalf("started with an incomplete billing schema: %v, %v", runtime != nil, err)
+	}
+	if err := j.CurrentRuntime(ctx); err != nil {
+		t.Fatal("an unsuccessful startup invalidated the original runtime", err)
+	}
+	for range 2 {
+		if err := Migrate(ctx, db); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runtime, err := StartRuntime(ctx, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.Fulfil(ctx, p); err != nil {
+		t.Fatal(err)
+	}
+	got, err := runtime.Active(ctx, owner, Sandbox, now)
+	if err != nil || got == nil || got.Transaction != p.Transaction || !got.PaidThrough.Equal(p.PaidThrough) {
+		t.Fatalf("the explicit upgrade did not preserve the verified purchase: %+v, %v", got, err)
 	}
 }

@@ -40,9 +40,9 @@ func billingPrivacyKey(ctx context.Context, db reader) ([]byte, error) {
 	return key, nil
 }
 
-// CheckDeletionStorage verifies the explicit external migration before the app
-// can delete data. Normal service startup does not create billing tables.
-func CheckDeletionStorage(ctx context.Context, db *sql.DB) error {
+// CheckStorage verifies the explicit external migration before billing can
+// start or an account can be deleted. It does not create billing tables.
+func CheckStorage(ctx context.Context, db *sql.DB) error {
 	if _, err := billingPrivacyKey(ctx, db); err != nil {
 		return err
 	}

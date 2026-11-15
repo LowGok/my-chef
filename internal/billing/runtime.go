@@ -20,6 +20,9 @@ CREATE TABLE IF NOT EXISTS billing_runtime_proofs(
 // generation is never copied into an app snapshot. Previously verified sale
 // records stay intact, but a new runtime requires a fresh provider lookup.
 func StartRuntime(ctx context.Context, db *sql.DB) (*Journal, error) {
+	if err := CheckStorage(ctx, db); err != nil {
+		return nil, err
+	}
 	generation, err := binding()
 	if err != nil {
 		return nil, err
