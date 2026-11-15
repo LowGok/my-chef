@@ -1,0 +1,68 @@
+name: Android screen reader preflight
+on:
+  push:
+    branches: [ci/reminder-talkback-preflight-0f3e4a8]
+
+permissions:
+  contents: read
+
+jobs:
+  eligibility:
+    if: github.repository_id == '1454481532' && github.repository == 'LowGok/my-chef' && !github.event.repository.private && github.actor == 'LowGok'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [google_apis, google_apis_playstore]
+    steps:
+      - name: Install and start official Android emulator image
+        env:
+          IMAGE_VARIANT: ${{ matrix.variant }}
+        run: |
+          set -euo pipefail
+          image="system-images;android-33;${IMAGE_VARIANT};x86_64"
+          sdk="$ANDROID_HOME/cmdline-tools/latest/bin"
+          "$sdk/sdkmanager" --install "$image"
+          echo no | "$sdk/avdmanager" create avd --name screen-reader --package "$image"
+          sudo chmod a+rw /dev/kvm
+          "$ANDROID_HOME/emulator/emulator" -avd screen-reader -no-window -no-audio -no-snapshot -no-boot-anim -gpu swiftshader_indirect >"$RUNNER_TEMP/emulator.log" 2>&1 &
+          echo "$!" >"$RUNNER_TEMP/emulator.pid"
+          timeout 240 adb wait-for-device
+          timeout 120 bash -c 'until [ "$(adb shell getprop sys.boot_completed | tr -d "\r")" = 1 ]; do sleep 3; done'
+          test "$(adb shell getprop ro.build.version.sdk | tr -d '\r')" = 33
+      - name: Identify the installed TalkBack and text-to-speech services
+        env:
+          IMAGE_VARIANT: ${{ matrix.variant }}
+        run: |
+          set -euo pipefail
+          adb shell cmd package query-services --components --brief -a android.accessibilityservice.AccessibilityService > "$RUNNER_TEMP/accessibility.txt"
+          adb shell cmd package query-services --components --brief -a android.intent.action.TTS_SERVICE > "$RUNNER_TEMP/tts.txt"
+          python3 - <<'PY' | tee "$RUNNER_TEMP/preflight.json"
+          import json, os, pathlib
+          root = pathlib.Path(os.environ['RUNNER_TEMP'])
+          def components(file):
+              return [line.strip() for line in (root / file).read_text().splitlines() if '/' in line]
+          accessibility = components('accessibility.txt')
+          tts = components('tts.txt')
+          print(json.dumps({
+              'appFixtureSource': '0f3e4a8764669be1a1d6ca02d6a93612f6f1f053',
+              'api': 33,
+              'imageVariant': os.environ['IMAGE_VARIANT'],
+              'talkback': [line for line in accessibility if 'talkback' in line.lower()],
+              'textToSpeech': tts,
+              'scope': 'Emulator eligibility only; no speech or app journey tested.'
+          }, indent=2))
+          PY
+      - name: Store eligibility report
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: android-33-${{ matrix.variant }}-screen-reader
+          path: ${{ runner.temp }}/preflight.json
+          if-no-files-found: error
+          retention-days: 2
+      - name: Stop emulator
+        if: always()
+        run: |
+          adb emu kill || true
+          if [ -f "$RUNNER_TEMP/emulator.pid" ]; then kill "$(cat "$RUNNER_TEMP/emulator.pid")" 2>/dev/null || true; fi
