@@ -231,8 +231,23 @@ with tempfile.TemporaryDirectory(prefix="mychef-installed-") as directory, ExitS
         recording.unlink(missing_ok=True)
         # The driver already redacts fixture credentials. Keep CI output to
         # allowlisted stage names, not diagnostics from login or notification.
+        output = (state / "talkback-journey.log").read_text(errors="replace")
         statuses = re.findall(r"Installed Android check passed: OS accessibility focus with TalkBack on (opt-in|save|device-off)",
-                              (state / "talkback-journey.log").read_text(errors="replace"))
+                              output)
+        # Print only known connection phases and exception classes, never the
+        # exception message, WebView content or fixture account values.
+        connection = re.findall(
+            r"Installed Android journey failed at stage: (connect|wake disposable Android emulator|"
+            r"start disposable instrumentation|discover Android device|discover instrumented WebView|"
+            r"attach Android WebView); (Error|TimeoutError|TypeError)\b", output)
+        if connection:
+            print("Driver connection:", connection[-1], flush=True)
+        elif "Installed Android journey context is invalid." in output:
+            print("Driver connection: invalid CI or fixture context", flush=True)
+        elif "Expected a disposable synthetic account." in output:
+            print("Driver connection: fixture account rejected", flush=True)
+        elif "Cannot find package" in output or "Cannot find module" in output:
+            print("Driver connection: test module not found", flush=True)
         checkpoint = state / "talkback-setup-stage"
         checkpoints = {"driver-connected", "signed-in", "profile", "panel-open", "time-zone-entered",
                        "opt-in-checked", "save-clicked", "preferences-saved", "permission-granted",
