@@ -418,8 +418,24 @@ final class AnalyticsProbe: XCTestCase {
         _ = try control("maintenance"); enabled(true)
         tap("Shopping list"); waitFor({ self.text("Saved") }, "Shopping snapshot must load")
         _ = try control("offline")
-        let extra = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "A few extras?")).firstMatch
-        reveal(extra); tapSettled(extra)
+        let extraInput = app.textFields["Extra item"].firstMatch
+        let extras = app.buttons.matching(NSPredicate(format: "label == %@", "A few extras?"))
+        reveal(extras.firstMatch)
+        // The native tree can expose both the details container and its
+        // summary as buttons. First look for an already-open field, including
+        // below the current viewport, rather than toggling that panel closed.
+        for _ in 0..<4 {
+            if extraInput.exists { break }
+            scrollContent(up: true)
+        }
+        if !extraInput.exists {
+            reveal(extras.firstMatch)
+            let visible = extras.allElementsBoundByIndex.filter {
+                $0.exists && $0.isHittable && $0.frame.width > 0 && $0.frame.height > 0
+            }.sorted { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height }
+            guard let summary = visible.first else { throw Failure.missingControl }
+            summary.tap()
+        }
         fill("Extra item", "Analytics queued oats"); tap("Add extra")
         waitFor({ self.text("Pending sync") }, "Offline edit must enter durable queue")
         _ = try control("other-session-choice", ["enabled": false]); _ = try control("maintenance")
