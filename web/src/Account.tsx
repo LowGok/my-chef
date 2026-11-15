@@ -462,7 +462,10 @@ export function ProfileForm({
             {planningSettings}
           </details>
         )}
-        <Subscriptions key={`${user.id}/${sessionEpoch()}`} />
+        <Subscriptions
+          key={`${user.id}/${sessionEpoch()}`}
+          onHelp={onFeedback}
+        />
         {favorites}
         {personalRecipes}
       </section>

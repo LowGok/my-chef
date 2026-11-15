@@ -18,7 +18,7 @@ const management = {
   },
 } as const;
 
-export function Subscriptions() {
+export function Subscriptions({ onHelp }: { onHelp: () => void }) {
   const flow = nativeBillingFlow();
   const [status, setStatus] = useState<BillingStatus | null>(null);
   const [quotes, setQuotes] = useState<BillingQuote[]>([]);
@@ -120,7 +120,18 @@ export function Subscriptions() {
         </>
       )}
       {status?.pending && !subscription && (
-        <p>A purchase is pending verification.</p>
+        <>
+          <p>A purchase is pending verification.</p>
+          {status.restoreAvailable && (
+            <p>
+              If the store shows a charge, restore purchases using the same
+              store account.
+            </p>
+          )}
+          <button className="button secondary" type="button" onClick={onHelp}>
+            Get help with this purchase
+          </button>
+        </>
       )}
       {reservation && (
         <button

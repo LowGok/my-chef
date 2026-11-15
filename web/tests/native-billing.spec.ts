@@ -71,16 +71,7 @@ for (const scenario of [
         .click();
       await page.getByRole("button", { name: "Profile", exact: true }).click();
       await page.getByText("Subscription", { exact: true }).tap();
-      const panel = page
-        .locator("details")
-        .filter({ has: page.getByText("Subscription", { exact: true }) })
-        .filter({
-          has: page.getByRole("button", {
-            name: "Subscribe monthly",
-            exact: true,
-          }),
-        })
-        .last();
+      const panel = page.locator("details.subscription-details");
       await expect(
         panel.getByText("€6.99 per month.", { exact: false }),
       ).toBeVisible();
@@ -115,6 +106,22 @@ for (const scenario of [
             .filter({ hasText: "Your purchase is still being checked." }),
         ).toBeVisible();
         await expect(subscribe).toHaveCount(0);
+        await expect(
+          panel.getByText(
+            "If the store shows a charge, restore purchases using the same store account.",
+            { exact: true },
+          ),
+        ).toBeVisible();
+        await panel
+          .getByRole("button", { name: "Get help with this purchase" })
+          .tap();
+        await expect(page).toHaveURL(/\bview=feedback\b/);
+        await expect(page.getByText("My subscription", { exact: true })).toHaveCount(1);
+        await page.goBack();
+        await expect(panel).toBeVisible();
+        if ((await panel.getAttribute("open")) === null) {
+          await panel.getByText("Subscription", { exact: true }).tap();
+        }
         await page
           .getByRole("button", { name: "Restore purchases", exact: true })
           .tap();
