@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/LowGok/my-chef/internal/config"
 	"github.com/LowGok/my-chef/internal/email/mailqueue"
 	"github.com/LowGok/my-chef/internal/newsletter"
 	"github.com/LowGok/my-chef/internal/store"
@@ -122,6 +123,49 @@ func TestNewsletterSignupPreservesIdentityAndConsent(t *testing.T) {
 				if err := n.Unsubscribe(t.Context(), withdrawal); err != nil {
 					t.Fatal("withdrawal lost after promotion", err)
 				}
+			}
+		})
+	}
+}
+
+func TestAgedRetainedNewsletterContactsPromoteWithoutChangingConsent(t *testing.T) {
+	for _, state := range []string{"pending", "unsubscribed", "confirmed"} {
+		t.Run(state, func(t *testing.T) {
+			signup, now := signUpFixture(t)
+			// Create the contact in the past, then return to the normal signup
+			// fixture clock so its freshly issued anonymous session stays valid.
+			*now = now.Add(-90 * 24 * time.Hour)
+			n, contact, _, withdrawal := contactFixture(t, signup, "aged-reader@example.test", state)
+			journal, err := signup.Store.InitializeLifecycleJournal(t.Context(), signup.Store.Path+".lifecycle")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = journal.Close() }()
+			n.Lifecycle, signup.Lifecycle = journal, journal
+			*now = now.Add(90 * 24 * time.Hour)
+			if err := n.Sweep(t.Context(), journal, config.NewsletterRetention{NoExpiry: true}, config.NewsletterRetention{NoExpiry: true}, store.AccountDeletionOptions{}); err != nil {
+				t.Fatal(err)
+			}
+			before := readContactConsent(t, signup.Store, contact.ID)
+			if before.Status != state {
+				t.Fatal("aged contact changed consent", before.Status)
+			}
+			anonymous, proof := requestContactSignup(t, signup, contact.Email)
+			if err := signup.Complete(t.Context(), anonymous, contactCompletion(proof)); err != nil {
+				t.Fatal(err)
+			}
+			account, err := New(signup.Store).Login(t.Context(), contact.Email, contactCompletion(proof).Password)
+			if err != nil || account.ID != contact.ID || account.IsNewsletterOnly {
+				t.Fatal("aged contact did not keep its original identity", err)
+			}
+			if after := readContactConsent(t, signup.Store, contact.ID); !reflect.DeepEqual(before, after) {
+				t.Fatal("promotion changed retained consent")
+			}
+			if err := n.Unsubscribe(t.Context(), withdrawal); err != nil {
+				t.Fatal(err)
+			}
+			if after := readContactConsent(t, signup.Store, contact.ID); after.Status != "unsubscribed" {
+				t.Fatal("withdrawal did not survive promotion")
 			}
 		})
 	}

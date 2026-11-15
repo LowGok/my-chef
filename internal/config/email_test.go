@@ -70,3 +70,35 @@ func TestEmailDisabledDoesNotRequireOrReadProviderCredentials(t *testing.T) {
 		t.Fatal("explicitly disabled email required provider credentials", err)
 	}
 }
+
+func TestNewsletterSenderProfileValidation(t *testing.T) {
+	for _, mode := range []string{"resend", "fake"} {
+		for _, tc := range []struct {
+			name, from, reply string
+			valid             bool
+		}{
+			{"selected", "MyChef <newsletter@mychef.dev>", "feedback@gkldevelopment.com", true},
+			{"legacy", "", "", true}, {"omitted-reply", "MyChef <newsletter@mychef.dev>", "", true},
+			{"partial", "", "feedback@gkldevelopment.com", false}, {"bad-from", "invalid", "", false},
+			{"no-reply-from", "No Reply <no-reply@example.test>", "", false},
+			{"no-reply-reply", "newsletter@example.test", "no_reply@example.test", false},
+			{"bad-reply", "newsletter@example.test", "invalid", false},
+		} {
+			t.Run(mode+"/"+tc.name, func(t *testing.T) {
+				t.Setenv("MYCHEF_EMAIL_MODE", mode)
+				t.Setenv("MYCHEF_DEV", "1")
+				path := filepath.Join(t.TempDir(), "credentials.json")
+				t.Setenv("MYCHEF_CREDENTIALS", path)
+				key := base64.StdEncoding.EncodeToString(make([]byte, 32))
+				data, _ := json.Marshal(map[string]string{"resend_api_key": "re_fake_test_key", "email_from": "App <account@example.test>", "email_reply_to": "help@example.test", "resend_webhook_secret": "whsec_" + key, "email_fingerprint_key": key, "newsletter_email_from": tc.from, "newsletter_email_reply_to": tc.reply})
+				if err := os.WriteFile(path, data, 0600); err != nil {
+					t.Fatal(err)
+				}
+				_, err := LoadEmail()
+				if (err == nil) != tc.valid {
+					t.Fatalf("valid=%t error=%v", tc.valid, err)
+				}
+			})
+		}
+	}
+}

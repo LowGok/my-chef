@@ -22,8 +22,15 @@ func (s *Service) applyProof(ctx context.Context, token, purpose string) error {
 	if s == nil || s.Store == nil || purpose == "confirm" && !s.valid() {
 		return ErrUnavailable
 	}
-	s.Store.AccountWork.RLock()
-	defer s.Store.AccountWork.RUnlock()
+	if purpose == "unsubscribe" {
+		// Dispatch holds the shared fence until its bounded provider call and
+		// state update finish. Withdrawal commits after those calls settle.
+		s.Store.AccountWork.Lock()
+		defer s.Store.AccountWork.Unlock()
+	} else {
+		s.Store.AccountWork.RLock()
+		defer s.Store.AccountWork.RUnlock()
+	}
 	if s.Lifecycle != nil && s.Lifecycle.CheckReady(ctx) != nil {
 		return ErrUnavailable
 	}

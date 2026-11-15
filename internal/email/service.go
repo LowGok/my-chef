@@ -50,7 +50,9 @@ func NewWithFixtureInbox(q Queue, cfg config.Email, inbox *FixtureInbox) *Servic
 		}}
 	}
 	q.AllowLoopbackProofLinks = inbox != nil && inbox.settings.AllowLoopbackLinks
-	return &Service{worker: Worker{Queue: q, sender: p, From: cfg.From, ReplyTo: cfg.ReplyTo, FingerprintKey: cfg.FingerprintKey}, webhook: q.Webhook(cfg.WebhookKey), inbox: inbox}
+	return &Service{worker: Worker{Queue: q, sender: p, From: cfg.From, ReplyTo: cfg.ReplyTo,
+		NewsletterFrom: cfg.NewsletterFrom, NewsletterReplyTo: cfg.NewsletterReplyTo,
+		FingerprintKey: cfg.FingerprintKey}, webhook: q.Webhook(cfg.WebhookKey), inbox: inbox}
 }
 
 func (s *Service) Webhook() http.Handler { return s.webhook }

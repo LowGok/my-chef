@@ -19,10 +19,35 @@ type Newsletter struct {
 	Origin            string
 	ConsentVersion    string
 	Contact           string
-	PendingDays       int
-	WithdrawnDays     int
+	PendingDays       NewsletterRetention
+	WithdrawnDays     NewsletterRetention
 	OperationsReady   bool
 	CollectionEnabled bool
+}
+
+// NewsletterRetention keeps an unspecified policy distinct from explicit
+// retention without automatic expiry. Neither state is a finite zero-day policy.
+type NewsletterRetention struct {
+	Days     int
+	NoExpiry bool
+}
+
+func (p NewsletterRetention) Valid() bool {
+	return p.NoExpiry && p.Days == 0 || !p.NoExpiry && p.Days >= 1 && p.Days <= 3650
+}
+
+func newsletterRetention(value string) (NewsletterRetention, error) {
+	if value == "" {
+		return NewsletterRetention{}, nil
+	}
+	if value == "none" {
+		return NewsletterRetention{NoExpiry: true}, nil
+	}
+	days, err := strconv.Atoi(value)
+	if err != nil || days < 1 || days > 3650 {
+		return NewsletterRetention{}, errors.New("invalid newsletter configuration")
+	}
+	return NewsletterRetention{Days: days}, nil
 }
 
 func LoadNewsletter(app Config, email Email) (Newsletter, error) {
@@ -61,15 +86,13 @@ func LoadNewsletter(app Config, email Email) (Newsletter, error) {
 	}
 	for _, setting := range []struct {
 		name   string
-		target *int
+		target *NewsletterRetention
 	}{{"MYCHEF_NEWSLETTER_PENDING_DAYS", &c.PendingDays}, {"MYCHEF_NEWSLETTER_WITHDRAWN_DAYS", &c.WithdrawnDays}} {
-		if value := os.Getenv(setting.name); value != "" {
-			n, err := strconv.Atoi(value)
-			if err != nil || n < 1 || n > 3650 {
-				return Newsletter{}, invalid
-			}
-			*setting.target = n
+		policy, err := newsletterRetention(os.Getenv(setting.name))
+		if err != nil {
+			return Newsletter{}, invalid
 		}
+		*setting.target = policy
 	}
 	if path := os.Getenv("MYCHEF_CREDENTIALS"); path != "" {
 		file, err := os.Open(path)
@@ -105,7 +128,7 @@ func (c Newsletter) Readiness(storage, email, keys, identityCompatible bool) map
 		"publicOrigin":          c.Origin != "",
 		"consentText":           c.ConsentVersion != "",
 		"controllerContact":     c.Contact != "",
-		"retentionPolicy":       c.PendingDays > 0 && c.WithdrawnDays > 0,
+		"retentionPolicy":       c.PendingDays.Valid() && c.WithdrawnDays.Valid(),
 		"contactOperations":     c.OperationsReady,
 		"storage":               storage,
 		"emailDelivery":         email,

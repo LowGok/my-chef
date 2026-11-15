@@ -364,7 +364,7 @@ func (s *Service) issue(ctx context.Context, tx *gorm.DB, now time.Time, user st
 
 func (s *Service) invalidate(ctx context.Context, tx *gorm.DB, now time.Time, userID int64) error {
 	var proofs []proofRecord
-	if err := tx.Where("user_id=? AND purpose='confirm'", userID).Find(&proofs).Error; err != nil {
+	if err := tx.Where("user_id=?", userID).Find(&proofs).Error; err != nil {
 		return err
 	}
 	for _, proof := range proofs {
@@ -372,7 +372,9 @@ func (s *Service) invalidate(ctx context.Context, tx *gorm.DB, now time.Time, us
 			return err
 		}
 	}
-	return tx.Model(&proofRecord{}).Where("user_id=? AND consumed_unix IS NULL", userID).Update("consumed_unix", now.Unix()).Error
+	return tx.Model(&proofRecord{}).Where("user_id=?", userID).Updates(map[string]any{
+		"consumed_unix": gorm.Expr("COALESCE(consumed_unix,?)", now.Unix()), "proposal": "",
+	}).Error
 }
 
 func proofHash(token string) (string, error) {
