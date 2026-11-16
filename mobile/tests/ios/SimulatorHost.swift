@@ -155,10 +155,20 @@ while Date() < deadline {
         }
         sawSameFile = sawSameFile || identicalFile
         if inSelectedBundle && application.bundleIdentifier == identifier && identicalFile {
-            print("Selected Xcode UI process is running")
-            exit(0)
+            // Direct native startup need not make its desktop UI active.
+            // Activate only this verified app; real VoiceOver evidence is
+            // still established separately on the owned installed phone.
+            if !application.isActive {
+                _ = application.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+            }
+            if application.isActive {
+                print("Selected Xcode UI process is running")
+                exit(0)
+            }
         }
-        sawOtherExecutable = true
+        if !inSelectedBundle || application.bundleIdentifier != identifier || !identicalFile {
+            sawOtherExecutable = true
+        }
     }
     RunLoop.current.run(until: Date().addingTimeInterval(0.5))
 }

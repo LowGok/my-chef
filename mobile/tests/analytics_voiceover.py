@@ -53,6 +53,25 @@ def combine(primary, supplement, expected_primary, expected_supplement):
     return merged
 
 
+def attach_host(state, stack, observer, identifier):
+    # Boot and compile before adding the desktop UI workload. Real speech
+    # still needs the selected host and actual phone UI; no TTS substitute.
+    def owned_phone():
+        raw = native.command('xcrun', 'simctl', 'list', 'devices', 'booted', '-j', timeout=30)
+        if len(raw) > 65536:
+            raise RuntimeError('Expected one owned booted VoiceOver phone')
+        devices = json.loads(raw)['devices']
+        booted = [device.get('udid') for group in devices.values() for device in group
+                  if device.get('state') == 'Booted']
+        if booted != [identifier]:
+            raise RuntimeError('Expected one owned booted VoiceOver phone')
+    owned_phone()
+    arguments = native.ios_ui_command(native.ENV['DEVELOPER_DIR'], 'iPhone 17', identifier)
+    native.start_ios_ui(state, stack, arguments, observer=observer)
+    owned_phone()
+    print('Selected VoiceOver host opened after owned-phone boot and probe compilation', flush=True)
+
+
 def main():
     os.umask(0o077)
     event = json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text())
@@ -98,6 +117,7 @@ def main():
         fixture.native_events = events
         account = fixture.operate({'operation': 'seed'})
         control = fixture.serve(stack)
+        observer = native.compile_ios_ui_observer(state)
         metadata, launch, _, diagnostic = native.ios(state, stack, ca, artifact,
             model='iPhone 17', fixture_name='MyChef analytics voice fixture', headless=True)
         devices = json.loads(native.command('xcrun', 'simctl', 'list', 'devices', 'booted', '-j'))['devices']
@@ -109,8 +129,9 @@ def main():
         metadata['contentSize'] = 'accessibility-medium'
         container = Path(native.command('xcrun', 'simctl', 'get_app_container', identifier, native.APP, 'data'))
         def bootstrap():
-            # Compile the separate probe first, so its workload cannot expire
-            # or interrupt the installed app's fresh fixture observations.
+            # The separate probe and owned phone are ready before opening the
+            # desktop host, then the actual app supplies fresh session proof.
+            attach_host(state, stack, observer, identifier)
             native.verify_stage(lambda: ('POST', 'session', 201) in events and ('GET', 'session', 200) in events,
                                 'VoiceOver native session bootstrap', events, rejected, diagnostic,
                                 launch=lambda: native.command('xcrun', 'simctl', 'launch', identifier, native.APP,
