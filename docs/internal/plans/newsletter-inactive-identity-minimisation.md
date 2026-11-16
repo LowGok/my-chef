@@ -1,6 +1,6 @@
 ---
-status: in-progress
-status_description: "T1-T18 pass locally. Actual executable and final-image rehearsals pass; final verification and an exact-commit independent implementation review remain. No production migration is deployed; no reduced identity runtime or production migration is deployed. Public signup stays off."
+status: draft
+status_description: "Restore expiry corrected locally; a narrow race-test coverage revision awaits independent review and renewed acceptance."
 branch: feat/newsletter-inactive-identity-minimisation
 issue: null
 goal: "Inactive newsletter contacts retain their userID and non-consenting state without unnecessary clear email or expired mail/proof history."
