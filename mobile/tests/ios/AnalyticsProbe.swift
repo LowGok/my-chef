@@ -433,7 +433,7 @@ final class AnalyticsProbe: XCTestCase {
         tap("Back to MyChef")
     }
     func testAuthenticatedAnalytics() throws {
-        if configuration["voiceOverOnly"] == "true" {
+        if configuration["preserveBootstrap"] == "true" {
             // The coordinator already launched this same unsigned app with
             // fixture arguments and verified its actual HTTPS bootstrap.
             // activate preserves that instance; launch would terminate it.

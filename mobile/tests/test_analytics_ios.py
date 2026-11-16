@@ -34,6 +34,7 @@ class IOSProbeOrderTest(unittest.TestCase):
                 stages.append('bootstrap')
                 config = json.loads((state / 'analytics-ios-input.json').read_text())
                 self.assertEqual(config['voiceOverOnly'], 'true')
+                self.assertEqual(config['preserveBootstrap'], 'true')
                 if fail_warmup:
                     raise RuntimeError('Fictional bootstrap unavailable')
 
@@ -61,6 +62,31 @@ class IOSProbeOrderTest(unittest.TestCase):
     def test_failed_bootstrap_prevents_xctest_execution(self):
         self.assertEqual(self.exercise(fail_warmup=True), ['compile', 'bootstrap'])
 
+
+
+class IOSSessionBootstrapTest(unittest.TestCase):
+    def test_only_fresh_native_session_responses_acknowledge_the_warmed_app(self):
+        for responses, accepted in (([], False), ([('GET', 'session', 200)], False),
+                ([('POST', 'session', 201)], False),
+                ([('POST', 'session', 201), ('GET', 'session', 200)], True),
+                ([('POST', 'refresh', 200), ('GET', 'session', 200)], True)):
+            events = [('POST', 'session', 201), ('GET', 'session', 200)]
+            def launch(*args, **_):
+                self.assertEqual(args, ('xcrun', 'simctl', 'launch', 'owned-phone', analytics_ios.native.APP,
+                                        '--mychef-analytics-native-fixture'))
+                events.extend(responses)
+            def wait(check, *_):
+                if not check():
+                    raise RuntimeError('Fresh session missing')
+            with self.subTest(responses=responses), \
+                 patch.object(analytics_ios.native, 'command', side_effect=launch) as command, \
+                 patch.object(analytics_ios.native, 'wait_for', side_effect=wait):
+                if accepted:
+                    analytics_ios.bootstrap('owned-phone', events, [], lambda: None)
+                else:
+                    with self.assertRaisesRegex(RuntimeError, 'Fresh session missing'):
+                        analytics_ios.bootstrap('owned-phone', events, [], lambda: None)
+                self.assertEqual(command.call_count, 1)
 
 
 class VoiceOverHostAttachmentTest(unittest.TestCase):

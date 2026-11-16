@@ -136,11 +136,7 @@ def main():
             # The separate probe and owned phone are ready before opening the
             # desktop host, then the actual app supplies fresh session proof.
             attach_host(state, stack, observer, identifier)
-            native.verify_stage(lambda: ('POST', 'session', 201) in events and ('GET', 'session', 200) in events,
-                                'VoiceOver native session bootstrap', events, rejected, diagnostic,
-                                launch=lambda: native.command('xcrun', 'simctl', 'launch', identifier, native.APP,
-                                                              '--mychef-analytics-native-fixture'),
-                                wait_after_launch_timeout=True)
+            analytics_ios.bootstrap(identifier, events, rejected, diagnostic)
         # XCTest activates the already bootstrapped fixture instance. Later
         # relaunch tests still terminate/restart it with these same arguments.
         checks = analytics_ios.run(state, control, account, identifier, container, voiceover_only=True,

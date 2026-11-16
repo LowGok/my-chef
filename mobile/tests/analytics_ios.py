@@ -90,6 +90,19 @@ def project(state):
     return path
 
 
+def bootstrap(identifier, events, rejected, diagnostic):
+    """Warm the actual installed app and require fresh native HTTPS proof."""
+    boundary = len(events)
+    def ready():
+        fresh = events[boundary:]
+        return (('GET', 'session', 200) in fresh
+                and (('POST', 'session', 201) in fresh or ('POST', 'refresh', 200) in fresh))
+    native.verify_stage(ready, 'fresh iOS analytics fixture session', events, rejected, diagnostic,
+                        launch=lambda: native.command('xcrun', 'simctl', 'launch', identifier, native.APP,
+                                                      '--mychef-analytics-native-fixture', timeout=150),
+                        event_start=boundary, tls_start=len(rejected), wait_after_launch_timeout=True)
+
+
 def prepare(state, identifier):
     """Compile only the separate probe, optionally while its phone is shut down."""
     root = Path(state)
@@ -124,6 +137,7 @@ def run(state, control, account, identifier, container, layout_only=False, voice
                                      'contract': str(ROOT / 'mobile/tests/analytics-contract.json'), 'output': str(output),
                                      'layoutOnly': 'true' if layout_only else 'false',
                                      'voiceOverOnly': 'true' if voiceover_only else 'false',
+                                     'preserveBootstrap': 'true' if before_test is not None else 'false',
                                      'anonymousScreenshot': str(native.ARTIFACTS / 'analytics-anonymous.png')}))
     input_path.chmod(0o600)
     # Raw XCTest logs can include synthetic field values. Keep them private,

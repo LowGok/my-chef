@@ -144,7 +144,8 @@ def full_journeys(receipt, artifact):
             container = Path(native.command('xcrun', 'simctl', 'get_app_container', identifier, native.APP, 'data'))
             stop()
             try:
-                checks = analytics_ios.run(state, control, account, identifier, container)
+                checks = analytics_ios.run(state, control, account, identifier, container,
+                    before_test=lambda: analytics_ios.bootstrap(identifier, events, rejected, diagnostic))
             except RuntimeError:
                 # Fixed route groups and HTTP statuses; no headers/bodies/IDs.
                 print('Native iOS account API results: ' + native.account_api_summary(events), flush=True)
