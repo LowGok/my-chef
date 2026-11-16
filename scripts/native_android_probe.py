@@ -105,6 +105,39 @@ def cancel_picker():
     raise RuntimeError("Synthetic OS picker was not opened and closed")
 
 
+def startup_focus_category(window):
+    """Classify known OS/fixture windows without exposing arbitrary titles."""
+    if not isinstance(window, str) or len(window) > 131072:
+        return 'unknown'
+    if not window:
+        return 'unknown'
+    anr = window.startswith('Application Not Responding: ')
+    owner = window.removeprefix('Application Not Responding: ') if anr else window.split('/', 1)[0]
+    known = {
+        APP: 'app',
+        'com.android.systemui': 'system-ui',
+        'com.android.permissioncontroller': 'permission-controller',
+        'com.google.android.permissioncontroller': 'permission-controller',
+        'com.android.launcher3': 'launcher',
+        'com.google.android.apps.nexuslauncher': 'launcher',
+        'com.google.android.marvin.talkback': 'talkback',
+        'com.google.android.tts': 'tts',
+        'com.android.webview': 'webview',
+        'com.google.android.webview': 'webview',
+        'com.android.settings': 'settings',
+        **{package: 'documents' for package in SYSTEM_PICKERS},
+    }
+    category = known.get(owner, 'other')
+    return category + ('-anr' if anr else '')
+
+
+def startup_focus():
+    try:
+        return startup_focus_category(focused_window(_adb))
+    except (OSError, subprocess.SubprocessError):
+        return 'unknown'
+
+
 def picker_focus():
     """Report only whether a known window owns focus, without window details."""
     try:
@@ -122,6 +155,9 @@ def picker_focus():
 
 
 if __name__ == "__main__":
+    if sys.argv[1:] == ["startup-focus"]:
+        print(startup_focus())
+        raise SystemExit(0)
     if sys.argv[1:] == ["picker-focus"]:
         print(picker_focus())
         raise SystemExit(0)

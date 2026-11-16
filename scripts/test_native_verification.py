@@ -543,6 +543,31 @@ class AccountAPIDiagnosticTest(unittest.TestCase):
         self.assertEqual(installed.account_api_summary([('POST', 'account-deletion', 204)] * 20).count('204'), 8)
 
 
+class StartupFocusDiagnosticTest(unittest.TestCase):
+    def test_window_diagnostics_expose_only_closed_os_or_fixture_categories(self):
+        cases = {
+            probe.APP + '/.MainActivity': 'app',
+            'com.android.permissioncontroller/.permission.ui.GrantPermissionsActivity': 'permission-controller',
+            'com.google.android.permissioncontroller/.permission.ui.GrantPermissionsActivity': 'permission-controller',
+            'com.android.launcher3/.Launcher': 'launcher',
+            'com.google.android.marvin.talkback/.TalkBackPreferencesActivity': 'talkback',
+            'Application Not Responding: ' + probe.APP: 'app-anr',
+            probe.SYSTEM_UI_ANR: 'system-ui-anr',
+            'Application Not Responding: com.google.android.tts': 'tts-anr',
+            'Application Not Responding: com.google.android.webview': 'webview-anr',
+            'Application Not Responding: com.android.launcher3': 'launcher-anr',
+            'Application Not Responding: private.customer.package': 'other-anr',
+            'private.customer.package/private-title@example.test': 'other',
+            probe.APP + '.foreign/.MainActivity': 'other',
+            '': 'unknown',
+        }
+        for window, expected in cases.items():
+            with self.subTest(category=expected):
+                self.assertEqual(probe.startup_focus_category(window), expected)
+        for unavailable in (None, True, 'x' * 131073):
+            self.assertEqual(probe.startup_focus_category(unavailable), 'unknown')
+
+
 class SimulatorBootOrderTest(unittest.TestCase):
     def test_selected_host_ui_starts_before_the_owned_device_boots(self):
         calls = []
