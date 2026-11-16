@@ -103,6 +103,14 @@ public class TouchPointContract {
   public static void main(String[] args) {
     String title = "Application Not Responding: com.android.systemui";
     String close = "android:id/aerr_close";
+    String dump = "  mCurrentFocus=Window{abc123 u0 " + title + "}";
+    if (!title.equals(NativeStartupWindow.focusedTitle(dump))) throw new AssertionError("Exact system focus refused");
+    for (String foreign : new String[] {null, "", "mCurrentFocus=null",
+      "mLastFocus=Window{abc123 u0 " + title + "}",
+      "mCurrentFocus=Window{abc123 u1 " + title + "}",
+      "mCurrentFocus=Window{abc123 u0 Application Not Responding: com.example.other}",
+      dump + System.lineSeparator() + dump, "x".repeat(131073)
+    }) if (!NativeStartupWindow.focusedTitle(foreign).isEmpty()) throw new AssertionError("Ambiguous or foreign focus accepted");
     if (!NativeStartupWindow.canClose(title, "android", "android", close)) throw new AssertionError("Known system dialog refused");
     for (String[] foreign : new String[][] {
       {"Application Not Responding: com.example.other", "android", "android", close},

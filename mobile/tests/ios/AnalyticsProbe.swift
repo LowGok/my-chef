@@ -403,6 +403,11 @@ final class AnalyticsProbe: XCTestCase {
             mark("signup", "disabledNotice")
         }
         tap("Create my account")
+        let inbox = app.descendants(matching: .any).matching(NSPredicate(format:
+            "label BEGINSWITH %@", "Check your inbox")).firstMatch
+        // Replacing the long signup form can preserve its previous scroll
+        // offset. Reach the actual new heading with native content gestures.
+        reveal(inbox)
         waitFor({ self.text("Check your inbox") }, "Signup submission must reach the inbox screen before proof retrieval")
         let proof = try control("proof", ["recipient": recipient])
         guard let value = proof["url"] as? String,

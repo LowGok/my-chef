@@ -7,6 +7,7 @@ import android.accessibilityservice.AccessibilityServiceInfo;
 import android.content.Intent;
 import android.graphics.Rect;
 import android.os.Bundle;
+import android.os.ParcelFileDescriptor;
 import android.os.SystemClock;
 import android.view.InputDevice;
 import android.view.MotionEvent;
@@ -176,16 +177,28 @@ public final class NativeJourneyProbe extends Instrumentation {
         return null;
     }
 
+    private String focusedSystemUiTitle(UiAutomation automation) {
+        // AccessibilityWindowInfo exposes an accessibility title, which is
+        // distinct from WindowManager's process-specific ANR identity.
+        // Use the same existing connection and a bounded read-only command.
+        try (ParcelFileDescriptor.AutoCloseInputStream input = new ParcelFileDescriptor.AutoCloseInputStream(
+                automation.executeShellCommand("dumpsys -t 5 window displays"))) {
+            byte[] raw = input.readNBytes(131073);
+            if (raw.length > 131072) return "";
+            return NativeStartupWindow.focusedTitle(new String(raw, StandardCharsets.UTF_8));
+        } catch (Exception unavailable) { return ""; }
+    }
+
     private String recoverSystemUiAnr() {
         // Reuse this instrumentation's connection; a second uiautomator
         // process cannot register while the probe owns UiAutomation.
         UiAutomation automation = interactiveWindows();
         for (AccessibilityWindowInfo window : automation.getWindows()) {
-            if (!window.isFocused()) continue;
+            if (!window.isFocused() || window.getDisplayId() != 0) continue;
             AccessibilityNodeInfo root = window.getRoot();
             AccessibilityNodeInfo close = systemCloseButton(root, 0);
             if (root == null || close == null || !NativeStartupWindow.canClose(
-                    String.valueOf(window.getTitle()), String.valueOf(root.getPackageName()),
+                    focusedSystemUiTitle(automation), String.valueOf(root.getPackageName()),
                     String.valueOf(close.getPackageName()), close.getViewIdResourceName())) continue;
             return close.performAction(AccessibilityNodeInfo.ACTION_CLICK) ? "closed" : "unavailable";
         }

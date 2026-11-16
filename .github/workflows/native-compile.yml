@@ -9,6 +9,13 @@ on:
       - mobile/ios/App/App/MyChefNativePlugin.swift
       - scripts/test_native_installed.py
       - scripts/native-android-journeys.ts
+      - scripts/native-android/**
+      - scripts/native_android_probe.py
+      - scripts/native-android-report.ts
+      - scripts/native-android-report.test.ts
+      - scripts/mobile-java.test.ts
+      - scripts/test_native_verification.py
+      - scripts/test_analytics_ci.py
   pull_request:
     types: [labeled]
 
