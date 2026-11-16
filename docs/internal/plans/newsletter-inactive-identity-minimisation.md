@@ -228,7 +228,6 @@ No new product choice. The owner accepted the independently reviewed R-5 test-co
 | 2026-11-16 | R-5 | spec | `bc225ecf5f364ef4b68b6bd2f2a936e895af4871` | unknown | procedural | No findings on the narrow test-coverage/context revision; renewed acceptance pending. Model identity not attested. |
 | 2026-11-16 | R-5 | spec | `bc225ecf5f364ef4b68b6bd2f2a936e895af4871` | n/a | n/a | accepted by owner |
 | 2026-11-16 | R-6 | implementation | `7363dac4779434452218275b14e3af20a8a837a1` | unknown | procedural | AC-01/02/05 met; AC-03/04 not verified pending complete race verification. No new defect; model identity not attested. |
-
 | 2026-11-16 | R-7 | implementation | `eb09f90097c1241bf6dd3dba9f7067453a95b50f` | unknown | procedural | AC-01/02/03/05 met; AC-04 not verified because final normal CI was cancelled. No new source defect; model identity not attested. |
 
 ### R-1
