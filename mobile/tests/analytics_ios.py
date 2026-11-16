@@ -53,6 +53,10 @@ def safe_diagnostic(text, secrets):
     return value[:1200]
 
 
+def voice_navigation(text):
+    return re.search(r'^Analytics iOS VoiceOver navigation: flat selected=true$', text, re.M) is not None
+
+
 def voice_environment(text):
     """Retain no voice identifiers, raw utterance, locale list or device paths."""
     rows = re.findall(r'^Analytics iOS voice environment: api=(true|false) native=(true|false) '
@@ -267,6 +271,11 @@ def run(state, control, account, identifier, container, layout_only=False, voice
             if diagnostic:
                 detail += '; ' + diagnostic
             raise RuntimeError('Isolated iOS analytics probe failed: ' + detail)
+        if voiceover_only:
+            if not voice_navigation(result.stdout.decode(errors='replace')):
+                raise RuntimeError('Native VoiceOver navigation setting was not confirmed')
+            (root / 'analytics-voice-navigation.json').write_text(json.dumps(
+                {'style': 'flat', 'nativeSelectionObserved': True}))
     if prepared_plan is None:
         prepared_plan = prepare(root, identifier)
     plans = list((root / 'ios-probe-build/Build/Products').glob('*.xctestrun'))
@@ -292,7 +301,7 @@ def run(state, control, account, identifier, container, layout_only=False, voice
     if before_test is not None:
         before_test()
     execute(['xcodebuild', 'test-without-building', '-xctestrun', str(plans[0]), '-destination', 'id=' + identifier,
-             '-parallel-testing-enabled', 'NO', '-maximum-concurrent-test-simulator-destinations', '1'], 900)
+             '-parallel-testing-enabled', 'NO', '-maximum-concurrent-test-simulator-destinations', '1'], 1500)
     value = json.loads(output.read_text())
     if type(value) is not dict or set(value) != {'checks'}:
         raise RuntimeError('Incomplete iOS analytics observations')

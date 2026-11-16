@@ -616,6 +616,45 @@ final class AnalyticsProbe: XCTestCase {
     @available(iOS 27.0, *)
     func verifyVoiceOver() throws {
         let voice = XCUIDevice.shared.voiceOverService
+        if voice.isEnabled { try voice.disable() }
+        print("Analytics iOS voice phase: configure flat navigation")
+        let settings = XCUIApplication(bundleIdentifier: "com.apple.Preferences")
+        settings.launch()
+        guard settings.wait(for: .runningForeground, timeout: 20) else { throw Failure.missingControl }
+        func openSetting(_ name: String) throws {
+            let item = settings.staticTexts[name].firstMatch
+            for _ in 0..<16 {
+                if item.exists && item.isHittable { item.tap(); return }
+                let start = settings.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7))
+                let end = settings.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.35))
+                start.press(forDuration: 0.2, thenDragTo: end)
+            }
+            XCTFail("Required native VoiceOver setting must be reachable")
+            throw Failure.missingControl
+        }
+        try openSetting("Accessibility")
+        try openSetting("VoiceOver")
+        try openSetting("Navigation Style")
+        try openSetting("Flat")
+        func flatSelected() -> Bool {
+            let row = settings.cells.containing(.staticText, identifier: "Flat").firstMatch
+            let button = settings.buttons["Flat"].firstMatch
+            let parent = settings.cells.containing(.staticText, identifier: "Navigation Style").firstMatch
+            return row.exists && row.isSelected || button.exists && button.isSelected
+                || parent.exists && (parent.value as? String) == "Flat"
+        }
+        let selectionDeadline = Date().addingTimeInterval(15)
+        while !flatSelected() && Date() < selectionDeadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+        }
+        guard flatSelected() else {
+            XCTFail("Native Settings must confirm flat VoiceOver navigation")
+            throw Failure.missingControl
+        }
+        print("Analytics iOS VoiceOver navigation: flat selected=true")
+        settings.terminate()
+        app.activate()
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 20))
         func enableVoice() throws {
             try voice.enable()
             XCTAssertTrue(voice.isEnabled)
@@ -639,7 +678,6 @@ final class AnalyticsProbe: XCTestCase {
             let expected = words(phrase)
             var seen = Set<String>()
             var candidateFacts = Set<String>()
-            var enteredContainers = Set<String>()
             func matches(_ value: String) -> Bool {
                 let normalized = words(value)
                 for token in ["help improve mychef", "analytics is off", "unavailable", "check box", "checkbox", "checked", "button", "web content", "create an account", "privacy"] {
@@ -669,37 +707,10 @@ final class AnalyticsProbe: XCTestCase {
                     return nil
                 }
             }
-            func focusedMatch(_ output: String) -> String? {
-                var current = output
-                // Web content, fieldset and label containers can nest. Follow
-                // only these known VoiceOver containers through the real API.
-                for depth in 0..<4 {
-                    if matches(current) { return current }
-                    let normalized = words(current)
-                    let role = current.range(of: "switch|check.?box|tick.?box|button|link", options: [.regularExpression, .caseInsensitive]) != nil
-                    let privacy = normalized == "privacy" || normalized.contains("privacy")
-                        && normalized.range(of: "\\b(group|landmark)\\b", options: .regularExpression) != nil
-                    let labelledContainer = !role && (normalized.contains("help improve mychef")
-                        || controlRole && normalized.contains(expected))
-                    guard normalized.contains("web content") || privacy || labelledContainer else { return nil }
-                    // Re-entering the same group after every backward step
-                    // can cycle through its static label forever. Let actual
-                    // navigation pass it after one entry in this direction.
-                    let kind = normalized.contains("web content") ? "web" : privacy ? "privacy" : "label"
-                    guard enteredContainers.count < 16 && enteredContainers.insert(normalized).inserted else {
-                        print("Analytics iOS spoken container repeat: kind=" + kind)
-                        return nil
-                    }
-                    print("Analytics iOS spoken container: privacy=\(privacy) label=\(labelledContainer) depth=\(depth)")
-                    guard let entered = observe({ try voice.moveIn().utterance }) else { return nil }
-                    current = entered
-                }
-                return matches(current) ? current : nil
-            }
-            if let current = observe({ try voice.currentSpeech().utterance }),
-               let found = focusedMatch(current) { return found }
+            // Flat navigation visits each item sequentially. Do not enter
+            // guessed label containers or substitute AX text for real speech.
+            if let current = observe({ try voice.currentSpeech().utterance }), matches(current) { return current }
             for reverse in [backward, !backward] {
-                enteredContainers.removeAll()
                 // Reserve time for both directions if the first reaches a
                 // boundary without throwing or changing its announcement.
                 let deadline = Date().addingTimeInterval(45)
@@ -713,7 +724,7 @@ final class AnalyticsProbe: XCTestCase {
                         RunLoop.current.run(until: Date().addingTimeInterval(0.2))
                         continue
                     }
-                    if let found = focusedMatch(output) { return found }
+                    if matches(output) { return output }
                 }
             }
             // Describe only known choice nodes if speech remains missing.

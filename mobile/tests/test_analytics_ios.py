@@ -65,7 +65,7 @@ class IOSProbeOrderTest(unittest.TestCase):
                     plan = plistlib.loads((state / 'ios-probe-build/Build/Products/AnalyticsProbe.xctestrun').read_bytes())
                     self.assertEqual(plan['AnalyticsProbe']['UITargetAppBundleIdentifier'], analytics_ios.native.APP)
                     (state / 'analytics-ios-observations.json').write_text(json.dumps({'checks': {}}))
-                return subprocess.CompletedProcess(arguments, 0, b'')
+                return subprocess.CompletedProcess(arguments, 0, b'Analytics iOS VoiceOver navigation: flat selected=true\n')
 
             def warmup():
                 stages.append('bootstrap')
@@ -102,6 +102,11 @@ class IOSProbeOrderTest(unittest.TestCase):
 
 
 class IOSSessionBootstrapTest(unittest.TestCase):
+    def test_only_an_exact_native_flat_navigation_confirmation_is_accepted(self):
+        self.assertTrue(analytics_ios.voice_navigation('Analytics iOS VoiceOver navigation: flat selected=true\n'))
+        for line in ('flat selected=false', 'grouped selected=true', 'flat selected=true private', 'flat selected=1'):
+            self.assertFalse(analytics_ios.voice_navigation('Analytics iOS VoiceOver navigation: ' + line))
+
     def test_voice_environment_summary_keeps_only_closed_flags_and_counts(self):
         raw = ('private fictional utterance must stay private\n'
                'Analytics iOS voice environment: api=true native=false voices=12 english=2\n')

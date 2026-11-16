@@ -135,12 +135,16 @@ def main():
         if not all(('GET', kind, 200) in events for kind in ('analytics-notice-disabled', 'analytics-notice-assessed')):
             raise RuntimeError('VoiceOver requires both actual signup notice responses')
         analytics_ios.text_observation(identifier)
+        navigation = json.loads((state / 'analytics-voice-navigation.json').read_text())
+        if navigation != {'style': 'flat', 'nativeSelectionObserved': True}:
+            raise RuntimeError('Native VoiceOver navigation setting was not confirmed')
+        metadata['voiceNavigationStyle'] = 'flat; native Settings selection confirmed'
         expected_supplement = dict(artifact_binding, fixtureConfigSha256=hashlib.sha256(json.dumps({
             'configuration': hashlib.sha256((state / 'analytics-config.json').read_bytes()).hexdigest(),
             'driver': hashlib.sha256((ROOT / 'mobile/tests/ios/AnalyticsProbe.swift').read_bytes()).hexdigest(),
             'overlays': {name: hashlib.sha256((state / name).read_bytes()).hexdigest()
                          for name in ('analytics-runtime-fixture.go', 'analytics-worker-fixture.go')},
-            'runtime': metadata['runtime'], 'xcode': version,
+            'runtime': metadata['runtime'], 'xcode': version, 'voiceNavigationStyle': 'flat',
         }, sort_keys=True).encode()).hexdigest())
         supplement = dict(schemaVersion=1, binding=expected_supplement,
                           checks={name: checks['accessibility'][name] for name in SPEECH})
