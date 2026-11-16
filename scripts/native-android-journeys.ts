@@ -64,7 +64,7 @@ function focusOwner() {
   const result = Bun.spawnSync(["python3", "scripts/native_android_probe.py", "startup-focus"],
     { stdout: "pipe", stderr: "ignore" });
   const value = result.stdout.toString().trim();
-  return result.exitCode === 0 && /^(app|documents|system-ui|permission-controller|launcher|talkback|tts|webview|settings|other|unknown)(-anr)?$/.test(value)
+  return result.exitCode === 0 && /^(app|documents|system-ui|system-server|play-services|play-store|keyboard|telephony|contacts-provider|media-provider|permission-controller|launcher|talkback|tts|webview|settings|other|unknown)(-anr)?(-exiting)?$/.test(value)
     ? value : "unknown";
 }
 let device: AndroidDevice | undefined;
@@ -339,7 +339,7 @@ async function picker(
       const focus = result.stdout.toString().trim();
       throw new Error(
         "Disposable Android picker did not complete; focus: " +
-          (/^(app|documents|system-ui|permission-controller|launcher|talkback|tts|webview|settings|other|unknown)(-anr)?$/.test(focus)
+          (/^(app|documents|system-ui|system-server|play-services|play-store|keyboard|telephony|contacts-provider|media-provider|permission-controller|launcher|talkback|tts|webview|settings|other|unknown)(-anr)?(-exiting)?$/.test(focus)
             ? focus
             : "unknown"),
         { cause: error },

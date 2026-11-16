@@ -415,9 +415,10 @@ final class AnalyticsProbe: XCTestCase {
         guard let value = proof["url"] as? String,
               value.range(of: "^https://localhost:8977/app/signup#[A-Za-z0-9_-]{43}$", options: .regularExpression) != nil,
               let url = URL(string: value) else { throw Failure.invalidFixture }
-        // Deliver the bounded fictional URL to this installed app through
-        // XCTest's native URL launch API and the actual SceneDelegate route.
-        // No file handoff, manual termination or alternate app is needed.
+        // Exercise the actual SceneDelegate cold-start URL route. Terminate
+        // once so XCTest owns this URL launch after the native warmup instance.
+        app.terminate()
+        XCTAssertTrue(app.wait(for: .notRunning, timeout: 20))
         app.open(url)
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 20))
         waitFor({ self.text("Finish signing up") }, "Fixture proof reaches real completion UI")

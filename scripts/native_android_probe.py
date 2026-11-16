@@ -111,10 +111,25 @@ def startup_focus_category(window):
         return 'unknown'
     if not window:
         return 'unknown'
+    exiting = window.endswith(' EXITING')
+    if exiting:
+        window = window.removesuffix(' EXITING')
     anr = window.startswith('Application Not Responding: ')
     owner = window.removeprefix('Application Not Responding: ') if anr else window.split('/', 1)[0]
     known = {
         APP: 'app',
+        'system': 'system-server',
+        'android': 'system-server',
+        'com.google.android.gms': 'play-services',
+        'com.google.android.gms.persistent': 'play-services',
+        'com.google.android.gms.unstable': 'play-services',
+        'com.android.vending': 'play-store',
+        'com.android.inputmethod.latin': 'keyboard',
+        'com.google.android.inputmethod.latin': 'keyboard',
+        'com.android.phone': 'telephony',
+        'android.process.acore': 'contacts-provider',
+        'android.process.media': 'media-provider',
+        'com.android.providers.media.module': 'media-provider',
         'com.android.systemui': 'system-ui',
         'com.android.permissioncontroller': 'permission-controller',
         'com.google.android.permissioncontroller': 'permission-controller',
@@ -128,7 +143,7 @@ def startup_focus_category(window):
         **{package: 'documents' for package in SYSTEM_PICKERS},
     }
     category = known.get(owner, 'other')
-    return category + ('-anr' if anr else '')
+    return category + ('-anr' if anr else '') + ('-exiting' if exiting else '')
 
 
 def startup_focus():
