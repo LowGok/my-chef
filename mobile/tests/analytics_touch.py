@@ -396,17 +396,33 @@ def kernel_frames(kind, device):
 def kernel_script(kind, device):
     frames = kernel_frames(kind, device)
     # Pin the existing character device read-only before reopening that exact
-    # descriptor for output. A vanished node cannot create a regular file.
+    # parent descriptor for output, even if a child closes inherited FDs.
+    # A vanished node cannot create a regular file.
     # Android's existing dd supports ibs/obs: it buffers partial pipe reads and
     # emits whole 24-byte Linux x86_64 input_event records. No process per event.
-    lines = ['set -eu', 'exec 3< ' + device['path'], 'test -c /proc/self/fd/3']
-    for delay, events in frames:
+    lines = ['set -eu', "printf 'ANALYTICS_TOUCH_STAGE=start\\n'", 'exec 3< ' + device['path'],
+             "printf 'ANALYTICS_TOUCH_STAGE=open\\n'", 'test -c /proc/$$/fd/3',
+             "printf 'ANALYTICS_TOUCH_STAGE=character\\n'"]
+    for index, (delay, events) in enumerate(frames):
         if delay: lines.append('sleep ' + format(delay, '.3f'))
         raw = b''.join(struct.pack('<qqHHi', 0, 0, *event) for event in events)
         encoded = ''.join('\\0' + format(value, '03o') for value in raw)
+        lines.append("printf 'ANALYTICS_TOUCH_STAGE=frame-start-" + str(index) + "\\n'")
         lines.append("printf '%b' '" + encoded
-                     + "' | dd of=/proc/self/fd/3 ibs=24 obs=24 conv=notrunc status=none")
+                     + "' | dd of=/proc/$$/fd/3 ibs=24 obs=24 conv=notrunc status=none")
+        lines.append("printf 'ANALYTICS_TOUCH_STAGE=frame-done-" + str(index) + "\\n'")
     return '\n'.join(lines) + '\n'
+
+
+def writer_failure(error):
+    """Expose only fixed writer steps/reasons, never captured command output."""
+    raw = str(error)[-4096:]
+    stages = re.findall(r'(?m)^ANALYTICS_TOUCH_STAGE=(start|open|character|frame-(?:start|done)-(?:[0-9]|1[01]))$', raw)
+    reason = next((code for phrase, code in (
+        ('Permission denied', 'permission'), ('No such file or directory', 'missing'),
+        ('Bad file descriptor', 'descriptor'), ('unknown operand', 'unsupported-option'),
+        ('Unknown option', 'unsupported-option'), ('Invalid argument', 'argument')) if phrase in raw), 'unknown')
+    return dict(stage=stages[-1] if stages else 'unknown', reason=reason)
 
 
 def gesture(kind, native):
@@ -430,7 +446,10 @@ def gesture(kind, native):
         try:
             native.command(adb, '-s', 'emulator-5554', 'shell', 'sh', '-s',
                            data=kernel_script(target, device), timeout=10)
-        except (OSError, RuntimeError, subprocess.SubprocessError):
+        except (OSError, RuntimeError, subprocess.SubprocessError) as error:
+            facts = writer_failure(error)
+            print('Analytics kernel writer refusal: target=' + target + ' stage=' + facts['stage']
+                  + ' reason=' + facts['reason'], flush=True)
             raise RuntimeError('Emulator touchscreen injection failed') from None
     with touch_trace(native, 2 if kind == 'double-tap' else 1, device=device['path']):
         try:

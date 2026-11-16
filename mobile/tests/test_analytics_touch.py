@@ -6,8 +6,10 @@ import pty
 import select
 import struct
 import subprocess
+import tempfile
 import sys
 import tty
+from pathlib import Path
 from contextlib import redirect_stdout
 from contextlib import contextmanager
 from types import SimpleNamespace
@@ -84,11 +86,21 @@ class DisplayFocusTest(unittest.TestCase):
 
 
 class KernelGestureTest(unittest.TestCase):
+    def test_writer_failure_diagnostics_use_only_closed_stage_and_reason(self):
+        raw = 'private-device-name\nANALYTICS_TOUCH_STAGE=frame-start-0\ndd: Permission denied'
+        self.assertEqual(touch.writer_failure(raw), {'stage': 'frame-start-0', 'reason': 'permission'})
+        self.assertEqual(touch.writer_failure('ANALYTICS_TOUCH_STAGE=private-device-name'),
+                         {'stage': 'unknown', 'reason': 'unknown'})
+        self.assertEqual(touch.writer_failure('ANALYTICS_TOUCH_STAGE=open\nNo such file or directory'),
+                         {'stage': 'open', 'reason': 'missing'})
+        self.assertEqual(touch.writer_failure('ANALYTICS_TOUCH_STAGE=character\nunknown operand'),
+                         {'stage': 'character', 'reason': 'unsupported-option'})
+
     @unittest.skipUnless(sys.platform.startswith('linux'), 'Linux input-event ABI requires procfs')
     def test_real_shell_frame_encoding_preserves_linux_events_on_an_owned_pty(self):
         device = touch.select_touch_device(PROFILE)
         script = touch.kernel_script('double-tap', device)
-        self.assertIn('dd of=/proc/self/fd/3', script)
+        self.assertIn('dd of=/proc/$$/fd/3', script)
         self.assertNotIn('sendevent ', script)
         self.assertEqual(script.count('exec 3< /dev/input/event7'), 1)
         master, slave = pty.openpty()
@@ -97,10 +109,16 @@ class KernelGestureTest(unittest.TestCase):
             # Only this newly owned PTY receives bytes. Production accepts
             # canonical measured input nodes, with no path override API.
             script = script.replace('exec 3< /dev/input/event7', 'exec 3< ' + os.ttyname(slave))
-            result = subprocess.run(['/bin/sh'], input=script, text=True, capture_output=True,
-                                    env=dict(os.environ, PATH='/usr/bin:/bin'), timeout=5)
+            with tempfile.TemporaryDirectory(prefix='analytics-touch-shell-') as temporary:
+                wrapper = Path(temporary) / 'dd'
+                # A child may close extra inherited descriptors. The pinned
+                # parent must still own the destination until dd finishes.
+                wrapper.write_text('#!/bin/sh\nexec 3<&-\nexec /usr/bin/dd "$@"\n')
+                wrapper.chmod(0o700)
+                result = subprocess.run(['/bin/sh'], input=script, text=True, capture_output=True,
+                                        env=dict(os.environ, PATH=temporary + ':/usr/bin:/bin'), timeout=5)
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(result.stdout, '')
+            self.assertTrue(all(line.startswith('ANALYTICS_TOUCH_STAGE=') for line in result.stdout.splitlines()))
             raw = bytearray()
             while select.select([master], [], [], .1)[0]:
                 raw.extend(os.read(master, 4096))
