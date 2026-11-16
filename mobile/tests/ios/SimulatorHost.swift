@@ -42,22 +42,54 @@ guard CommandLine.arguments.count == 2,
     exit(1)
 }
 let expected = executable.resolvingSymlinksInPath().standardizedFileURL.path
+let selectedBundle = bundle.bundleURL.resolvingSymlinksInPath().standardizedFileURL.path
+func executableKind(_ url: URL) -> String {
+    switch url.lastPathComponent {
+    case "DeviceHub": return "devicehub"
+    case "DevicesTrampoline": return "trampoline"
+    case "Simulator": return "simulator"
+    default: return "other"
+    }
+}
+// Obtain the actual app returned for this explicit SDK URL. Do not select a
+// process merely because it shares a bundle identifier or installation folder.
+let configuration = NSWorkspace.OpenConfiguration()
+configuration.createsNewApplicationInstance = true
+configuration.allowsRunningApplicationSubstitution = false
+configuration.promptsUserIfNeeded = false
+configuration.addsToRecentItems = false
+if let developer = ProcessInfo.processInfo.environment["DEVELOPER_DIR"], !developer.isEmpty {
+    configuration.environment = ["DEVELOPER_DIR": developer]
+}
+var launched: NSRunningApplication?
+var launchCompleted = false
+var launchFailed = false
+NSWorkspace.shared.openApplication(at: bundle.bundleURL, configuration: configuration) { application, error in
+    DispatchQueue.main.async {
+        launched = application
+        launchFailed = error != nil
+        launchCompleted = true
+    }
+}
 let deadline = Date().addingTimeInterval(60)
 var sawApplication = false
 var sawOtherExecutable = false
 var sawSameBundle = false
 var sawSameFile = false
+var actualKind = "other"
 while Date() < deadline {
-    let candidates = NSRunningApplication.runningApplications(withBundleIdentifier: identifier)
-    sawApplication = sawApplication || !candidates.isEmpty
-    for application in candidates where !application.isTerminated {
-        guard let actual = application.executableURL else { continue }
+    if launchCompleted && launchFailed { break }
+    if let application = launched, application.processIdentifier > 0, !application.isTerminated,
+       let actual = application.executableURL {
+        sawApplication = true
+        actualKind = executableKind(actual)
         let actualPath = actual.resolvingSymlinksInPath().standardizedFileURL.path
-        let inSelectedBundle = actualPath.hasPrefix(bundle.bundleURL.resolvingSymlinksInPath().path + "/")
+        let actualBundle = application.bundleURL?.resolvingSymlinksInPath().standardizedFileURL.path
+        let inSelectedBundle = actualBundle == selectedBundle && actualPath.hasPrefix(selectedBundle + "/")
         sawSameBundle = sawSameBundle || inSelectedBundle
         let identicalFile = inSelectedBundle && sameFile(actual, executable)
         sawSameFile = sawSameFile || identicalFile
-        if actualPath == expected || identicalFile {
+        if inSelectedBundle && application.bundleIdentifier == identifier && (actualPath == expected || identicalFile) {
             print("Selected Xcode UI process is running")
             exit(0)
         }
@@ -65,5 +97,5 @@ while Date() < deadline {
     }
     RunLoop.current.run(until: Date().addingTimeInterval(0.5))
 }
-print("Selected Xcode UI readiness: application=\(sawApplication) otherExecutable=\(sawOtherExecutable) sameBundle=\(sawSameBundle) sameFile=\(sawSameFile)")
+print("Selected Xcode UI readiness: application=\(sawApplication) otherExecutable=\(sawOtherExecutable) sameBundle=\(sawSameBundle) sameFile=\(sawSameFile) launchCompleted=\(launchCompleted) launchFailed=\(launchFailed) expected=\(executableKind(executable)) actual=\(actualKind)")
 exit(1)

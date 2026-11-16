@@ -488,6 +488,43 @@ class AccountAPIDiagnosticTest(unittest.TestCase):
         self.assertEqual(installed.account_api_summary([('POST', 'account-deletion', 204)] * 20).count('204'), 8)
 
 
+class SimulatorBootOrderTest(unittest.TestCase):
+    def test_selected_host_ui_starts_before_the_owned_device_boots(self):
+        calls = []
+        def sim(*args, **_):
+            calls.append(args)
+            return json.dumps({'devices': {'runtime': [{'udid': 'owned-device', 'state': 'Shutdown'}]}})
+        installed.start_ios_simulator(sim, 'owned-device', lambda: calls.append(('host-ui',)))
+        self.assertEqual(calls, [('host-ui',), ('list', 'devices', '-j'), ('boot', 'owned-device')])
+
+    def test_ui_initiated_boot_does_not_issue_a_duplicate_boot(self):
+        for state in ('Booted', 'Booting'):
+            calls = []
+            def sim(*args, **_):
+                calls.append(args)
+                return json.dumps({'devices': {'runtime': [{'udid': 'owned-device', 'state': state}]}})
+            installed.start_ios_simulator(sim, 'owned-device', lambda: calls.append(('host-ui',)))
+            self.assertEqual(calls, [('host-ui',), ('list', 'devices', '-j')])
+
+    def test_missing_ambiguous_or_invalid_device_and_ui_failure_prevent_boot(self):
+        for devices in ([], [{'udid': 'foreign-device', 'state': 'Shutdown'}],
+                        [{'udid': 'owned-device', 'state': 'Shutting Down'}],
+                        [{'udid': 'owned-device', 'state': 'Shutdown'}] * 2):
+            calls = []
+            def sim(*args, **_):
+                calls.append(args)
+                return json.dumps({'devices': {'runtime': devices}})
+            with self.assertRaisesRegex(RuntimeError, 'owned simulator'):
+                installed.start_ios_simulator(sim, 'owned-device', lambda: None)
+            self.assertEqual(calls, [('list', 'devices', '-j')])
+        def unavailable_ui():
+            raise RuntimeError('Fictional host unavailable')
+        with patch.object(installed, 'command') as sim:
+            with self.assertRaisesRegex(RuntimeError, 'Fictional host unavailable'):
+                installed.start_ios_simulator(sim, 'owned-device', unavailable_ui)
+            sim.assert_not_called()
+
+
 class XcodeUIHostTest(unittest.TestCase):
     def test_compiled_observer_must_pass_its_actual_file_identity_checks(self):
         with tempfile.TemporaryDirectory(prefix='analytics-observer-') as folder:
@@ -518,7 +555,7 @@ class XcodeUIHostTest(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, 'did not become ready'):
                     installed.start_ios_ui(state, stack, ['/usr/bin/open', '-a', str(bundle)])
                 installed.start_ios_ui(state, stack, ['/usr/bin/open', '-Fn', str(bundle)])
-                self.assertEqual(launch.call_args.args[0], ['/usr/bin/open', '-Fn', str(bundle)])
+                launch.assert_not_called()
                 self.assertIn('swiftc', compile_host.call_args_list[0].args)
                 self.assertIn(str(installed.ROOT / 'mobile/tests/ios/SimulatorHost.swift'), compile_host.call_args_list[0].args)
 

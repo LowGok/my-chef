@@ -573,6 +573,20 @@ def ios_host_resources(state):
     print("Simulator runner resources: " + json.dumps(result, sort_keys=True), flush=True)
 
 
+def start_ios_simulator(sim, identifier, open_ui):
+    # Open the selected host before boot, as required by the UI client startup
+    # sequence. A host may initiate boot itself; inspect the exact owned UUID
+    # before issuing boot and still require bootstatus/HTTPS afterward.
+    if open_ui is not None:
+        open_ui()
+    devices = json.loads(sim('list', 'devices', '-j', timeout=30))['devices']
+    matches = [entry for group in devices.values() for entry in group if entry.get('udid') == identifier]
+    if len(matches) != 1 or matches[0].get('state') not in ('Shutdown', 'Booting', 'Booted'):
+        raise RuntimeError('The owned simulator has an unexpected boot state')
+    if matches[0]['state'] == 'Shutdown':
+        sim('boot', identifier)
+
+
 def compile_ios_ui_observer(state):
     observer = Path(state) / 'simulator-host-readiness'
     command('xcrun', '--sdk', 'macosx', 'swiftc', '-framework', 'AppKit',
@@ -594,18 +608,16 @@ def start_ios_ui(state, stack, arguments, observer=None):
     executable = bundle / 'Contents/MacOS' / name
     if not executable.is_file():
         raise RuntimeError('Selected Xcode UI executable is unavailable')
-    # AppKit identifies the selected application and its actual executable.
-    # Avoid ps/pgrep's system-wide process service during simulator startup.
+    # AppKit launches the explicit selected bundle with substitution disabled,
+    # then verifies the returned app's actual executable. Do not launch a
+    # second instance through open or scan unrelated processes by bundle ID.
     if observer is None:
         observer = compile_ios_ui_observer(state)
-    log = stack.enter_context((Path(state) / 'simulator-ui-private.log').open('wb'))
-    launcher = subprocess.Popen(arguments, cwd=ROOT, env=ENV, stdout=log, stderr=log)
-    stack.callback(terminate, launcher)
     result = subprocess.run([str(observer), str(bundle)], env=ENV, text=True,
                             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=75)
     if result.returncode != 0 or result.stdout.strip() != 'Selected Xcode UI process is running':
         summary = result.stdout.strip()
-        if re.fullmatch(r'Selected Xcode UI readiness: application=(?:true|false) otherExecutable=(?:true|false) sameBundle=(?:true|false) sameFile=(?:true|false)', summary):
+        if re.fullmatch(r'Selected Xcode UI readiness: application=(?:true|false) otherExecutable=(?:true|false) sameBundle=(?:true|false) sameFile=(?:true|false) launchCompleted=(?:true|false) launchFailed=(?:true|false) expected=(?:devicehub|trampoline|simulator|other) actual=(?:devicehub|trampoline|simulator|other)', summary):
             print(summary, flush=True)
         raise RuntimeError('Selected Xcode UI process did not become ready')
     print('Selected Xcode UI process is running', flush=True)
@@ -682,19 +694,18 @@ def ios(state, stack, ca, package, model="iPhone 16", fixture_name="MyChef fixtu
     stack.callback(cleanup)
     ui_command = ios_ui_command(ENV["DEVELOPER_DIR"], model, identifier)
     # Compile the small observer before CoreSimulator's boot workload. It must
-    # still establish the selected UI process after boot starts.
+    # establish the selected UI process before device boot starts.
     ui_observer = compile_ios_ui_observer(state) if model == 'iPhone 17' else None
-    sim("boot", identifier)
-    # Activate the selected Xcode's simulator UI before the first app launch;
-    # the same owned device must still finish boot, trust and real HTTPS.
-    if ui_command:
-        if model == "iPhone 17":
-            start_ios_ui(state, stack, ui_command, observer=ui_observer)
+    def open_ui():
+        if ui_command:
+            if model == "iPhone 17":
+                start_ios_ui(state, stack, ui_command, observer=ui_observer)
+            else:
+                command(*ui_command, timeout=30)
+            print("Opened selected Xcode " + ("Device Hub" if model == "iPhone 17" else "Simulator"), flush=True)
         else:
-            command(*ui_command, timeout=30)
-        print("Opened selected Xcode " + ("Device Hub" if model == "iPhone 17" else "Simulator"), flush=True)
-    else:
-        print("Legacy Simulator GUI unavailable; continuing with actual headless runtime checks", flush=True)
+            print("Legacy Simulator GUI unavailable; continuing with actual headless runtime checks", flush=True)
+    start_ios_simulator(sim, identifier, open_ui)
     try:
         sim("bootstatus", identifier, timeout=240)
     except subprocess.TimeoutExpired as error:
