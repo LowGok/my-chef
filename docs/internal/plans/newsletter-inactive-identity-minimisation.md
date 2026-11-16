@@ -1,6 +1,6 @@
 ---
-status: in-progress
-status_description: "All tasks and criteria verified; R-9 and exact-head normal CI pass. Completion gate and final delivery metadata remain; merge and launch need their separate gates."
+status: complete
+status_description: "All tasks and criteria met; R-9 and completion gate pass. Final metadata delivery runs normal CI; merge, signed release and live launch remain separate."
 branch: feat/newsletter-inactive-identity-minimisation
 issue: null
 goal: "Inactive newsletter contacts retain their userID and non-consenting state without unnecessary clear email or expired mail/proof history."
