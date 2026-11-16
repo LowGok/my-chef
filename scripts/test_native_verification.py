@@ -509,19 +509,22 @@ class XcodeUIHostTest(unittest.TestCase):
             executable = bundle / 'Contents/MacOS/DeviceHub'
             executable.write_text('fictional executable')
             launcher = types.SimpleNamespace(poll=lambda: 0)
-            outputs = iter([' /different/Xcode.app/DeviceHub\n', str(executable) + '\n'])
-            def observe(*args, **kwargs):
-                if args[0][0] == '/usr/bin/pgrep':
-                    return types.SimpleNamespace(returncode=0, stdout='42\n')
-                return types.SimpleNamespace(returncode=0, stdout=next(outputs))
-            def wait(check, description, seconds):
-                self.assertFalse(check(), 'Another Xcode UI process cannot establish readiness')
-                self.assertTrue(check(), 'The selected UI executable must actually be running')
+            outputs = iter([
+                types.SimpleNamespace(returncode=0, stdout=' /different/Xcode.app/DeviceHub\n'),
+                types.SimpleNamespace(returncode=1, stdout='Selected Xcode UI process is running\n'),
+                types.SimpleNamespace(returncode=0, stdout='Selected Xcode UI process is running\n'),
+            ])
             with patch.object(installed.subprocess, 'Popen', return_value=launcher) as launch, \
-                 patch.object(installed.subprocess, 'run', side_effect=observe), \
-                 patch.object(installed, 'wait_for', side_effect=wait):
+                 patch.object(installed.subprocess, 'run', side_effect=lambda *a, **k: next(outputs)), \
+                 patch.object(installed, 'command') as compile_host:
+                with self.assertRaisesRegex(RuntimeError, 'did not become ready'):
+                    installed.start_ios_ui(state, stack, ['/usr/bin/open', '-a', str(bundle)])
+                with self.assertRaisesRegex(RuntimeError, 'did not become ready'):
+                    installed.start_ios_ui(state, stack, ['/usr/bin/open', '-a', str(bundle)])
                 installed.start_ios_ui(state, stack, ['/usr/bin/open', '-a', str(bundle)])
                 self.assertEqual(launch.call_args.args[0], ['/usr/bin/open', '-a', str(bundle)])
+                self.assertIn('swiftc', compile_host.call_args.args)
+                self.assertIn(str(installed.ROOT / 'mobile/tests/ios/SimulatorHost.swift'), compile_host.call_args.args)
 
     def test_modern_runtime_requires_device_hub_from_the_selected_xcode(self):
         with tempfile.TemporaryDirectory(prefix='analytics-xcode-ui-') as folder:

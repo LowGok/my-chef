@@ -577,30 +577,21 @@ def start_ios_ui(state, stack, arguments):
     executable = bundle / 'Contents/MacOS' / name
     if not executable.is_file():
         raise RuntimeError('Selected Xcode UI executable is unavailable')
-    expected = {str(executable), str(executable.resolve())}
+    # AppKit identifies the selected application and its actual executable.
+    # Avoid ps/pgrep's system-wide process service during simulator startup.
+    observer = Path(state) / 'simulator-host-readiness'
+    command('xcrun', '--sdk', 'macosx', 'swiftc', '-framework', 'AppKit',
+            str(ROOT / 'mobile/tests/ios/SimulatorHost.swift'), '-o', str(observer), timeout=90)
     log = stack.enter_context((Path(state) / 'simulator-ui-private.log').open('wb'))
     launcher = subprocess.Popen(arguments, cwd=ROOT, env=ENV, stdout=log, stderr=log)
     stack.callback(terminate, launcher)
-    def ready():
-        # Query only candidate UI PIDs; walking every process can stall while
-        # the simulator starts. Never read arguments or environments.
-        try:
-            candidates = subprocess.run(['/usr/bin/pgrep', '-x', name], env=ENV, text=True,
-                                        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=5)
-            pids = candidates.stdout.split()
-            if candidates.returncode != 0 or not 1 <= len(pids) <= 8:
-                return False
-            for pid in pids:
-                if not re.fullmatch(r'[1-9][0-9]{0,8}', pid):
-                    return False
-                result = subprocess.run(['/bin/ps', '-p', pid, '-o', 'comm='], env=ENV, text=True,
-                                        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=5)
-                if result.returncode == 0 and result.stdout.strip() in expected:
-                    return True
-        except subprocess.TimeoutExpired:
-            return False
-        return False
-    wait_for(ready, 'selected Xcode UI process', 60)
+    result = subprocess.run([str(observer), str(bundle)], env=ENV, text=True,
+                            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=75)
+    if result.returncode != 0 or result.stdout.strip() != 'Selected Xcode UI process is running':
+        summary = result.stdout.strip()
+        if re.fullmatch(r'Selected Xcode UI readiness: application=(?:true|false) otherExecutable=(?:true|false)', summary):
+            print(summary, flush=True)
+        raise RuntimeError('Selected Xcode UI process did not become ready')
     print('Selected Xcode UI process is running', flush=True)
 
 
