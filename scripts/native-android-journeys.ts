@@ -257,6 +257,10 @@ async function activateControl(control: Locator, name: string) {
       behavior: "instant",
     }),
   );
+  // Let Playwright settle native WebView scrolling/actionability after the
+  // keyboard and TalkBack focus changes. Trial performs no click. Retain the
+  // separate exact-center check required by the OS instrumentation below.
+  await control.click({ trial: true });
   await expect
     .poll(
       () =>
@@ -276,9 +280,7 @@ async function activateControl(control: Locator, name: string) {
       { message: name + " must own its center point in the native WebView" },
     )
     .toBe(true);
-  // Trial performs Playwright's layout-stability/actionability checks without
-  // clicking. The following input still comes from the actual OS probe.
-  await control.click({ trial: true });
+  // The input still comes from the actual OS probe, with no activation retry.
   await probeAction("activate", name);
 }
 
