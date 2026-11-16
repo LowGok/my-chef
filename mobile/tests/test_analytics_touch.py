@@ -1,6 +1,13 @@
 """Closed emulator input contracts; these fakes never claim native evidence."""
 import unittest
 import io
+import os
+import pty
+import select
+import struct
+import subprocess
+import sys
+import tty
 from contextlib import redirect_stdout
 from contextlib import contextmanager
 from types import SimpleNamespace
@@ -29,7 +36,7 @@ READER = ('Event Hub State:\n  Devices:\n    12: fictional touchscreen\n'
           '\nInput Dispatcher State:\n')
 
 
-def native_fixture(root='0', profile=PROFILE, foreign=False, fail_write=False, reader=READER):
+def native_fixture(root='0', profile=PROFILE, foreign=False, fail_write=False, reader=READER, architecture='x86_64'):
     calls = []
     def command(*args, **options):
         calls.append((args, options))
@@ -40,6 +47,7 @@ def native_fixture(root='0', profile=PROFILE, foreign=False, fail_write=False, r
             if args[1] == 'getwindowgeometry': return 'WIDTH=288\nHEIGHT=640\n'
             return ''
         if args[-2:] == ('id', '-u'): return root
+        if args[-2:] == ('uname', '-m'): return architecture
         if args[-2:] == ('getevent', '-lp'): return profile
         if args[-4:] == ('dumpsys', '-t', '5', 'input'): return reader
         if options.get('data') and fail_write and sum(bool(v.get('data')) for _, v in calls) == 1:
@@ -76,6 +84,39 @@ class DisplayFocusTest(unittest.TestCase):
 
 
 class KernelGestureTest(unittest.TestCase):
+    @unittest.skipUnless(sys.platform.startswith('linux'), 'Linux input-event ABI requires procfs')
+    def test_real_shell_frame_encoding_preserves_linux_events_on_an_owned_pty(self):
+        device = touch.select_touch_device(PROFILE)
+        script = touch.kernel_script('double-tap', device)
+        self.assertIn('dd of=/proc/self/fd/3', script)
+        self.assertNotIn('sendevent ', script)
+        self.assertEqual(script.count('exec 3< /dev/input/event7'), 1)
+        master, slave = pty.openpty()
+        try:
+            tty.setraw(slave)
+            # Only this newly owned PTY receives bytes. Production accepts
+            # canonical measured input nodes, with no path override API.
+            script = script.replace('exec 3< /dev/input/event7', 'exec 3< ' + os.ttyname(slave))
+            result = subprocess.run(['/bin/sh'], input=script, text=True, capture_output=True,
+                                    env=dict(os.environ, PATH='/usr/bin:/bin'), timeout=5)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout, '')
+            raw = bytearray()
+            while select.select([master], [], [], .1)[0]:
+                raw.extend(os.read(master, 4096))
+            self.assertTrue(raw)
+            self.assertEqual(len(raw) % 24, 0)
+            records = [struct.unpack('<qqHHi', raw[i:i + 24]) for i in range(0, len(raw), 24)]
+            self.assertTrue(all(sec == usec == 0 for sec, usec, *_ in records))
+            events = [record[2:] for record in records]
+            self.assertEqual([v for t, c, v in events if (t, c) == (3, 57)], [0, -1, 1, -1])
+            self.assertEqual(events.count((0, 0, 0)), 4)
+            xs = [v for t, c, v in events if (t, c) == (3, 53)]
+            self.assertEqual(len(xs), 2)
+            self.assertLessEqual(abs(xs[1] - xs[0]), 32767 / 100)
+        finally:
+            os.close(master); os.close(slave)
+
     def test_reserved_virtual_records_do_not_contaminate_real_device_blocks(self):
         hub = '    -1: virtual keyboard\n      Path: <virtual>\n      Enabled: true\n'
         reader = '  Device -1: virtual keyboard\n    EventHub Devices: [ -1 ]\n    Sources: KEYBOARD\n'
@@ -219,7 +260,8 @@ class KernelGestureTest(unittest.TestCase):
             self.assertFalse(any('mousedown' in args for args, _ in calls))
 
     def test_unrooted_foreign_or_unmeasured_device_refuses_before_writing(self):
-        for options in ({'root': '2000'}, {'foreign': True}, {'profile': ''}, {'reader': ''}):
+        for options in ({'root': '2000'}, {'foreign': True}, {'profile': ''}, {'reader': ''},
+                        {'architecture': 'aarch64'}):
             native, calls = native_fixture(**options)
             with patch.object(touch.time, 'sleep'), self.assertRaises((ValueError, RuntimeError)):
                 touch.gesture('next', native)
@@ -227,6 +269,18 @@ class KernelGestureTest(unittest.TestCase):
 
 
 class TouchTraceTest(unittest.TestCase):
+    def test_contact_timing_uses_selected_device_syn_frames_without_emitting_timestamps(self):
+        def line(at, label, value):
+            return '[ ' + at + '] /dev/input/event7: ' + label + ' ' + value + '\n'
+        raw = ''.join(line(at, 'EV_ABS ABS_MT_TRACKING_ID', value)
+                      + line(at, 'EV_SYN SYN_REPORT', '00000000')
+                      for at, value in (('1.000000', '00000000'), ('1.060000', 'ffffffff'),
+                                        ('1.180000', '00000001'), ('1.240000', 'ffffffff')))
+        self.assertEqual(touch.contact_timing(raw, '/dev/input/event7'), {'holds': [60, 60], 'gaps': [120]})
+        self.assertIsNone(touch.contact_timing(raw, '/dev/input/event8'))
+        self.assertIsNone(touch.contact_timing(raw.replace('1.060000', '0.060000'), '/dev/input/event7'))
+        self.assertIsNone(touch.contact_timing(raw.replace('EV_SYN SYN_REPORT', 'EV_SYN OTHER'), '/dev/input/event7'))
+
     def test_double_tap_requires_two_complete_contacts(self):
         from analytics_touch import touch_facts
         contact = "EV_ABS ABS_MT_POSITION_X 00004000\nEV_ABS ABS_MT_POSITION_Y 00004000\nEV_ABS ABS_MT_TRACKING_ID 00000003\nEV_ABS ABS_MT_TRACKING_ID ffffffff\n"

@@ -3,6 +3,7 @@ from contextlib import contextmanager
 from pathlib import Path
 import os
 import re
+import struct
 import subprocess
 import tempfile
 import time
@@ -39,6 +40,43 @@ def touch_devices(snapshot):
     if not 1 <= len(devices) <= 16:
         raise RuntimeError('Emulator touchscreen observer unavailable')
     return devices
+
+
+def contact_timing(text, device):
+    """Summarize completed selected-node SYN frames; never publish timestamps."""
+    if (not isinstance(text, str) or len(text) > 65536 or not isinstance(device, str)
+            or not re.fullmatch(r'/dev/input/event[0-9]{1,3}', device)):
+        raise ValueError('Bounded input trace required')
+    pattern = (r'^\[\s*([0-9]{1,10}\.[0-9]{1,9})\]\s+' + re.escape(device)
+               + r':\s+(EV_ABS\s+ABS_MT_TRACKING_ID|EV_SYN\s+SYN_REPORT)\s+([0-9a-f]{8})\b')
+    pending, start, pairs = None, None, []
+    for line in text.splitlines():
+        match = re.match(pattern, line)
+        if match is None:
+            continue
+        if match[2].startswith('EV_ABS'):
+            value = int(match[3], 16)
+            if pending is not None or (value >= 0x80000000 and value != 0xffffffff):
+                return None
+            pending = value != 0xffffffff
+        elif pending is not None:
+            at = float(match[1])
+            if pending:
+                if start is not None:
+                    return None
+                start = at
+            else:
+                if start is None or not 0 <= at - start <= 10:
+                    return None
+                pairs.append((start, at)); start = None
+            pending = None
+    if start is not None or pending is not None or not 1 <= len(pairs) <= 2:
+        return None
+    gaps = [pairs[i][0] - pairs[i - 1][1] for i in range(1, len(pairs))]
+    if any(not 0 <= gap <= 10 for gap in gaps):
+        return None
+    return dict(holds=[round((end - begin) * 1000) for begin, end in pairs],
+                gaps=[round(gap * 1000) for gap in gaps])
 
 
 @contextmanager
@@ -90,6 +128,11 @@ def touch_trace(native, contacts, *, device=None):
     print('Analytics hardware input: touchscreen=' + str(facts['touchscreen']).lower()
           + ' positions=' + str(facts['positions']) + ' releases=' + str(facts['releases'])
           + ' mouseButtons=' + str(facts['mouseButtons']), flush=True)
+    if device is not None:
+        timing = contact_timing(raw.decode(errors='replace'), device)
+        print('Analytics contact timing: ' + ('unavailable' if timing is None else
+              'holdsMs=' + ','.join(map(str, timing['holds']))
+              + ' gapsMs=' + ','.join(map(str, timing['gaps']))), flush=True)
     if not facts['touchscreen']:
         raise RuntimeError('Emulator touchscreen input was not observed')
 
@@ -343,18 +386,26 @@ def kernel_frames(kind, device):
     release = frame(tracking=-1, pressed=False)
     if kind == 'release': return [(0, release)]
     if kind == 'double-tap':
-        return [(0, frame(.48, .49, 0, True)), (.06, release),
-                (.12, frame(.52, .51, 1, True)), (.06, release)]
+        return [(0, frame(.498, .499, 0, True)), (.06, release),
+                (.12, frame(.502, .501, 1, True)), (.06, release)]
     return [(0, frame(.3, .48, 0, True))] + [
         (.05 if step == 1 else .018, frame(.3 + .04 * step, .48 + .004 * step))
         for step in range(1, 11)] + [(.05, release)]
 
 
 def kernel_script(kind, device):
-    lines = ['set -eu']
-    for delay, events in kernel_frames(kind, device):
+    frames = kernel_frames(kind, device)
+    # Pin the existing character device read-only before reopening that exact
+    # descriptor for output. A vanished node cannot create a regular file.
+    # Android's existing dd supports ibs/obs: it buffers partial pipe reads and
+    # emits whole 24-byte Linux x86_64 input_event records. No process per event.
+    lines = ['set -eu', 'exec 3< ' + device['path'], 'test -c /proc/self/fd/3']
+    for delay, events in frames:
         if delay: lines.append('sleep ' + format(delay, '.3f'))
-        lines.extend('sendevent ' + device['path'] + ' ' + ' '.join(map(str, event)) for event in events)
+        raw = b''.join(struct.pack('<qqHHi', 0, 0, *event) for event in events)
+        encoded = ''.join('\\0' + format(value, '03o') for value in raw)
+        lines.append("printf '%b' '" + encoded
+                     + "' | dd of=/proc/self/fd/3 ibs=24 obs=24 conv=notrunc status=none")
     return '\n'.join(lines) + '\n'
 
 
@@ -363,11 +414,13 @@ def gesture(kind, native):
         raise ValueError('Closed hardware gesture required')
     # Keep the same owned-emulator display/process gate. Kernel input removes
     # the Qt mouse translation, while InputReader/TalkBack and real UI results
-    # remain mandatory. Toybox sendevent writes Linux input_event records.
+    # remain mandatory. Buffer each frame rather than forking per input record.
     focus_display(native)
     adb = str(Path(native.ENV['ANDROID_HOME']) / 'platform-tools/adb')
     if native.command(adb, '-s', 'emulator-5554', 'shell', 'id', '-u', timeout=10) != '0':
         raise RuntimeError('Emulator touchscreen writer is not rooted')
+    if native.command(adb, '-s', 'emulator-5554', 'shell', 'uname', '-m', timeout=10) != 'x86_64':
+        raise RuntimeError('Unsupported emulator touch ABI')
     reader_paths = reader_touch_devices(native.command(
         adb, '-s', 'emulator-5554', 'shell', 'dumpsys', '-t', '5', 'input', timeout=10), diagnostics=True)
     device = select_touch_device(native.command(adb, '-s', 'emulator-5554', 'shell', 'getevent', '-lp', timeout=10),
