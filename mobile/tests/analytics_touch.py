@@ -388,9 +388,11 @@ def kernel_frames(kind, device):
     if kind == 'double-tap':
         return [(0, frame(.498, .499, 0, True)), (.025, release),
                 (.08, frame(.502, .501, 1, True)), (.025, release)]
+    # Three distinct movement frames cross touch slop promptly. Each sleep
+    # also incurs a device process launch, measured separately in CI.
     return [(0, frame(.3, .48, 0, True))] + [
-        (.05 if step == 1 else .018, frame(.3 + .04 * step, .48 + .004 * step))
-        for step in range(1, 11)] + [(.05, release)]
+        (.001, frame(.3 + .15 * step, .48 + .003 * step))
+        for step in range(1, 4)] + [(.001, release)]
 
 
 def kernel_script(kind, device):

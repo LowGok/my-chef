@@ -207,7 +207,11 @@ async function probeAction(
         const reason = log.match(
           /INSTRUMENTATION_RESULT: probeReason=([a-z-]{1,50})\b/,
         )?.[1];
-        if (reason) throw Error("Disposable OS probe refused: " + reason + "; control " + kind + " " + name + "; owner=" + focusOwner());
+        if (reason) {
+          const order = log.match(/^INSTRUMENTATION_RESULT: probeOrder=((?:window|none|choice|status|refresh|other)(?:,(?:window|none|choice|status|refresh|other)){0,15})\r?$/m)?.[1];
+          throw Error("Disposable OS probe refused: " + reason + "; control " + kind + " " + name
+            + "; owner=" + focusOwner() + "; order=" + (order ?? "unknown"));
+        }
         try {
           return adb("shell", "run-as", app, "cat", "cache/native-check-done");
         } catch {

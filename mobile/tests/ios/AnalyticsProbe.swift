@@ -209,10 +209,15 @@ final class AnalyticsProbe: XCTestCase {
             // Reach the normal-flow header before touching sticky navigation;
             // this avoids relying on WebKit's scrolled sticky hit point.
             let home = app.buttons["Go to Meals"].firstMatch
+            // Foreground after a cold relaunch precedes the authenticated
+            // WebKit page. Wait before scrolling a still-loading viewport.
+            // An offscreen header can still be revealed by the gestures below.
+            _ = home.waitForExistence(timeout: 20)
             for _ in 0..<18 {
                 if home.exists && home.isHittable && home.frame.minY >= app.frame.minY { break }
                 scrollContent(up: false)
             }
+            if !home.exists || !home.isHittable { screenState() }
             XCTAssertTrue(home.exists && home.isHittable, "Navigation header is reachable")
         }
         if label == "Shopping list" {

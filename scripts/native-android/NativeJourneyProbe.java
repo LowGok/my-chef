@@ -465,26 +465,41 @@ public final class NativeJourneyProbe extends Instrumentation {
         // run-owned emulator window. UiAutomation injection bypasses InputFilter.
     }
 
+    private String orderTrace = "";
+
     private void speechOrder() throws Exception {
         speechTouchMode();
         UiAutomation automation = interactiveWindows();
-        boolean status = false;
+        boolean status = false, hadWindow = false, hadFocus = false;
+        orderTrace = "";
         long end = SystemClock.uptimeMillis() + 22_000;
         while (SystemClock.uptimeMillis() < end) {
             AccessibilityNodeInfo root = speechWindow(automation);
             AccessibilityNodeInfo focused = root == null ? null : root.findFocus(AccessibilityNodeInfo.FOCUS_ACCESSIBILITY);
+            hadWindow |= root != null;
+            hadFocus |= focused != null;
+            String category = root == null ? "window" : focused == null ? "none" : "other";
             if (focused != null) {
                 String text = String.valueOf(focused.getText()).strip();
                 String description = String.valueOf(focused.getContentDescription()).strip();
+                category = text.equals("On") || description.equals("On") ? "status"
+                    : text.equals("Refresh analytics setting") || description.equals("Refresh analytics setting") ? "refresh"
+                    : text.startsWith("Help improve MyChef") || description.startsWith("Help improve MyChef") ? "choice" : "other";
+                if (!orderTrace.equals(category) && !orderTrace.endsWith("," + category) && orderTrace.split(",").length < 16)
+                    orderTrace += (orderTrace.isEmpty() ? "" : ",") + category;
                 if (text.equals("On") || description.equals("On")) status = true;
                 if (text.equals("Refresh analytics setting") || description.equals("Refresh analytics setting")) {
                     if (status) return;
-                    throw new IllegalStateException("accessibility-controls");
+                    throw new IllegalStateException("speech-order-status");
                 }
             }
+            if (focused == null && !orderTrace.equals(category) && !orderTrace.endsWith("," + category)
+                    && orderTrace.split(",").length < 16)
+                orderTrace += (orderTrace.isEmpty() ? "" : ",") + category;
             SystemClock.sleep(100);
         }
-        throw new IllegalStateException("accessibility-controls");
+        throw new IllegalStateException(!hadWindow ? "speech-order-window" : !hadFocus ? "speech-order-focus"
+            : !status ? "speech-order-status" : "speech-order-refresh");
     }
 
     private void checkAccessibility(String group) {
@@ -602,10 +617,11 @@ public final class NativeJourneyProbe extends Instrumentation {
             finish(Activity.RESULT_OK, new Bundle());
         } catch (Exception error) {
             Bundle failure = new Bundle(); failure.putString("probe", "failed");
+            if (!orderTrace.isEmpty()) failure.putString("probeOrder", orderTrace);
             String reason = error.getMessage();
             if (reason != null && reason.contains("already registered")) reason = "automation-busy";
             else if (reason != null && (reason.contains("UiAutomation not connected") || reason.contains("connecting UiAutomation"))) reason = "automation-connect";
-            failure.putString("probeReason", reason != null && reason.matches("launch|webview|pinch-disabled|probe-timeout|native-control|native-window-(?:unfocused|bounds)|control-(?:timeout|target|geometry|viewport|outside-viewport|outside-webview|screen-bounds)|input-denied|picker-(?:window|target|activation|confirmation|return)|accessibility-controls|speech-(window|node|state|event|touch-mode|touch-request|touch-capability|touch-service)|automation-(busy|connect)") ? reason : "instrumentation");
+            failure.putString("probeReason", reason != null && reason.matches("launch|webview|pinch-disabled|probe-timeout|native-control|native-window-(?:unfocused|bounds)|control-(?:timeout|target|geometry|viewport|outside-viewport|outside-webview|screen-bounds)|input-denied|picker-(?:window|target|activation|confirmation|return)|accessibility-controls|speech-(window|node|state|event|touch-mode|touch-request|touch-capability|touch-service|order-window|order-focus|order-status|order-refresh)|automation-(busy|connect)") ? reason : "instrumentation");
             finish(Activity.RESULT_CANCELED, failure);
         } finally {
             runOnMainSync(() -> WebView.setWebContentsDebuggingEnabled(false));
