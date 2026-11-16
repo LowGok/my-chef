@@ -6,6 +6,7 @@ issue: null
 goal: "Inactive newsletter contacts retain their userID and non-consenting state without unnecessary clear email or expired mail/proof history."
 covers:
   - internal/store/
+  - internal/analytics/privacy_test.go
   - internal/auth/
   - internal/newsletter/
   - internal/email/
@@ -34,6 +35,10 @@ Keep an inactive contact's same userID, account classification, non-consenting s
 The owner approved this prepared scope through the Hub on 15 November 2026: keep contact IDs and opt-outs, use protected matching, complete signup/confirmation/unsubscribe checks, then publish the reviewed notices and enable public signup last. Beta, public app-account signup and analytics remain unchanged. This is additional schema/identity work, separate from the newsletter role's accepted no-schema feature. This document defines its technical design for independent review; it does not claim the representation is deployed.
 
 Matching remains personal data. The private website feature owns the supported necessity/balancing assessment, controller approval, actual provider/operations facts and localized notice. This backend feature provides the verified representation, rights and recovery contract used by that assessment. No synthetic test certifies legal compliance or real mail receipt. A reviewed technical baseline, tasks and published claim precede code; delivery and live activation retain their required gates.
+
+The local restore correction at68d0d2c passes the observed-red issued-signup and account-purpose restoration checks, full repository tests/lint, focused account/storage races, actual executable recovery and rebuilt final-container scan. R-4 remains the blocking review of its earlier source; the corrected implementation still needs a fresh independent review. No production data, beta, public signup or analytics setting changed.
+
+The proposed revision extends verification ownership to the existing analytics cancellation-fence test. Its one-second context currently covers both the post-cancellation account update and a subsequent full maintenance/reclaim operation (`internal/analytics/privacy_test.go:350-357`). The update succeeds, but local race runs reach the shared deadline during maintenance. An external diagnostic overlay retains the unchanged one-second update check and gives maintenance its own five-second context; all three repetitions pass (min-analytics-maintenance-budget-diagnostic.log). This is diagnostic evidence, not an applied test change or a full race-suite pass. The proposal changes neither production behavior nor the prompt fence-release assertion. The full race suite and existing twenty-minute CI command remain required, including the earlier separate synthetic CLI timeout; neither is waived. Renewed acceptance authorizes only this narrow test correction and continued local implementation, with existing ship, merge and launch gates retained.
 
 ### Inspected source and review
 
@@ -127,18 +132,17 @@ Use compatible new code for an existing reduced namespace. Old code that require
 
 Backend and website retain separate independent reviews and delivery receipts. This feature produces the source-grounded field/purpose/expiry/rights/key/restore handoff for the private website notice review. That feature publishes the complete notice only after deployed representation and actual operations match it, then verifies authorized real signup, mailbox confirmation and unsubscribe while public collection stays closed. The website enables collection last and verifies EN/FR/NL. Normal app enrollment, beta and analytics stay unchanged. This document does not report publication or actual delivery.
 
+### Cancellation-fence regression verification
+
+Keep the existing one-second deadline on the first account update after cancelling a blocked report output. Its success still proves that cancellation released the report fence promptly. Give the subsequent full analytics maintenance/reclaim operation its own five-second context rather than the remainder of the update's context. Check its successful completion separately. Change only this test's contexts in `internal/analytics/privacy_test.go`; do not change production analytics, the runtime maintenance policy, the race detector, test data, assertions, the full-suite command or CI's twenty-minute timeout. Rerun the targeted race test repeatedly and the required full race suite on the final source; investigate any remaining failure rather than relabelling it passed.
+
 ## Acceptance Criteria
 
 - [ ] AC-01: Inactive newsletter-only contacts preserve their IDs and non-consenting state in the protected matching representation while unnecessary clear-address and expired proof/mail references are absent from logical records and completed active SQLite-file cleanup; historical backups remain separately governed.
-      Evidence: R-4 at0119f76 returned not met; see the verbatim criterion record. Criteria remain unticked pending the complete corrected verification and fresh review.
 - [ ] AC-02: Fresh verified newsletter/app/email-change flows safely resolve the same identity without enumeration, duplicate ownership or implicit newsletter consent; promotion, later ordinary email change/deletion and address reuse retire stale ownership while valid withdrawal links and operator rights continue working.
-      Evidence: R-4 at0119f76 returned met; see the verbatim criterion record. Criteria remain unticked pending the complete corrected verification and fresh review.
 - [ ] AC-03: Concurrency, expiry, erasure, restart, key recovery and old-backup restore cannot resurrect clear inactive data, old consent or dispatch, and do not change full accounts or unrelated purposes.
-      Evidence: R-4 at0119f76 returned not met; see the verbatim criterion record. Criteria remain unticked pending the complete corrected verification and fresh review.
 - [ ] AC-04: The additive migration/backfill and compatible rollback are independently verified, with fail-closed readiness for missing keys/journal/ambiguous state and untouched published checksums.
-      Evidence: R-4 at0119f76 returned not verified; see the verbatim criterion record. Criteria remain unticked pending the complete corrected verification and fresh review.
 - [ ] AC-05: The verified backend field/purpose/expiry/rights/key/restore handoff supports the separate private website assessment and localized notice against the approved review/erasure criteria, with no anonymous-data, deployed-behavior or live-delivery claim before its actual proof.
-      Evidence: R-4 at0119f76 returned not met; see the verbatim criterion record. Criteria remain unticked pending the complete corrected verification and fresh review.
 
 ## Test Plan
 
@@ -194,6 +198,7 @@ Backend and website retain separate independent reviews and delivery receipts. T
       Evidence: the genuine issued-signup snapshot reproduces R-4 after current Maintain removes expired work: explicit restore reports ready but restores one expired signup proof/mail and plaintext address. A second test reproduces all five expired account-work tables and five expired mail rows while asserting full-account/current-proof/mail controls. Both fail for retained obsolete rows/active-file canaries, not setup errors (min-t22-red.log). Gofmt/diff checks pass. Manual doc impact is the test/task record; no fixed restore or criterion pass is claimed.
 - [x] T23 `internal/store/account_restore.go`, shared account-proof cleanup and callers - run bounded purpose-owned expiry on the unpublished restored copy before physical completion; T22 and affected account/restore regressions pass with current account purposes preserved (AC-01, AC-02, AC-03, AC-04, AC-05).
       Evidence: both observed-red restore regressions pass: current expired signup proof/mail and raw canary stay absent after old-copy replay, and all expired account-purpose payloads are removed while five current proof deliveries, ordinary mail and full credentials/profile remain. Maintenance and restore now share one bounded transaction-owned storage sweep; expiry removes purpose-owned mail/provider rows before proof deletion and refuses wrong-template ownership. Full required repository tests pass (all Go/type checks,88 Bun tests470 assertions), lint0 and focused account/newsletter/store races pass (min-t23-repo-ready/lint-ready/race-ready); a duplicate test import introduced while sorting was corrected before these final runs. Actual executable rehearsal now checks expired issued signup payload absence before server startup and unchanged source snapshot (min-t23-process). Rebuilt final nonroot image and pinned HIGH/CRITICAL scan pass, image94e05e15d4d88c7371580fdf31820f1f66cef383b5a8a2fb8f5d45ab0ddb3fe8 (min-t23-container-scan). README and deployment recovery instructions now require pre-start inspection of expired account work and authorized controls. Manual doc impact complete for these paths. R-4 remains recorded as blocking at its old source; a fresh review is required. No deployment, real mail or criterion completion is claimed.
+- [ ] T24 `internal/analytics/privacy_test.go` - retain the one-second post-cancellation update check and give the following full maintenance operation an independent five-second context; repeated targeted race checks pass, while the complete unchanged race command remains required (AC-03, AC-04).
 - [ ] T20 the feature document and covered documentation - finish required build/generate/test/lint/audit/browser/import/upgrade/race/container checks and manual documentation impact, recording exact results and limitations (AC-01, AC-02, AC-03, AC-04, AC-05).
 - [ ] T21 the feature document - obtain an exact-commit independent implementation review, store its returned records verbatim and record criterion/task outcomes truthfully before delivery (AC-01, AC-02, AC-03, AC-04, AC-05).
 
@@ -201,7 +206,7 @@ The migration number is assigned only against fresh default main at claim time. 
 
 ## Open Questions
 
-None for the product scope. The owner selected Q1 option A, protected matching and reduced inactive records, retaining stable IDs, opt-outs, the necessity-review points and verified erasure. Actual provider/key/host/backup/mailbox facts remain the private website rollout gates. R-2 independently reviewed the technical baseline and the owner accepted it; implementation still follows tasks and a published claim.
+No new product choice. The narrow test-coverage/context revision awaits independent review and renewed acceptance. The owner selected Q1 option A, protected matching and reduced inactive records, retaining stable IDs, opt-outs, the necessity-review points and verified erasure. Actual provider/key/host/backup/mailbox facts remain the private website rollout gates. R-2 independently reviewed the technical baseline and the owner accepted it; implementation still follows tasks and a published claim.
 
 ## Review Log
 
