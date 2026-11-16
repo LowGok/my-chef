@@ -386,8 +386,8 @@ def kernel_frames(kind, device):
     release = frame(tracking=-1, pressed=False)
     if kind == 'release': return [(0, release)]
     if kind == 'double-tap':
-        return [(0, frame(.498, .499, 0, True)), (.06, release),
-                (.12, frame(.502, .501, 1, True)), (.06, release)]
+        return [(0, frame(.498, .499, 0, True)), (.025, release),
+                (.08, frame(.502, .501, 1, True)), (.025, release)]
     return [(0, frame(.3, .48, 0, True))] + [
         (.05 if step == 1 else .018, frame(.3 + .04 * step, .48 + .004 * step))
         for step in range(1, 11)] + [(.05, release)]
@@ -395,22 +395,20 @@ def kernel_frames(kind, device):
 
 def kernel_script(kind, device):
     frames = kernel_frames(kind, device)
-    # Pin the existing character device read-only before reopening that exact
-    # parent descriptor for output, even if a child closes inherited FDs.
-    # A vanished node cannot create a regular file.
-    # Android's existing dd supports ibs/obs: it buffers partial pipe reads and
-    # emits whole 24-byte Linux x86_64 input_event records. No process per event.
-    lines = ['set -eu', "printf 'ANALYTICS_TOUCH_STAGE=start\\n'", 'exec 3< ' + device['path'],
-             "printf 'ANALYTICS_TOUCH_STAGE=open\\n'", 'test -c /proc/$$/fd/3',
-             "printf 'ANALYTICS_TOUCH_STAGE=character\\n'"]
+    # Pin the existing character device in the parent. Keep one dd open for
+    # the whole gesture, so process startup cannot lengthen every contact.
+    # It buffers partial pipe reads into whole 24-byte x86_64 input records.
+    lines = ['set -eu', "printf 'ANALYTICS_TOUCH_STAGE=start\\n' >&2", 'exec 3< ' + device['path'],
+             "printf 'ANALYTICS_TOUCH_STAGE=open\\n' >&2", 'test -c /proc/$$/fd/3',
+             "printf 'ANALYTICS_TOUCH_STAGE=character\\n' >&2", '{']
     for index, (delay, events) in enumerate(frames):
         if delay: lines.append('sleep ' + format(delay, '.3f'))
         raw = b''.join(struct.pack('<qqHHi', 0, 0, *event) for event in events)
         encoded = ''.join('\\0' + format(value, '03o') for value in raw)
-        lines.append("printf 'ANALYTICS_TOUCH_STAGE=frame-start-" + str(index) + "\\n'")
-        lines.append("printf '%b' '" + encoded
-                     + "' | dd of=/proc/$$/fd/3 ibs=24 obs=24 conv=notrunc status=none")
-        lines.append("printf 'ANALYTICS_TOUCH_STAGE=frame-done-" + str(index) + "\\n'")
+        lines.append("printf 'ANALYTICS_TOUCH_STAGE=frame-start-" + str(index) + "\\n' >&2")
+        lines.append("printf '%b' '" + encoded + "'")
+        lines.append("printf 'ANALYTICS_TOUCH_STAGE=frame-done-" + str(index) + "\\n' >&2")
+    lines.append('} | dd of=/proc/$$/fd/3 ibs=24 obs=24 conv=notrunc status=none')
     return '\n'.join(lines) + '\n'
 
 

@@ -197,7 +197,13 @@ final class AnalyticsProbe: XCTestCase {
         print("Analytics iOS control: " + label)
         if app.keyboards.firstMatch.exists {
             let done = app.buttons.matching(NSPredicate(format: "label == %@", "Done")).firstMatch
-            if done.exists && done.isHittable { done.tap() }
+            if done.exists && done.isHittable {
+                done.tap()
+                waitFor({ !self.app.keyboards.firstMatch.exists }, "Software keyboard must dismiss before the next control")
+                // Let the native viewport finish resizing before asking WebKit
+                // for a new activation point. Hittability stays mandatory.
+                RunLoop.current.run(until: Date().addingTimeInterval(0.3))
+            }
         }
         if ["Shopping list", "Profile", "Meals"].contains(label) {
             // Reach the normal-flow header before touching sticky navigation;
@@ -471,7 +477,13 @@ final class AnalyticsProbe: XCTestCase {
             XCTAssertTrue(keyboard.waitForExistence(timeout: 5))
             XCTAssertLessThanOrEqual(email.frame.maxY, keyboard.frame.minY + 1)
             let done = app.buttons["Done"].firstMatch
-            if done.exists && done.isHittable { done.tap() }
+            if done.exists && done.isHittable {
+                done.tap()
+                waitFor({ !self.app.keyboards.firstMatch.exists }, "Software keyboard must dismiss before the next control")
+                // Let the native viewport finish resizing before asking WebKit
+                // for a new activation point. Hittability stays mandatory.
+                RunLoop.current.run(until: Date().addingTimeInterval(0.3))
+            }
             let box = checkbox(); reveal(box)
             XCTAssertGreaterThanOrEqual(box.frame.minX, app.frame.minX)
             XCTAssertLessThanOrEqual(box.frame.maxX, app.frame.maxX)
@@ -796,7 +808,13 @@ final class AnalyticsProbe: XCTestCase {
         fill("Diet", "Mediterranean")
         if app.keyboards.firstMatch.exists {
             let done = app.buttons["Done"].firstMatch
-            if done.exists && done.isHittable { done.tap() }
+            if done.exists && done.isHittable {
+                done.tap()
+                waitFor({ !self.app.keyboards.firstMatch.exists }, "Software keyboard must dismiss before the next control")
+                // Let the native viewport finish resizing before asking WebKit
+                // for a new activation point. Hittability stays mandatory.
+                RunLoop.current.run(until: Date().addingTimeInterval(0.3))
+            }
         }
         let save = app.buttons["Save preferences"].firstMatch; reveal(save)
         try enableVoice()
