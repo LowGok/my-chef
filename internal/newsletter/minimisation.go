@@ -185,7 +185,7 @@ func (s *Service) eraseInactiveReferences(ctx context.Context, tx *gorm.DB, user
 
 // withProofTransition journals a tracked newsletter identity around its SQL
 // decision. Ordinary accounts without that origin keep the legacy lifecycle.
-func (s *Service) withProofTransition(ctx context.Context, proof proofRecord, purpose string, apply func(*gorm.DB, int64) error) error {
+func (s *Service) withProofTransition(ctx context.Context, proof proofRecord, purpose string, apply func(*gorm.DB, int64, *int64) error) error {
 	var record store.NewsletterIdentityRecord
 	tracked := false
 	var err error
@@ -201,7 +201,7 @@ func (s *Service) withProofTransition(ctx context.Context, proof proofRecord, pu
 			if err != nil {
 				return err
 			}
-			return apply(tx, order)
+			return apply(tx, order, nil)
 		})
 	}
 	var sub subscription
@@ -238,7 +238,7 @@ func (s *Service) withProofTransition(ctx context.Context, proof proofRecord, pu
 		record.Minimised = false
 		record.NoticeVersion = store.Ptr(proposed.ConsentVersion)
 	}
-	return s.Lifecycle.TransitionNewsletterIdentity(ctx, record, func(tx *gorm.DB) error { return apply(tx, order) })
+	return s.Lifecycle.TransitionNewsletterIdentity(ctx, record, func(tx *gorm.DB) error { return apply(tx, order, record.DecisionUnix) })
 }
 
 func (s *Service) proofOwner(ctx context.Context, tx *gorm.DB, proof proofRecord) (store.User, error) {

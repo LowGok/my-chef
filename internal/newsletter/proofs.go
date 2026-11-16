@@ -37,8 +37,13 @@ func (s *Service) applyProof(ctx context.Context, token, purpose string) error {
 	if err := s.Store.DB.WithContext(ctx).Where("hash=? AND purpose=?", hash, purpose).Take(&original).Error; err != nil {
 		return ErrProof
 	}
-	err = s.withProofTransition(ctx, original, purpose, func(tx *gorm.DB, order int64) error {
+	err = s.withProofTransition(ctx, original, purpose, func(tx *gorm.DB, order int64, recordedDecisionUnix *int64) error {
 		now := s.now()
+		// Share the journal date without freezing fresh expiry/mail checks.
+		decisionUnix := now.Unix()
+		if recordedDecisionUnix != nil {
+			decisionUnix = *recordedDecisionUnix
+		}
 		var proof proofRecord
 		if err := tx.Where("hash=? AND purpose=?", hash, purpose).Take(&proof).Error; err != nil {
 			return err
@@ -66,7 +71,7 @@ func (s *Service) applyProof(ctx context.Context, token, purpose string) error {
 		if purpose == "unsubscribe" {
 			sub.Status = "unsubscribed"
 			sub.Revision++
-			sub.WithdrawnUnix = store.Ptr(now.Unix())
+			sub.WithdrawnUnix = store.Ptr(decisionUnix)
 			if err := s.invalidate(ctx, tx, now, proof.UserID); err != nil {
 				return err
 			}
@@ -102,7 +107,7 @@ func (s *Service) applyProof(ctx context.Context, token, purpose string) error {
 			sub.ConsentVersion = proposed.ConsentVersion
 			sub.Source = prefix + "blog/"
 			sub.RequestedUnix = proposed.RequestedUnix
-			sub.ConfirmedUnix = store.Ptr(now.Unix())
+			sub.ConfirmedUnix = store.Ptr(decisionUnix)
 			sub.WithdrawnUnix = nil
 			if err := tx.Model(&proof).Updates(map[string]any{"consumed_unix": now.Unix(), "proposal": ""}).Error; err != nil {
 				return err
@@ -113,7 +118,7 @@ func (s *Service) applyProof(ctx context.Context, token, purpose string) error {
 		}
 		sub.ProvedOrder = order
 		if user.NewsletterMinimised || purpose == "unsubscribe" && sub.Locale == "" {
-			return tx.Model(&subscription{}).Where("user_id=?", user.ID).Updates(map[string]any{"status": sub.Status, "revision": sub.Revision, "proved_order": order, "withdrawn_unix": sub.WithdrawnUnix, "decision_unix": now.Unix()}).Error
+			return tx.Model(&subscription{}).Where("user_id=?", user.ID).Updates(map[string]any{"status": sub.Status, "revision": sub.Revision, "proved_order": order, "withdrawn_unix": sub.WithdrawnUnix, "decision_unix": decisionUnix}).Error
 		}
 		return tx.Save(&sub).Error
 	})
