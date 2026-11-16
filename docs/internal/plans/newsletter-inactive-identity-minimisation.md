@@ -1,6 +1,6 @@
 ---
-status: draft
-status_description: "Restore expiry corrected locally; a narrow race-test coverage revision awaits independent review and renewed acceptance."
+status: planned
+status_description: "R-5 test-only correction accepted through the Hub; resume T24 and complete verification on the existing claimed branch."
 branch: feat/newsletter-inactive-identity-minimisation
 issue: null
 goal: "Inactive newsletter contacts retain their userID and non-consenting state without unnecessary clear email or expired mail/proof history."
@@ -206,7 +206,7 @@ The migration number is assigned only against fresh default main at claim time. 
 
 ## Open Questions
 
-No new product choice. The narrow test-coverage/context revision awaits independent review and renewed acceptance. The owner selected Q1 option A, protected matching and reduced inactive records, retaining stable IDs, opt-outs, the necessity-review points and verified erasure. Actual provider/key/host/backup/mailbox facts remain the private website rollout gates. R-2 independently reviewed the technical baseline and the owner accepted it; implementation still follows tasks and a published claim.
+No new product choice. The owner accepted the independently reviewed R-5 test-coverage/context revision through Codex Hub on16 November2026: “Approve and rerun the tests.” The owner selected Q1 option A, protected matching and reduced inactive records, retaining stable IDs, opt-outs, the necessity-review points and verified erasure. Actual provider/key/host/backup/mailbox facts remain the private website rollout gates. R-2 independently reviewed the technical baseline and the owner accepted it; implementation still follows tasks and a published claim.
 
 ## Review Log
 
@@ -218,6 +218,7 @@ No new product choice. The narrow test-coverage/context revision awaits independ
 | 2026-11-15 | R-3 | spec | `436e6822b08b08c383ba635c0faf5eb0f762c583` | unknown | procedural | No findings after merged-runtime/default freshness review; accepted normative baseline unchanged. Model identity not attested. |
 | 2026-11-16 | R-4 | implementation | `0119f76fb3621321360e60fca095aaeca2ed3c0c` | unknown | procedural | Blocking expired signup proof/mail restore finding; AC-02 met, AC-01/03/05 not met, AC-04 not verified. Model identity not attested. |
 | 2026-11-16 | R-5 | spec | `bc225ecf5f364ef4b68b6bd2f2a936e895af4871` | unknown | procedural | No findings on the narrow test-coverage/context revision; renewed acceptance pending. Model identity not attested. |
+| 2026-11-16 | R-5 | spec | `bc225ecf5f364ef4b68b6bd2f2a936e895af4871` | n/a | n/a | accepted by owner |
 
 ### R-1
 
