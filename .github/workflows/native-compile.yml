@@ -95,3 +95,42 @@ jobs:
           if-no-files-found: error
           retention-days: 1
           include-hidden-files: false
+
+  apple-storekit:
+    if: >-
+      github.repository == 'LowGok/my-chef' &&
+      github.repository_id == '1454481532' &&
+      github.event.repository.private == false &&
+      github.event.pull_request.base.ref == 'main' &&
+      github.event.pull_request.head.repo.id == github.event.repository.id &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.sender.login == 'LowGok' &&
+      github.event.pull_request.head.ref == 'feat/subscription-billing' &&
+      vars.NATIVE_SUBSCRIPTION_PR != '' &&
+      github.event.pull_request.number == fromJSON(vars.NATIVE_SUBSCRIPTION_PR) &&
+      github.event.label.name == 'native-subscription-fixture'
+    runs-on: xcode-27
+    timeout-minutes: 15
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_27.0.app/Contents/Developer
+      EXPECTED_SOURCE: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Test purchases and restore with Xcode StoreKit on iOS 27
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SOURCE"
+          xcodebuild -version
+          xcodebuild -version | grep -Fx 'Build version 27A266a'
+          probe="$RUNNER_TEMP/storekit-probe"
+          python3 scripts/apple-storekit-ci/build_project.py "$probe"
+          plutil -lint "$probe/StoreKitProbe.xcodeproj/project.pbxproj"
+          xcodebuild test -project "$probe/StoreKitProbe.xcodeproj" -scheme StoreKitProbe \
+            -destination 'platform=iOS Simulator,OS=27.0,name=iPhone 17' \
+            -destination-timeout 90 -parallel-testing-enabled NO \
+            -derivedDataPath "$RUNNER_TEMP/storekit-derived" \
+            -only-testing:PurchaseTests/PurchaseTests/testBelgianPurchaseAndRestoreWithStoreKit
