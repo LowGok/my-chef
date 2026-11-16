@@ -11,6 +11,7 @@ import {
 import { join } from "node:path";
 import { readFile, unlink, writeFile } from "node:fs/promises";
 import { safeJourneyError, androidCrashFacts } from "./native-android-report";
+import { startProbeProcess } from "./native-android/probe-process";
 import analyticsContract from "../mobile/tests/analytics-contract.json";
 import { addDays, monday } from "../web/src/dates";
 import {
@@ -78,12 +79,13 @@ const analyticsChecks = Object.fromEntries(
   ]),
 );
 const browserErrors: string[] = [];
+let previousProbeExit: Promise<number> | undefined;
 async function connect() {
   stage = "wake disposable Android emulator";
   adb("shell", "input", "keyevent", "KEYCODE_WAKEUP");
   adb("shell", "wm", "dismiss-keyguard");
   stage = "start disposable instrumentation";
-  const probe = Bun.spawn(
+  const probe = await startProbeProcess(
     [
       adbBinary,
       "-s",
@@ -94,8 +96,10 @@ async function connect() {
       "-w",
       "com.gkldevelopment.mychef.preview.test/com.gkldevelopment.mychef.testing.NativeJourneyProbe",
     ],
-    { stdout: Bun.file(join(state, "probe-private.log")), stderr: "ignore" },
+    join(state, "probe-private.log"),
+    previousProbeExit,
   );
+  previousProbeExit = probe.exited;
   let lastFocusCheck = 0;
   let startupOwner = "unknown";
   let reportedStartupRecovery = "";
@@ -111,7 +115,7 @@ async function connect() {
           reportedStartupRecovery = recovery;
           console.log("Android instrumentation startup recovery: " + recovery);
         }
-        if (/INSTRUMENTATION_STATUS: probe=ready/.test(log)) return true;
+        if (/INSTRUMENTATION_STATUS: probe=ready/.test(log) && probe.exitCode === null) return true;
         if (Date.now() - lastFocusCheck >= 5000) {
           lastFocusCheck = Date.now();
           startupOwner = focusOwner();
