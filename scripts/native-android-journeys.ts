@@ -101,7 +101,9 @@ async function connect() {
           const reason = log.match(/probeReason=([a-z-]{1,50})\b/)?.[1];
           const category = /UiAutomationService.*already registered/.test(log) ? "automation-busy"
             : /UiAutomation.*(?:not connected|connect)/.test(log) ? "automation-connect" : "unclassified";
-          throw new Error("Disposable instrumentation stopped before ready: " + (reason ?? category));
+          const state = [...log.matchAll(/INSTRUMENTATION_STATUS: (probe(?:ActivityReplaced|ActivityDestroyed|WebShown|WindowFocus))=(true|false)\b/g)]
+            .map(match => match[1] + "=" + match[2]).join(",");
+          throw new Error("Disposable instrumentation stopped before ready: " + (reason ?? category) + (state ? "; " + state : ""));
         }
         return false;
       },
@@ -1221,39 +1223,38 @@ async function analyticsJourneys() {
     page.getByRole("checkbox", { name: "Help improve MyChef", exact: true });
   const speechEnabled = process.env.NATIVE_ANALYTICS_SPEECH === "1";
   let speechEngineWarmed = false;
+  let speechServiceStarted = false;
   async function withTalkBack(control: Locator, action: () => Promise<void>) {
     const service = "com.google.android.marvin.talkback/.TalkBackService";
     await control.scrollIntoViewIfNeeded();
-    adb("shell", "settings", "put", "secure", "tts_default_synth", "com.google.android.tts");
-    adb("shell", "cmd", "media_session", "volume", "--stream", "10", "--set", "10");
-    adb("shell", "settings", "put", "secure", "enabled_accessibility_services", service);
-    adb("shell", "settings", "put", "secure", "accessibility_enabled", "1");
-    try {
-      await expect.poll(() => adb("shell", "dumpsys", "activity", "services", service.split("/")[0])
-        .split("\n").some(line => /ServiceRecord/.test(line) && line.includes("TalkBackService"))).toBe(true);
-      adb("shell", "am", "start", "-W", "-n", app + "/.MainActivity");
-      await expect.poll(() => adb("shell", "dumpsys", "activity", "services", "com.google.android.tts")
-        .split("\n").some(line => /ServiceRecord/.test(line) && line.includes("com.google.android.tts/")),
-        { timeout: 20_000 }).toBe(true);
-      // The first service binding can precede local voice loading. Let the
-      // stock engine settle before demanding a fresh control announcement.
-      await Bun.sleep(speechEngineWarmed ? 2000 : 10_000);
-      speechEngineWarmed = true;
-      // The first TalkBack/TTS tutorial can take the foreground after startup.
-      // Require the actual app window before native focus or input.
-      await expect.poll(() => {
-        const focused = adb("shell", "dumpsys", "window", "displays").split("\n").some(line => line.includes("mCurrentFocus") && line.includes(app));
-        if (!focused) adb("shell", "am", "start", "-W", "-n", app + "/.MainActivity");
-        return focused;
-      }).toBe(true);
-      await control.evaluate((node) => node.scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" }));
-      await expect(control).toBeVisible();
-      await Bun.sleep(350);
-      await action();
-    } finally {
-      adb("shell", "settings", "delete", "secure", "enabled_accessibility_services");
-      adb("shell", "settings", "put", "secure", "accessibility_enabled", "0");
+    if (!speechServiceStarted) {
+      adb("shell", "settings", "put", "secure", "tts_default_synth", "com.google.android.tts");
+      adb("shell", "cmd", "media_session", "volume", "--stream", "10", "--set", "10");
+      adb("shell", "settings", "put", "secure", "enabled_accessibility_services", service);
+      adb("shell", "settings", "put", "secure", "accessibility_enabled", "1");
+      speechServiceStarted = true;
     }
+    await expect.poll(() => adb("shell", "dumpsys", "activity", "services", service.split("/")[0])
+      .split("\n").some(line => /ServiceRecord/.test(line) && line.includes("TalkBackService"))).toBe(true);
+    adb("shell", "am", "start", "-W", "-n", app + "/.MainActivity");
+    await expect.poll(() => adb("shell", "dumpsys", "activity", "services", "com.google.android.tts")
+      .split("\n").some(line => /ServiceRecord/.test(line) && line.includes("com.google.android.tts/")),
+      { timeout: 20_000 }).toBe(true);
+    // The first service binding can precede local voice loading. Let the
+    // stock engine settle before demanding a fresh control announcement.
+    await Bun.sleep(speechEngineWarmed ? 2000 : 10_000);
+    speechEngineWarmed = true;
+    // The first TalkBack/TTS tutorial can take the foreground after startup.
+    // Require the actual app window before native focus or input.
+    await expect.poll(() => {
+      const focused = adb("shell", "dumpsys", "window", "displays").split("\n").some(line => line.includes("mCurrentFocus") && line.includes(app));
+      if (!focused) adb("shell", "am", "start", "-W", "-n", app + "/.MainActivity");
+      return focused;
+    }).toBe(true);
+    await control.evaluate((node) => node.scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" }));
+    await expect(control).toBeVisible();
+    await Bun.sleep(350);
+    await action();
   }
   async function hear(target: "on" | "off" | "stale" | "offline" | "order" | "signup-on" | "signup-off" | "cleanup" | "backup") {
     if (!speechEnabled) return;
@@ -1720,7 +1721,14 @@ try {
   throw new Error(safeJourneyError(error, stage, privateValues));
 } finally {
   try {
-    adb("shell", "run-as", app, "touch", "cache/native-check-finish");
-  } catch {}
-  await device?.close().catch(() => undefined);
+    if (group === "analytics" && process.env.NATIVE_ANALYTICS_SPEECH === "1") {
+      adb("shell", "settings", "delete", "secure", "enabled_accessibility_services");
+      adb("shell", "settings", "put", "secure", "accessibility_enabled", "0");
+    }
+  } finally {
+    try {
+      adb("shell", "run-as", app, "touch", "cache/native-check-finish");
+    } catch {}
+    await device?.close().catch(() => undefined);
+  }
 }

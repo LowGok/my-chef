@@ -491,6 +491,8 @@ class XcodeUIHostTest(unittest.TestCase):
             launcher = types.SimpleNamespace(poll=lambda: 0)
             outputs = iter([' /different/Xcode.app/DeviceHub\n', str(executable) + '\n'])
             def observe(*args, **kwargs):
+                if args[0][0] == '/usr/bin/pgrep':
+                    return types.SimpleNamespace(returncode=0, stdout='42\n')
                 return types.SimpleNamespace(returncode=0, stdout=next(outputs))
             def wait(check, description, seconds):
                 self.assertFalse(check(), 'Another Xcode UI process cannot establish readiness')

@@ -30,7 +30,22 @@ import org.json.JSONObject;
 
 /** Installed only in a disposable emulator, never included in the MyChef APK. */
 public final class NativeJourneyProbe extends Instrumentation {
-    private WebView web;
+    private volatile WebView web;
+    private volatile Activity currentActivity;
+
+    @Override public void callActivityOnResume(Activity activity) {
+        super.callActivityOnResume(activity);
+        if (activity.getPackageName().equals(getTargetContext().getPackageName()))
+            currentActivity = activity;
+    }
+
+    private void refreshWeb() {
+        Activity activity = currentActivity;
+        if (activity != null && !activity.isDestroyed()) {
+            WebView current = find(activity.getWindow().getDecorView());
+            if (current != null) web = current;
+        }
+    }
 
     @Override public void onCreate(Bundle arguments) { super.onCreate(arguments); start(); }
 
@@ -450,21 +465,34 @@ public final class NativeJourneyProbe extends Instrumentation {
             launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             Activity activity = startActivitySync(launch);
             for (int i = 0; i < 100 && web == null; i++) {
-                runOnMainSync(() -> web = find(activity.getWindow().getDecorView()));
+                runOnMainSync(this::refreshWeb);
                 if (web == null) SystemClock.sleep(100);
             }
             if (web == null) throw new IllegalStateException("webview");
             boolean[] focused = {false};
             for (int i = 0; i < 300 && !focused[0]; i++) {
-                runOnMainSync(() -> focused[0] = web.isShown() && web.hasWindowFocus());
+                runOnMainSync(() -> {
+                    refreshWeb();
+                    focused[0] = web.isShown() && web.hasWindowFocus();
+                });
                 if (!focused[0]) {
                     // Bring only this fixture's activity forward after cold
                     // system startup; never accept an unfocused app window.
-                    if (i > 0 && i % 50 == 0) runOnMainSync(() -> activity.startActivity(launch));
+                    if (i > 0 && i % 50 == 0) getTargetContext().startActivity(launch);
                     SystemClock.sleep(100);
                 }
             }
-            if (!focused[0]) throw new IllegalStateException("native-window-unfocused");
+            if (!focused[0]) {
+                Bundle diagnostic = new Bundle();
+                diagnostic.putString("probeActivityReplaced", Boolean.toString(currentActivity != activity));
+                runOnMainSync(() -> {
+                    diagnostic.putString("probeActivityDestroyed", Boolean.toString(currentActivity == null || currentActivity.isDestroyed()));
+                    diagnostic.putString("probeWebShown", Boolean.toString(web.isShown()));
+                    diagnostic.putString("probeWindowFocus", Boolean.toString(web.hasWindowFocus()));
+                });
+                sendStatus(1, diagnostic);
+                throw new IllegalStateException("native-window-unfocused");
+            }
             boolean[] zoom = {false};
             runOnMainSync(() -> zoom[0] = web.getSettings().getBuiltInZoomControls());
             if (!zoom[0]) throw new IllegalStateException("pinch-disabled");
@@ -475,6 +503,7 @@ public final class NativeJourneyProbe extends Instrumentation {
             long deadline = SystemClock.uptimeMillis() + 900_000;
             while (!stop.exists() && SystemClock.uptimeMillis() < deadline) {
                 if (command.exists()) {
+                    runOnMainSync(this::refreshWeb);
                     String value = new String(Files.readAllBytes(command.toPath()), StandardCharsets.UTF_8).trim();
                     command.delete();
                     if (value.equals("pinch")) pinch();

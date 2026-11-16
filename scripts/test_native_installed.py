@@ -582,10 +582,24 @@ def start_ios_ui(state, stack, arguments):
     launcher = subprocess.Popen(arguments, cwd=ROOT, env=ENV, stdout=log, stderr=log)
     stack.callback(terminate, launcher)
     def ready():
-        # Read executable names only, never process arguments or environments.
-        result = subprocess.run(['/bin/ps', '-axo', 'comm='], env=ENV, text=True,
-                                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=10)
-        return result.returncode == 0 and any(line.strip() in expected for line in result.stdout.splitlines())
+        # Query only candidate UI PIDs; walking every process can stall while
+        # the simulator starts. Never read arguments or environments.
+        try:
+            candidates = subprocess.run(['/usr/bin/pgrep', '-x', name], env=ENV, text=True,
+                                        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=5)
+            pids = candidates.stdout.split()
+            if candidates.returncode != 0 or not 1 <= len(pids) <= 8:
+                return False
+            for pid in pids:
+                if not re.fullmatch(r'[1-9][0-9]{0,8}', pid):
+                    return False
+                result = subprocess.run(['/bin/ps', '-p', pid, '-o', 'comm='], env=ENV, text=True,
+                                        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=5)
+                if result.returncode == 0 and result.stdout.strip() in expected:
+                    return True
+        except subprocess.TimeoutExpired:
+            return False
+        return False
     wait_for(ready, 'selected Xcode UI process', 60)
     print('Selected Xcode UI process is running', flush=True)
 

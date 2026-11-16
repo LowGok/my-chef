@@ -75,6 +75,16 @@ final class AnalyticsProbe: XCTestCase {
         let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: up ? 0.15 : 0.4))
         start.press(forDuration: 0.05, thenDragTo: end)
     }
+    func hasTapRegion(_ element: XCUIElement) -> Bool {
+        guard element.exists else { return false }
+        let frame = element.frame
+        guard !frame.isNull, !frame.isInfinite, frame.width > 1, frame.height > 1,
+              [frame.minX, frame.minY, frame.maxX, frame.maxY].allSatisfy({ $0.isFinite }) else { return false }
+        let center = CGPoint(x: frame.midX, y: frame.midY)
+        guard app.frame.insetBy(dx: 1, dy: 1).contains(center) else { return false }
+        let keyboard = app.keyboards.firstMatch
+        return !keyboard.exists || !keyboard.frame.contains(center)
+    }
     func reveal(_ element: XCUIElement) {
         // WebKit can omit offscreen controls from the OS accessibility tree.
         // Search with actual content gestures before declaring the control absent.
@@ -123,21 +133,21 @@ final class AnalyticsProbe: XCTestCase {
         }
         XCTAssertTrue(exists, "Expected installed app control")
         for _ in 0..<12 {
-            if element.isHittable { return }
+            if hasTapRegion(element) && element.isHittable { return }
             // A restored focus can place the result above the viewport. Use
             // its current native rectangle to choose the scroll direction,
             // keeping the gesture above the software keyboard.
             scrollContent(up: element.frame.midY > app.frame.midY)
         }
-        if !element.isHittable {
+        if !hasTapRegion(element) || !element.isHittable {
             screenState()
             let frame = element.frame
             print("Analytics iOS tap rect: \(frame.minX),\(frame.minY),\(frame.width),\(frame.height)")
         }
-        XCTAssertTrue(element.isHittable, "Control must be reachable at OS text size")
+        XCTAssertTrue(hasTapRegion(element) && element.isHittable, "Control must be reachable at OS text size")
     }
     func tapSettled(_ element: XCUIElement) {
-        if !element.exists || !element.isHittable { reveal(element) }
+        if !hasTapRegion(element) || !element.isHittable { reveal(element) }
         let end = Date().addingTimeInterval(20)
         var previous = CGRect.null
         var unchanged = 0
@@ -149,7 +159,7 @@ final class AnalyticsProbe: XCTestCase {
                 continue
             }
             let frame = element.frame
-            if !element.isHittable && adjustments < 3 {
+            if (!hasTapRegion(element) || !element.isHittable) && adjustments < 3 {
                 // A late WebKit reflow can move a previously revealed control.
                 // Scroll toward its current position, including upward targets.
                 scrollContent(up: frame.midY > app.frame.midY)
@@ -160,13 +170,13 @@ final class AnalyticsProbe: XCTestCase {
             let stable = !previous.isNull && abs(frame.minX - previous.minX) <= 1
                 && abs(frame.minY - previous.minY) <= 1 && abs(frame.width - previous.width) <= 1
                 && abs(frame.height - previous.height) <= 1
-            unchanged = element.isHittable && stable ? unchanged + 1 : 0
+            unchanged = hasTapRegion(element) && element.isHittable && stable ? unchanged + 1 : 0
             if unchanged >= 2 { element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap(); return }
             previous = frame
             RunLoop.current.run(until: Date().addingTimeInterval(0.2))
         }
         let exists = element.exists
-        print("Analytics iOS tap state: type=\(element.elementType.rawValue) exists=\(exists) hittable=\(exists && element.isHittable) stable=\(unchanged)")
+        print("Analytics iOS tap state: type=\(element.elementType.rawValue) exists=\(exists) hittable=\(exists && hasTapRegion(element) && element.isHittable) stable=\(unchanged)")
         if exists {
             let frame = element.frame
             print("Analytics iOS tap rect: \(frame.minX),\(frame.minY),\(frame.width),\(frame.height)")
