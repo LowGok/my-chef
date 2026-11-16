@@ -138,6 +138,14 @@ def gesture(kind, native):
     portrait_width = min(width, height * 9 / 16)
     print('Analytics host touch viewport: width=' + str(width) + ' height=' + str(height)
           + ' portraitWidth=' + str(round(portrait_width)), flush=True)
+    def swipe_point(step):
+        return move(.5 + (-.2 + .04 * step) * portrait_width / width, .48 + .004 * step)
+    # Let Qt receive the initial pointer position before opening the guest
+    # observer. This sends no contact; the single press still follows actual
+    # observer readiness and must produce complete measured MT contacts.
+    initial = move(.5 - 12 / width, .5 - 6 / height) if kind == 'double-tap' else swipe_point(0)
+    command(*(initial + ['sleep', '.1']))
+    print('Analytics hardware gesture plan: ' + kind, flush=True)
     with touch_trace(native, 2 if kind == 'double-tap' else 1):
         if kind == 'double-tap':
             # One process preserves timing; nearby distinct host positions
@@ -155,12 +163,10 @@ def gesture(kind, native):
         else:
             # A slight vertical change keeps the gesture horizontally dominant
             # while making both absolute axes observable in this fresh trace.
-            def swipe_point(step):
-                return move(.5 + (-.2 + .04 * step) * portrait_width / width, .48 + .004 * step)
-            sequence = swipe_point(0) + ['mousedown', '1']
+            sequence = swipe_point(0) + ['mousedown', '1', 'sleep', '.05']
             for step in range(1, 11):
                 sequence += ['sleep', '.018'] + swipe_point(step)
-            sequence += ['mouseup', '1']
+            sequence += ['sleep', '.05', 'mouseup', '1']
             try:
                 command(*sequence)
             finally:

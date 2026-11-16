@@ -1,6 +1,6 @@
 """Closed gestures through this run's X11 emulator, without a real display."""
 import unittest
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
 from types import SimpleNamespace
 from unittest.mock import patch
 from analytics_touch import gesture
@@ -32,6 +32,20 @@ class DisplayGestureTest(unittest.TestCase):
         self.assertFalse(any('click' in call or 'mousedown' in call for call in calls))
         native, _ = self.native(owner='999')
         with self.assertRaises(RuntimeError): focus_display(native)
+
+    def test_pointer_settles_without_press_before_touch_observer_is_released(self):
+        for kind in ('double-tap', 'next'):
+            native, calls = self.native()
+            @contextmanager
+            def trace(*_):
+                moves = [call for call in calls if 'mousemove' in call]
+                self.assertTrue(moves, 'The host pointer must settle before starting input observation')
+                self.assertIn('sleep', moves[-1])
+                self.assertFalse(any('mousedown' in call for call in calls), 'A press cannot precede the touch observer')
+                yield
+            with self.subTest(kind=kind), patch('analytics_touch.touch_trace', side_effect=trace), \
+                 patch('analytics_touch.time.sleep'):
+                gesture(kind, native)
 
     def test_double_tap_targets_largest_visible_window_owned_by_this_emulator(self):
         native, calls = self.native()
