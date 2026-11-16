@@ -149,7 +149,6 @@ Keep the existing one-second deadline on the first account update after cancelli
 - [x] AC-05: The verified backend field/purpose/expiry/rights/key/restore handoff supports the separate private website assessment and localized notice against the approved review/erasure criteria, with no anonymous-data, deployed-behavior or live-delivery claim before its actual proof.
       Evidence: R-9 independently returned met for AC-05 at eef94163 after verifying exact-head Delivery43795080393 SUCCESS, identical merge/head trees and unchanged production/test/workflow projection against its executed focused/process/restore evidence. Author observed every required job and checks step passing, including full race, historical upgrade, newsletter recovery and final-image scan. This completes source verification only; signed release, production operations, canonical mail and notice/activation remain separate.
 
-
 ## Test Plan
 
 | Criterion | Proof |
