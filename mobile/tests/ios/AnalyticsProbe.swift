@@ -297,13 +297,18 @@ final class AnalyticsProbe: XCTestCase {
     }
     func fill(_ label: String, _ text: String, secure: Bool = false) {
         print("Analytics iOS control: " + label)
-        hasEnteredData = true
         let ordinary = app.descendants(matching: .any).matching(NSPredicate(format:
             "label == %@ AND (elementType == %d OR elementType == %d)", label,
             XCUIElement.ElementType.textField.rawValue, XCUIElement.ElementType.textView.rawValue)).firstMatch
         let element = secure ? app.secureTextFields[label].firstMatch : ordinary
         reveal(element); tapSettled(element, nativeElement: true)
+        if !hasEnteredData, let path = configuration["anonymousScreenshot"] {
+            // Only the untouched anonymous form is eligible for an image.
+            // Never replace this after any field input or account proof.
+            try? app.screenshot().pngRepresentation.write(to: URL(fileURLWithPath: path), options: .atomic)
+        }
         waitFor({ self.app.keyboards.firstMatch.exists }, "Native text input needs the software keyboard")
+        hasEnteredData = true
         let current = element.value as? String ?? ""
         if label == "Diet" || (!current.isEmpty && current != element.placeholderValue) {
             // Use the OS keyboard command instead of depending on the edit

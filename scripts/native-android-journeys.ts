@@ -1284,6 +1284,12 @@ async function analyticsJourneys() {
         target === "cleanup" ? "Active deletion is in progress" : "isolated backup cleanup is pending" }) : toggle();
     await withTalkBack(control, async () => {
       for (let attempt = 1; attempt <= 3; attempt++) {
+        // Navigating away for a speech retry may scroll this control out of
+        // the OS accessibility tree. Restore visibility before fresh capture;
+        // native focus, checked state and actual speech must still succeed.
+        await control.evaluate((node) => node.scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" }));
+        await expect(control).toBeVisible();
+        await Bun.sleep(350);
         await fixture("speech-start", { target });
         const focus = target === "order" ? "on" : target.replace("signup-", "");
         await probeAction("speech-focus", focus);
