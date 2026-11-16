@@ -655,6 +655,13 @@ class XcodeUIHostTest(unittest.TestCase):
                 self.assertIn('swiftc', compile_host.call_args_list[0].args)
                 self.assertIn(str(installed.ROOT / 'mobile/tests/ios/SimulatorHost.swift'), compile_host.call_args_list[0].args)
 
+    def test_modern_command_line_ui_testing_does_not_require_a_desktop_host_bundle(self):
+        with tempfile.TemporaryDirectory(prefix='analytics-headless-xcode-') as folder:
+            developer = Path(folder) / 'Xcode_27.2.app/Contents/Developer'
+            self.assertIsNone(installed.ios_ui_command(developer, 'iPhone 17', 'owned-device', headless=True))
+            with self.assertRaisesRegex(ValueError, 'VoiceOver fixture'):
+                installed.ios_ui_command(developer, 'iPhone 16', 'owned-device', headless=True)
+
     def test_modern_runtime_requires_device_hub_from_the_selected_xcode(self):
         with tempfile.TemporaryDirectory(prefix='analytics-xcode-ui-') as folder:
             developer = Path(folder) / 'Xcode_27.2.app/Contents/Developer'

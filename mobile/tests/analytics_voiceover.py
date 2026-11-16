@@ -99,7 +99,7 @@ def main():
         account = fixture.operate({'operation': 'seed'})
         control = fixture.serve(stack)
         metadata, launch, _, diagnostic = native.ios(state, stack, ca, artifact,
-            model='iPhone 17', fixture_name='MyChef analytics voice fixture')
+            model='iPhone 17', fixture_name='MyChef analytics voice fixture', headless=True)
         devices = json.loads(native.command('xcrun', 'simctl', 'list', 'devices', 'booted', '-j'))['devices']
         identifiers = [d['udid'] for group in devices.values() for d in group if d.get('name') == 'MyChef analytics voice fixture']
         if len(identifiers) != 1:

@@ -663,7 +663,11 @@ def start_ios_ui(state, stack, arguments, observer=None):
     print('Selected Xcode UI process is running', flush=True)
 
 
-def ios_ui_command(developer, model, identifier):
+def ios_ui_command(developer, model, identifier, *, headless=False):
+    if headless:
+        if model != "iPhone 17":
+            raise ValueError("Command-line UI testing is limited to the VoiceOver fixture")
+        return None
     developer = Path(developer)
     if model == 'iPhone 17':
         # Xcode 27 ships Device Hub beside Developer, replacing Simulator.app.
@@ -681,7 +685,9 @@ def ios_ui_command(developer, model, identifier):
     return None
 
 
-def ios(state, stack, ca, package, model="iPhone 16", fixture_name="MyChef fixture"):
+def ios(state, stack, ca, package, model="iPhone 16", fixture_name="MyChef fixture", *, headless=False):
+    if headless and (model, fixture_name) != ("iPhone 17", "MyChef analytics voice fixture"):
+        raise ValueError("Command-line UI testing is limited to the VoiceOver fixture")
     if (model, fixture_name) not in (("iPhone 16", "MyChef fixture"),
                                     ("iPhone SE (3rd generation)", "MyChef analytics small fixture"),
                                     ("iPhone 17", "MyChef analytics voice fixture")):
@@ -732,13 +738,17 @@ def ios(state, stack, ca, package, model="iPhone 16", fixture_name="MyChef fixtu
                 print("Disposable simulator cleanup timed out: " + operation, flush=True)
 
     stack.callback(cleanup)
-    ui_command = ios_ui_command(ENV["DEVELOPER_DIR"], model, identifier)
-    # Compile the small observer before CoreSimulator's boot workload. It must
-    # establish the selected UI process before device boot starts.
-    ui_observer = compile_ios_ui_observer(state) if (model == 'iPhone 17' or
+    ui_command = ios_ui_command(ENV["DEVELOPER_DIR"], model, identifier, headless=headless)
+    # Prepare desktop-host observation before CoreSimulator's boot workload.
+    # The command-line XCTest route launches no desktop UI process.
+    ui_observer = compile_ios_ui_observer(state) if not headless and (model == 'iPhone 17' or
         model == 'iPhone 16' and os.environ.get('NATIVE_ANALYTICS_JOURNEYS') == '1') else None
     def open_ui():
-        if ui_command:
+        if headless:
+            # XCTest still controls the real installed phone UI. Avoid the
+            # extra desktop host's workload on the standard seven-GB runner.
+            print("Owned VoiceOver simulator uses command-line UI testing", flush=True)
+        elif ui_command:
             if model == "iPhone 17":
                 start_ios_ui(state, stack, ui_command, observer=ui_observer)
             else:
