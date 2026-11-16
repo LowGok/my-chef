@@ -695,7 +695,10 @@ final class AnalyticsProbe: XCTestCase {
             // visible touch anchor when available; otherwise let VoiceOver's
             // own navigation reach and scroll to the required announcement.
             if element.exists && element.isHittable {
-                element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+                // Ask XCTest for the element's hittable point. The geometric
+                // centre of a WebKit label can focus adjacent static text.
+                // This remains a native tap; actual speech/state is required.
+                element.tap()
             }
             let control = ["Help improve MyChef", "Save preferences", "Refresh analytics setting"].contains(phrase)
             return try spoken(phrase, backward: control, controlRole: control)
