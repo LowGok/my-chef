@@ -627,7 +627,24 @@ final class AnalyticsProbe: XCTestCase {
                     return nil
                 }
             }
-            if let current = observe({ try voice.currentSpeech().utterance }), matches(current) { return current }
+            func focusedMatch(_ output: String) -> String? {
+                if matches(output) { return output }
+                let normalized = words(output)
+                let role = output.range(of: "switch|check.?box|tick.?box|button|link", options: [.regularExpression, .caseInsensitive]) != nil
+                let privacy = normalized == "privacy" || normalized.contains("privacy")
+                    && normalized.range(of: "\\b(group|landmark)\\b", options: .regularExpression) != nil
+                let labelledContainer = controlRole && normalized.contains(expected) && !role
+                // A fieldset or label container may be spoken without its
+                // child control. Enter through VoiceOver itself, retaining
+                // the same label/role requirement for the returned speech.
+                if normalized.contains("web content") || privacy || labelledContainer {
+                    print("Analytics iOS spoken container: privacy=\(privacy) label=\(labelledContainer)")
+                    if let entered = observe({ try voice.moveIn().utterance }), matches(entered) { return entered }
+                }
+                return nil
+            }
+            if let current = observe({ try voice.currentSpeech().utterance }),
+               let found = focusedMatch(current) { return found }
             for reverse in [backward, !backward] {
                 // Reserve time for both directions if the first reaches a
                 // boundary without throwing or changing its announcement.
@@ -642,15 +659,7 @@ final class AnalyticsProbe: XCTestCase {
                         RunLoop.current.run(until: Date().addingTimeInterval(0.2))
                         continue
                     }
-                    if matches(output) { return output }
-                    let normalizedOutput = words(output)
-                    // A fieldset may be a spoken Privacy group. Enter that
-                    // real container to reach its checkbox rather than
-                    // moving past all of the group's children.
-                    let privacyGroup = normalizedOutput.contains("privacy")
-                        && normalizedOutput.range(of: "\\bgroup\\b", options: .regularExpression) != nil
-                    if (normalizedOutput.contains("web content") || privacyGroup),
-                       let entered = observe({ try voice.moveIn().utterance }), matches(entered) { return entered }
+                    if let found = focusedMatch(output) { return found }
                 }
             }
             // Only fixed app vocabulary, never arbitrary speech or fields.
