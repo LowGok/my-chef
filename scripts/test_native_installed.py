@@ -565,6 +565,21 @@ def ios_host_resources(state):
     print("Simulator runner resources: " + json.dumps(result, sort_keys=True), flush=True)
 
 
+def ios_ui_command(developer, model, identifier):
+    developer = Path(developer)
+    if model == 'iPhone 17':
+        # Xcode 27 ships Device Hub beside Developer, replacing Simulator.app.
+        # Do not silently skip that host when testing the new VoiceOver runtime.
+        hub = developer.parent / 'Applications/DeviceHub.app'
+        if not hub.is_dir():
+            raise RuntimeError('Selected Xcode Device Hub is unavailable')
+        return ['/usr/bin/open', '-a', str(hub)]
+    legacy = developer / 'Applications/Simulator.app'
+    if legacy.is_dir():
+        return ['/usr/bin/open', '-a', str(legacy), '--args', '-CurrentDeviceUDID', identifier]
+    return None
+
+
 def ios(state, stack, ca, package, model="iPhone 16", fixture_name="MyChef fixture"):
     if (model, fixture_name) not in (("iPhone 16", "MyChef fixture"),
                                     ("iPhone SE (3rd generation)", "MyChef analytics small fixture"),
@@ -619,13 +634,12 @@ def ios(state, stack, ca, package, model="iPhone 16", fixture_name="MyChef fixtu
     sim("boot", identifier)
     # Activate the selected Xcode's simulator UI before the first app launch;
     # the same owned device must still finish boot, trust and real HTTPS.
-    simulator_ui = Path(ENV["DEVELOPER_DIR"]) / "Applications/Simulator.app"
-    if simulator_ui.is_dir():
-        command("/usr/bin/open", "-a", str(simulator_ui), "--args", "-CurrentDeviceUDID", identifier, timeout=30)
+    ui_command = ios_ui_command(ENV["DEVELOPER_DIR"], model, identifier)
+    if ui_command:
+        command(*ui_command, timeout=30)
+        print("Opened selected Xcode " + ("Device Hub" if model == "iPhone 17" else "Simulator"), flush=True)
     else:
-        # The newer hosted toolchain omits this optional GUI bundle. XCTest
-        # and real VoiceOver remain required on its actual booted simulator.
-        print("Simulator GUI unavailable; continuing with actual headless runtime checks", flush=True)
+        print("Legacy Simulator GUI unavailable; continuing with actual headless runtime checks", flush=True)
     try:
         sim("bootstatus", identifier, timeout=240)
     except subprocess.TimeoutExpired as error:

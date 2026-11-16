@@ -479,5 +479,21 @@ class NativeSystemPickerTest(unittest.TestCase):
         self.assertEqual(sum('dumpsys' in argv for argv in commands[back:]), 1)
 
 
+class XcodeUIHostTest(unittest.TestCase):
+    def test_modern_runtime_requires_device_hub_from_the_selected_xcode(self):
+        with tempfile.TemporaryDirectory(prefix='analytics-xcode-ui-') as folder:
+            developer = Path(folder) / 'Xcode_27.1.app/Contents/Developer'
+            with self.assertRaisesRegex(RuntimeError, 'Device Hub'):
+                installed.ios_ui_command(developer, 'iPhone 17', 'fictional-device')
+            hub = developer.parent / 'Applications/DeviceHub.app'
+            hub.mkdir(parents=True)
+            self.assertEqual(installed.ios_ui_command(developer, 'iPhone 17', 'fictional-device'),
+                             ['/usr/bin/open', '-a', str(hub)])
+            legacy = developer / 'Applications/Simulator.app'
+            legacy.mkdir(parents=True)
+            self.assertEqual(installed.ios_ui_command(developer, 'iPhone 16', 'fictional-device'),
+                             ['/usr/bin/open', '-a', str(legacy), '--args', '-CurrentDeviceUDID', 'fictional-device'])
+
+
 if __name__ == "__main__":
     unittest.main()
