@@ -45,7 +45,7 @@ def native_fixture(root='0', profile=PROFILE, foreign=False, fail_write=False, r
         if args[-2:] == ('getevent', '-lp'): return profile
         if args[-3:] == ('pm', 'path', 'com.gkldevelopment.mychef.preview.test'): return helper
         if args[-4:] == ('dumpsys', '-t', '5', 'input'): return reader
-        if 'app_process' in args and fail_write and sum('app_process' in a for a, _ in calls) == 1:
+        if 'com.gkldevelopment.mychef.testing.NativeTouchWriter' in args and fail_write and sum('com.gkldevelopment.mychef.testing.NativeTouchWriter' in a for a, _ in calls) == 1:
             raise RuntimeError('Fictional input interruption')
         return ''
     return SimpleNamespace(ENV={'DISPLAY': ':91', 'MYCHEF_ANALYTICS_EMULATOR_PID': '101',
@@ -93,7 +93,7 @@ class KernelGestureTest(unittest.TestCase):
         device = touch.select_touch_device(PROFILE)
         apk = '/data/app/~~fictional/com.gkldevelopment.mychef.preview.test-fictional/base.apk'
         command = touch.helper_command('double-tap', device, apk)
-        self.assertEqual(command[:4], ('env', 'CLASSPATH=' + apk, 'app_process', '/system/bin'))
+        self.assertEqual(command[:4], ('env', 'CLASSPATH=' + apk, '/system/bin/app_process64', '/system/bin'))
         self.assertEqual(command[4:7], ('com.gkldevelopment.mychef.testing.NativeTouchWriter',
                                        'double-tap', '/dev/input/event7'))
         self.assertEqual(command[7:], ('0', '32767', '0', '32767', '255', '1'))
@@ -203,7 +203,7 @@ class KernelGestureTest(unittest.TestCase):
             observing = [False]
             original = native.command
             def command(*args, **options):
-                if 'app_process' in args:
+                if 'com.gkldevelopment.mychef.testing.NativeTouchWriter' in args:
                     self.assertTrue(observing[0])
                     self.assertEqual(args[:3], ('/fictional-sdk/platform-tools/adb', '-s', 'emulator-5554'))
                 return original(*args, **options)
@@ -222,7 +222,7 @@ class KernelGestureTest(unittest.TestCase):
                         touch.gesture('double-tap', native)
                 else:
                     self.assertEqual(touch.gesture('double-tap', native), {'passed': True})
-            writes = [args for args, _ in calls if 'app_process' in args]
+            writes = [args for args, _ in calls if 'com.gkldevelopment.mychef.testing.NativeTouchWriter' in args]
             self.assertEqual(len(writes), 2, 'One gesture plus release cleanup only')
             self.assertEqual(writes[-1][9], 'release')
             self.assertFalse(any('mousedown' in args for args, _ in calls))
@@ -233,7 +233,7 @@ class KernelGestureTest(unittest.TestCase):
             native, calls = native_fixture(**options)
             with patch.object(touch.time, 'sleep'), self.assertRaises((ValueError, RuntimeError)):
                 touch.gesture('next', native)
-            self.assertFalse(any('app_process' in args or fields.get('data') for args, fields in calls))
+            self.assertFalse(any('com.gkldevelopment.mychef.testing.NativeTouchWriter' in args or fields.get('data') for args, fields in calls))
 
 
 class TouchTraceTest(unittest.TestCase):

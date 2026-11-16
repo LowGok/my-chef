@@ -372,7 +372,7 @@ def helper_command(kind, device, apk):
     if pressure is not None and (type(pressure) is not tuple or len(pressure) != 2
             or any(type(n) is not int for n in pressure) or pressure[0] != 0 or not 1 <= pressure[1] <= 65535):
         raise ValueError('Closed hardware gesture required')
-    return ('env', 'CLASSPATH=' + apk, 'app_process', '/system/bin',
+    return ('env', 'CLASSPATH=' + apk, '/system/bin/app_process64', '/system/bin',
             'com.gkldevelopment.mychef.testing.NativeTouchWriter', kind, device['path'],
             *(str(n) for n in (*device['x'], *device['y'], pressure[1] if pressure else 0,
                               int(device['button']))))

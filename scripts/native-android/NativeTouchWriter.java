@@ -1,5 +1,6 @@
 package com.gkldevelopment.mychef.testing;
 
+import android.os.Process;
 import android.system.Os;
 import android.system.OsConstants;
 import java.io.FileDescriptor;
@@ -18,7 +19,7 @@ public final class NativeTouchWriter {
             reason = "permission";
             if (Os.getuid() != 0) throw new IllegalStateException();
             reason = "abi";
-            if (!Os.uname().machine.equals("x86_64")) throw new IllegalStateException();
+            if (!Process.is64Bit() || !Os.uname().machine.equals("x86_64")) throw new IllegalStateException();
             reason = "open";
             fd = Os.open(args[1],OsConstants.O_WRONLY | OsConstants.O_CLOEXEC | OsConstants.O_NOFOLLOW,0);
             System.err.println("ANALYTICS_TOUCH_STAGE=open");
