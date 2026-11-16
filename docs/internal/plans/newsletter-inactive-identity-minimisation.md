@@ -1,6 +1,6 @@
 ---
 status: in-progress
-status_description: "R-7 verifies full race success; the overall checks budget is repaired locally. Fresh review and complete exact-head CI remain required; no merge or activation."
+status_description: "R-8 verifies the outer CI budget repair with no new defect; AC-04 awaits complete new-head normal CI. No merge or activation."
 branch: feat/newsletter-inactive-identity-minimisation
 issue: null
 goal: "Inactive newsletter contacts retain their userID and non-consenting state without unnecessary clear email or expired mail/proof history."
@@ -145,7 +145,7 @@ Keep the existing one-second deadline on the first account update after cancelli
 - [x] AC-03: Concurrency, expiry, erasure, restart, key recovery and old-backup restore cannot resurrect clear inactive data, old consent or dispatch, and do not change full accounts or unrelated purposes.
       Evidence: R-7 returned met at eb09f900 after independently verifying the identical-tree hosted complete race command succeeded in19m12s, including the dataset CLI, plus fresh relevant races/process checks. The earlier local timeout remains historical; this is synthetic backend evidence, not live readiness.
 - [ ] AC-04: The additive migration/backfill and compatible rollback are independently verified, with fail-closed readiness for missing keys/journal/ambiguous state and untouched published checksums.
-      Evidence: R-7 returned not verified at eb09f900: hosted full race, container and tooling passed, but normal CI exceeded the overall30-minute job limit during browser/process step11; upgrade/newsletter steps were skipped. GitHub check annotation explicitly reports the30m maximum. Final CI remains required.
+      Evidence: R-8 returned not verified at6740ed3 pending new-head normal CI. It independently confirms only the overall checks budget changes30->45, while the exact20-minute race command/security/other steps remain unchanged. Prior full race/container/tooling passed; the provider confirms the earlier overall30m cancellation. Final CI remains required.
 - [x] AC-05: The verified backend field/purpose/expiry/rights/key/restore handoff supports the separate private website assessment and localized notice against the approved review/erasure criteria, with no anonymous-data, deployed-behavior or live-delivery claim before its actual proof.
       Evidence: R-6 independently returned met at7363dac with executed synthetic focused races, actual executable and independently scanned final-image/restore checks; author final verification observes the corresponding covered behavior. This is backend evidence only; live operations and public activation stay separate.
 
@@ -229,6 +229,7 @@ No new product choice. The owner accepted the independently reviewed R-5 test-co
 | 2026-11-16 | R-5 | spec | `bc225ecf5f364ef4b68b6bd2f2a936e895af4871` | n/a | n/a | accepted by owner |
 | 2026-11-16 | R-6 | implementation | `7363dac4779434452218275b14e3af20a8a837a1` | unknown | procedural | AC-01/02/05 met; AC-03/04 not verified pending complete race verification. No new defect; model identity not attested. |
 | 2026-11-16 | R-7 | implementation | `eb09f90097c1241bf6dd3dba9f7067453a95b50f` | unknown | procedural | AC-01/02/03/05 met; AC-04 not verified because final normal CI was cancelled. No new source defect; model identity not attested. |
+| 2026-11-16 | R-8 | implementation | `6740ed3366422ba360f7ca4f59a3a216f0ac3877` | unknown | procedural | AC-01/02/03/05 met; AC-04 awaits new-head normal CI. Only outer job budget differs; model identity not attested. |
 
 ### R-1
 
@@ -340,3 +341,25 @@ EVIDENCE: At eb09f90097c1241bf6dd3dba9f7067453a95b50f, fresh local journal/key, 
 CRITERION: AC-05 The verified backend field/purpose/expiry/rights/key/restore handoff supports the separate private website assessment and localized notice against the approved review/erasure criteria, with no anonymous-data, deployed-behavior or live-delivery claim before its actual proof.
 VERDICT: met
 EVIDENCE: At eb09f90097c1241bf6dd3dba9f7067453a95b50f, rechecked unchanged backend/runbook guidance against the schema/resolver/expiry/restore implementation and fresh synthetic recovery evidence. The handoff separates reduced stored fields from newly supplied rights-verification data, requires cleanup before restored service startup, preserves current account purposes and distinguishes protected personal data, active files, historical backups and provider retention. The document keeps private website assessment, localized notice, real operations, mailbox and launch approvals separate. Hosted race success and final CI cancellation are distinct observed results; neither establishes deployment, legal compliance or live delivery.
+
+### R-8
+
+CRITERION: AC-01 Inactive newsletter-only contacts preserve their IDs and non-consenting state in the protected matching representation while unnecessary clear-address and expired proof/mail references are absent from logical records and completed active SQLite-file cleanup; historical backups remain separately governed.
+VERDICT: met
+EVIDENCE: At 6740ed3366422ba360f7ca4f59a3a216f0ac3877, independently compared the complete runtime/test projection with eb09f90097c1241bf6dd3dba9f7067453a95b50f and observed no changes. This retains this reviewer's executed R-7 restore/journal/physical-cleanup races and actual-process evidence for retained IDs/choices, expired proof/mail removal, active-file canaries, authorized controls, failure/retry and sanitized restore output. Independently observed hosted full-race and container results establish the same implementation. The sole workflow scalar change cannot alter these storage transitions. Historical backups/provider retention remain separate; fixtures and delivery evidence are synthetic.
+
+CRITERION: AC-02 Fresh verified newsletter/app/email-change flows safely resolve the same identity without enumeration, duplicate ownership or implicit newsletter consent; promotion, later ordinary email change/deletion and address reuse retire stale ownership while valid withdrawal links and operator rights continue working.
+VERDICT: met
+EVIDENCE: At 6740ed3366422ba360f7ca4f59a3a216f0ac3877, the inspected resolver, auth, HTTP, proof, ownership and operator implementation and tests are byte-identical to the R-7 projection. This reviewer's independently retrieved hosted full-race logs and executed process checks establish same-ID verification, canonical collision handling, preserved consent choices, promotion, ordinary email change/deletion, address reuse, withdrawal and export/erasure on that implementation. The job-budget-only workflow change preserves every test command and authority boundary. No production action or real mailbox receipt is established.
+
+CRITERION: AC-03 Concurrency, expiry, erasure, restart, key recovery and old-backup restore cannot resurrect clear inactive data, old consent or dispatch, and do not change full accounts or unrelated purposes.
+VERDICT: met
+EVIDENCE: At 6740ed3366422ba360f7ca4f59a3a216f0ac3877, independently verified that all runtime/test files and the complete race command remain unchanged from the R-7 implementation. This reviewer observed go test -race -timeout 20m ./... succeed in hosted run43790951807 on its identical runtime/test projection, including analyticsdataset, auth, newsletter, HTTP and store, and independently executed the targeted restore/journal/physical-failure/cancellation-fence races and actual-process recovery checks. The current workflow still runs that exact command with CGO_ENABLED=1; only its enclosing job receives more time. The historical local timeout and hosted job cancellation remain distinct from the passing full-race step.
+
+CRITERION: AC-04 The additive migration/backfill and compatible rollback are independently verified, with fail-closed readiness for missing keys/journal/ambiguous state and untouched published checksums.
+VERDICT: not verified
+EVIDENCE: At 6740ed3366422ba360f7ca4f59a3a216f0ac3877, migration/backfill/runtime code and tests remain byte-identical to this reviewer's independently verified R-7 projection. Independently parsed both workflow versions with existing js-yaml, asserted exact byte replacement of checks timeout30->45, and deep-compared parsed values after restoring that scalar: every command, runner, permission, other limit and release condition is unchanged. The race command remains go test -race -timeout 20m ./.... Independently queried job133048999504 annotations and observed 'The job has exceeded the maximum execution time of 30m0s', confirming the earlier cancellation cause. The proposed outer budget correction is valid, but no completed normal CI run for this new head was observed. T25 and final verification therefore remain open; the prior successful race/container steps do not establish overall CI success or merge/release eligibility.
+
+CRITERION: AC-05 The verified backend field/purpose/expiry/rights/key/restore handoff supports the separate private website assessment and localized notice against the approved review/erasure criteria, with no anonymous-data, deployed-behavior or live-delivery claim before its actual proof.
+VERDICT: met
+EVIDENCE: At 6740ed3366422ba360f7ca4f59a3a216f0ac3877, independently verified unchanged backend/operator documentation and runtime projection, and inspected the added workflow-budget evidence/task record. The field-purpose, expiry, nullable rights export, immutable key, ownership and pre-start restore handoff retains this reviewer's previously executed synthetic evidence. It continues to distinguish protected personal data, active-file cleanup, historical backups and provider retention and preserves private assessment, localized notice, actual operations, mailbox and launch approvals. The document leaves the45-minute job's actual hosted completion pending and makes no deployment, legal-compliance or real-delivery claim.
