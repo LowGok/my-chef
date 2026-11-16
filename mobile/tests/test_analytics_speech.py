@@ -33,6 +33,17 @@ class SpeechEvidenceTest(unittest.TestCase):
         self.assertFalse(matches('on', 'Checked. Help improve MyChef. Not checked.'))
         self.assertFalse(matches('off', 'Checked. Help improve MyChef. Not checked.'))
 
+    def test_bare_state_prefix_requires_the_same_control_role_and_no_prior_ui_words(self):
+        self.assertTrue(matches('signup-off', 'Off. Help improve MyChef. Checkbox.'))
+        self.assertTrue(matches('signup-on', 'On. Help improve MyChef. Checkbox.'))
+        self.assertTrue(matches('off', 'Checkbox off. Help improve MyChef.'))
+        self.assertFalse(matches('off', 'Off. Help improve MyChef.'))
+        self.assertFalse(matches('on', 'TalkBack on. Help improve MyChef. Checkbox.'))
+        self.assertFalse(matches('off', 'Double tap to turn off. Help improve MyChef. Checkbox.'))
+        self.assertFalse(matches('off', 'Other control off. Help improve MyChef. Checkbox.'))
+        self.assertFalse(matches('on', 'Off. Help improve MyChef. Checkbox checked.'))
+        self.assertFalse(matches('off', 'Off. Help improve MyChef. Checkbox checked.'))
+
     def test_signup_states_and_cleanup_announcements_require_the_actual_words(self):
         self.assertTrue(matches('signup-on', 'Help improve MyChef, checked, checkbox'))
         self.assertTrue(matches('signup-off', 'Help improve MyChef, unchecked, checkbox'))

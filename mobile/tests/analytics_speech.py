@@ -33,6 +33,16 @@ def matches(target, transcript):
                          text[label.end():])
         states = {('off' if match[1] in ('not checked', 'unchecked', 'not selected', 'off') else 'on')
                   for match in (before, after) if match is not None}
+        # A bare On/Off prefix is valid only at the start of this capture,
+        # next to this label and an explicit control role. "TalkBack on" or
+        # an earlier action hint cannot supply the checkbox's current state.
+        prefix = re.fullmatch(r'(?:(check ?box|switch|button) )?(on|off)(?: (check ?box|switch|button))?',
+                              text[:label.start()].strip())
+        if prefix is not None:
+            states.add(prefix[2])
+            role_after = re.match(r' *(?:check ?box|switch|button)\b', text[label.end():])
+            if not (prefix[1] or prefix[3] or role_after):
+                return False
         return states == {target}
     phrase = {'stale': 'your setting changed elsewhere', 'offline': 'turning off was not confirmed',
               'order': 'refresh analytics setting', 'cleanup': 'active deletion is in progress',
@@ -188,6 +198,13 @@ class Speech:
             label = re.search(r'help improve my\s?chef', words) is not None
             state = 'on' if matches('on', text) else 'off' if matches('off', text) else 'unknown'
             print('Analytics speech evidence: target=' + target + ' audible=true label=' + str(label).lower() + ' state=' + state, flush=True)
+            found = re.search(r'help improve my\s?chef', words)
+            prefix = re.fullmatch(r'(?:(check ?box|switch|button) )?(on|off)(?: (check ?box|switch|button))?',
+                                  words[:found.start()].strip()) if found else None
+            role_after = bool(found and re.match(r' *(?:check ?box|switch|button)\b', words[found.end():]))
+            print('Analytics speech context: prefix=' + (prefix[2] if prefix else 'none')
+                  + ' roleBefore=' + str(bool(prefix and (prefix[1] or prefix[3]))).lower()
+                  + ' roleAfter=' + str(role_after).lower(), flush=True)
             # Fixed UI vocabulary only. Never print arbitrary recognized words,
             # the transcript, audio, account fields or provider output.
             vocabulary = ('help', 'improve', 'chef', 'checked', 'unchecked',
