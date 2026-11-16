@@ -59,6 +59,25 @@ func (j *LifecycleJournal) RestoreNewsletterIdentities(ctx context.Context, key 
 	}
 	j.app.AccountWork.Lock()
 	err := j.restoreNewsletterIdentitiesOwned(ctx, key)
+	if err == nil {
+		// The snapshot may predate expiry. Drain ended account work on the
+		// unpublished copy before a successful physical-cleanup receipt.
+		now := time.Now().UTC()
+		for {
+			if err = ctx.Err(); err != nil {
+				break
+			}
+			changed := false
+			err = j.app.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+				var sweepErr error
+				changed, sweepErr = SweepExpiredAccountProofSlice(ctx, tx, now)
+				return sweepErr
+			})
+			if err != nil || !changed {
+				break
+			}
+		}
+	}
 	j.app.AccountWork.Unlock()
 	if err != nil {
 		return err

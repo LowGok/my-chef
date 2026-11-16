@@ -3,6 +3,7 @@ package newsletter_test
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -10,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"fmt"
 	"github.com/LowGok/my-chef/internal/auth"
 	"github.com/LowGok/my-chef/internal/config"
 	"github.com/LowGok/my-chef/internal/email/mailqueue"

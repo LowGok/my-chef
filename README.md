@@ -337,8 +337,12 @@ discarding credentials/profile or publishing the destination. Generic unbound
 stores retain their existing conservative pending reset.
 
 Restore prepares and sanitizes an unpublished working copy. The retained source
-snapshot stays byte-identical. Old confirmation/capture work and unissued signup
-requests cannot replay; no mail is sent automatically. Recognizable current
+snapshot stays byte-identical. Before publication, the same bounded account-work
+expiry used by maintenance removes expired issued signup, verification,
+email-change and recovery proofs/jobs and their purpose-owned mail/provider
+references, then completes active-file cleanup. Current account work and ordinary
+mail remain. Old confirmation/capture work and unissued signup requests cannot
+replay; no mail is sent automatically. Recognizable current
 withdrawal hashes for an unchanged mailbox remain usable. Superseded revisions
 are acknowledgments with no authority to change later consent, and stale mailbox
 bindings are discarded. A proof absent from the retained snapshot cannot be

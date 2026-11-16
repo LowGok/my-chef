@@ -106,8 +106,12 @@ production authority is unchanged. Check same IDs/high-water, absent erased
 identities, latest withdrawal preserved, confirmed subscriptions requiring fresh
 proof, recognizable unchanged-mailbox withdrawal still usable, no expired or
 superseded authority and no automatic reconfirmation mail. Verify obsolete clear
-canaries absent from active DB/WAL/SHM with authorized controls preserved. Missing
-keys, an older app epoch or unknown placeholders must refuse publication; never
+canaries absent from active DB/WAL/SHM with authorized controls preserved. Inspect
+the destination before starting the service: restore must itself expire issued
+signup, verification, email-change and recovery work and its purpose-owned mail,
+while keeping current account proofs, ordinary mail and app credentials intact.
+A later startup sweep is not proof that the restore command sanitized its output.
+Missing keys, an older app epoch or unknown placeholders must refuse publication; never
 guess the current full-account address or discard its profile to proceed. Resume
 paused preflight after recovery. Withdrawal and erasure are independent of app
 accounts and analytics consent.

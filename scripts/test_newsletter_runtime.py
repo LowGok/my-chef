@@ -149,8 +149,16 @@ def main():
             for path in ("/app/", "/api/v1/login", "/api/native/v1/login", "/fixture/inbox", "/api/v1/webhooks/email"):
                 call(path, expected=404)
         checks.append("paused vector, protected operator route, proof confirmation and process locks")
+        # Preserve genuinely issued-but-expired account work in the old copy.
+        # The restore command itself must remove it before any server can sweep.
+        expired_canary = "expired-signup-runtime-canary@example.test"
+        sql("INSERT INTO signup_proofs VALUES('restore-expired','restore-expired-hash','restore-expired-tag',2,NULL,?)", (expired_canary,))
+        sql("INSERT INTO email_outbox(key,recipient,template,data,state,next_at,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)",
+            ("signup/restore-expired", expired_canary, "signup-proof/v1", '{"expires":2}', "accepted", 1, 1, 1))
         snapshot = state / "before-erasure.db"
         run(migrate, "backup", "--db", db, "--lifecycle-db", journal, "--file", snapshot)
+        assert expired_canary.encode() in snapshot.read_bytes()
+        snapshot_digest = hashlib.sha256(snapshot.read_bytes()).digest()
         with server(collect="1"):
             assert call("/internal/newsletter/readiness")["ready"]
             assert call("/api/v1/newsletter/subscribe", {"email": "captured@runtime.example.test", "locale": "nl-BE",
@@ -194,6 +202,13 @@ def main():
         run(binary, "newsletter", "erase", *flags, data=actor)
         restored = state / "restored.db"
         run(migrate, "restore", "--db", restored, "--lifecycle-db", journal, "--file", snapshot)
+        assert hashlib.sha256(snapshot.read_bytes()).digest() == snapshot_digest, "retained source changed"
+        assert sql("SELECT count(*) FROM signup_proofs WHERE id='restore-expired'", database=restored) == [(0,)]
+        assert sql("SELECT count(*) FROM email_outbox WHERE key='signup/restore-expired'", database=restored) == [(0,)]
+        for suffix in ("", "-wal", "-shm"):
+            active = Path(str(restored) + suffix)
+            assert not active.exists() or expired_canary.encode() not in active.read_bytes(), "restore published expired account plaintext"
+        checks.append("restore expires issued account proof/mail before publication; source unchanged")
         with server(restored):
             assert sql("SELECT count(*) FROM users WHERE user_id=?", (target["userID"],), restored) == [(0,)]
             for name in ("pending", "withdrawn"):
