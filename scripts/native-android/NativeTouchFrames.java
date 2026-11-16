@@ -33,7 +33,8 @@ public final class NativeTouchFrames {
             if (button) event(b,1,330,pressed ? 1 : 0);
         }
         event(b,0,0,0);
-        byte[] raw = new byte[b.position()]; b.flip(); b.get(raw); return raw;
+        byte[] raw = new byte[b.position()];
+        System.arraycopy(b.array(),0,raw,0,raw.length); return raw;
     }
     private static int point(int low, int high, double fraction) {
         return low + (int) Math.round((high - low) * fraction);
