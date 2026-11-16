@@ -137,13 +137,13 @@ def reader_touch_devices(snapshot, *, diagnostics=False):
                   readerHeaders=snapshot.count('Input Reader State') if bounded else 0,
                   stage=0, hubs=0, readers=0, enabled=0, touch=0, mapped=0)
     try:
-        return _reader_touch_devices(snapshot, counts)
+        return _reader_touch_devices(snapshot, counts, diagnostics=diagnostics)
     finally:
         if diagnostics:
             print('Analytics input reader: ' + ' '.join(key + '=' + str(value) for key, value in counts.items()), flush=True)
 
 
-def _reader_touch_devices(snapshot, counts):
+def _reader_touch_devices(snapshot, counts, *, diagnostics=False):
     """Map Android 13's configured touchscreen sources to enabled kernel nodes.
 
     InputReader IDs are not EventHub IDs. Only its explicit EventHub Devices
@@ -223,13 +223,18 @@ def _reader_touch_devices(snapshot, counts):
             raise ValueError(message)
         ids = [int(value) for value in re.findall(r'[0-9]+', mappings[0])]
         counts['stage'] = 5
-        if len(ids) != len(set(ids)) or any(value not in paths for value in ids):
+        if not 1 <= len(ids) <= 128 or len(ids) != len(set(ids)):
             raise ValueError(message)
-        if any(paths[value] is None and value not in disabled for value in ids):
-            raise ValueError(message)
-        # A known disabled reader cannot supply input. Exclude its entire
-        # combined mapping instead of borrowing a source from its other nodes.
-        if any(value in disabled for value in ids):
+        missing = sum(value not in paths for value in ids)
+        unusable = sum(value in paths and paths[value] is None and value not in disabled for value in ids)
+        disabled_count = sum(value in disabled for value in ids)
+        if diagnostics:
+            print('Analytics reader mapping: nodes=' + str(len(ids)) + ' missing=' + str(missing)
+                  + ' unusable=' + str(unusable) + ' disabled=' + str(disabled_count), flush=True)
+        # Only complete, enabled kernel mappings qualify. Virtual/unmappable
+        # readers cannot supply a writer candidate; exclude the entire mapping
+        # instead of borrowing a source from its other nodes or guessing IDs.
+        if missing or unusable or disabled_count:
             counts['stage'] = 3
             continue
         result.update(paths[value] for value in ids)
@@ -263,6 +268,15 @@ def select_touch_device(snapshot, *, reader_paths=None, diagnostics=False):
         counts['configured'] += 1
         x, y = extent('ABS_MT_POSITION_X'), extent('ABS_MT_POSITION_Y')
         slots, tracking = extent('ABS_MT_SLOT'), extent('ABS_MT_TRACKING_ID')
+        if diagnostics:
+            def bounded(value):
+                if value is None:
+                    return 'missing'
+                if any(not -2147483648 <= number <= 2147483647 for number in value):
+                    return 'out-of-range'
+                return ':'.join(map(str, value))
+            print('Analytics kernel touch extents: x=' + bounded(x) + ' y=' + bounded(y)
+                  + ' slots=' + bounded(slots) + ' tracking=' + bounded(tracking), flush=True)
         if any(value is None or not 0 <= value[0] < value[1] <= 65535 or value[1] - value[0] < 64 for value in (x, y)):
             continue
         counts['axes'] += 1

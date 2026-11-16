@@ -235,13 +235,15 @@ final class AnalyticsProbe: XCTestCase {
     }
     func pickerButton(_ label: String) -> XCUIElement? {
         let predicate = NSPredicate(format: "label == %@", label)
+        // Bind to accessibility identities so an animated picker does not
+        // resolve a saved index against a changed result list.
         // UIKit navigation bars give a structural native boundary. Prefer
         // their controls over frame comparisons during sheet animations.
-        let navigation = app.navigationBars.buttons.matching(predicate).allElementsBoundByIndex
+        let navigation = app.navigationBars.buttons.matching(predicate).allElementsBoundByAccessibilityElement
             .filter { $0.exists && $0.isHittable }
         if navigation.count == 1 { return navigation[0] }
-        let webFrames = app.webViews.buttons.matching(predicate).allElementsBoundByIndex.filter { $0.exists }.map { $0.frame }
-        let native = app.buttons.matching(predicate).allElementsBoundByIndex.filter { element in
+        let webFrames = app.webViews.buttons.matching(predicate).allElementsBoundByAccessibilityElement.filter { $0.exists }.map { $0.frame }
+        let native = app.buttons.matching(predicate).allElementsBoundByAccessibilityElement.filter { element in
             guard element.exists && element.isHittable else { return false }
             let frame = element.frame
             return !webFrames.contains { web in
@@ -274,9 +276,6 @@ final class AnalyticsProbe: XCTestCase {
             let p = NSPredicate(format: "label == %@", name)
             print("Analytics iOS picker control: " + name + " total=\(app.buttons.matching(p).count) web=\(app.webViews.buttons.matching(p).count)")
             print("Analytics iOS picker navigation: " + name + " count=\(app.navigationBars.buttons.matching(p).count)")
-            let types = app.descendants(matching: .any).matching(p).allElementsBoundByIndex.prefix(8)
-                .map { String($0.elementType.rawValue) }.joined(separator: ",")
-            print("Analytics iOS picker types: " + name + " all=" + types)
         }
     }
     func pickerAction(save: Bool) {
@@ -287,10 +286,12 @@ final class AnalyticsProbe: XCTestCase {
         guard waitPickerButton("Save") != nil else { return }
         print("Analytics iOS phase: native picker presented")
         if !save {
+            print("Analytics iOS phase: native picker Cancel")
             guard let cancel = waitPickerButton("Cancel") else { return }
             var button = cancel
             for attempt in 0..<3 {
                 button.tap()
+                print("Analytics iOS phase: native picker Cancel tapped")
                 let end = Date().addingTimeInterval(5)
                 while Date() < end {
                     // Hittability can disappear briefly during a native sheet

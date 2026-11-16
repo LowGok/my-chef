@@ -117,6 +117,15 @@ class KernelGestureTest(unittest.TestCase):
             '    EventHub Devices: [ 13 ]\n    Sources: TOUCHSCREEN\n  Device 27:')
         self.assertEqual(touch.reader_touch_devices(disabled), {'/dev/input/event7'})
 
+    def test_unmappable_reader_never_supplies_a_kernel_candidate(self):
+        for hub in ('', '    99: virtual source\n      Path: <virtual>\n      Enabled: true\n'):
+            reader = READER.replace('  Devices:\n', '  Devices:\n' + hub).replace(
+                '  Device 27:', '  Device 26: unmappable source\n'
+                '    EventHub Devices: [ 99 ]\n    Sources: TOUCHSCREEN\n  Device 27:')
+            self.assertEqual(touch.reader_touch_devices(reader), {'/dev/input/event7'})
+            with self.assertRaises(ValueError):
+                touch.reader_touch_devices(reader.replace('Sources: 0x00001002', 'Sources: KEYBOARD'))
+
     def test_missing_ambiguous_or_non_touch_reader_mapping_is_refused(self):
         for reader in (None, '', 'x' * 524289,
                        READER.replace('Sources: 0x00001002', 'Sources: 0x00002002'),
