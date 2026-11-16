@@ -166,3 +166,23 @@ test("unexpected diagnostic objects never stringify private payloads", () => {
     "Installed Android journey failed at stage: unknown; Failure",
   );
 });
+
+test("Android crash summaries retain only fixed facts from the target process", () => {
+  const raw = `FATAL EXCEPTION: main
+Process: com.gkldevelopment.mychef.preview, PID: 123
+java.lang.SecurityException: private@example.test Bearer ${"x".repeat(43)}
+    at com.gkldevelopment.mychef.preview.ProtectedRefresh.write(ProtectedRefresh.java:48)
+    at unknown.Customer.privateValue(Customer.java:99)
+FATAL EXCEPTION: main
+Process: another.app, PID: 456
+java.lang.NullPointerException: private
+    at com.getcapacitor.Bridge.call(Bridge.java:123)`;
+  const result = report.androidCrashFacts(raw);
+  expect(result.targetProcess).toBe(true);
+  expect(result.exceptions).toEqual(["SecurityException"]);
+  expect(result.frames).toEqual(["ProtectedRefresh.java:48"]);
+  for (const secret of ["private", "@example", "Bearer", "Customer", "Bridge.java", "x".repeat(43)])
+    expect(JSON.stringify(result)).not.toContain(secret);
+  expect(report.androidCrashFacts("Process: another.app\njava.lang.SecurityException").targetProcess).toBe(false);
+  expect(report.androidCrashFacts("x".repeat(131073)).targetProcess).toBe(false);
+});

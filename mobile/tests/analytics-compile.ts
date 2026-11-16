@@ -103,8 +103,9 @@ if (platform === "ios-simulator") {
 }
 run(plan, platform === "android" ? join(mobile, "android") : mobile);
 if (platform === "ios-simulator") {
-  run(["/usr/bin/lipo", "-verify_arch", "arm64", "x86_64",
-    join(generated, "ios-build/Build/Products/Release-iphonesimulator/App.app/App")]);
+  run(["/usr/bin/lipo",
+    join(generated, "ios-build/Build/Products/Release-iphonesimulator/App.app/App"),
+    "-verify_arch", "arm64", "x86_64"]);
 }
 if (platform === "android") {
   const report = run(

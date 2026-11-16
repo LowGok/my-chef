@@ -10,7 +10,7 @@ import {
 } from "../web/node_modules/@playwright/test";
 import { join } from "node:path";
 import { readFile, unlink, writeFile } from "node:fs/promises";
-import { safeJourneyError } from "./native-android-report";
+import { safeJourneyError, androidCrashFacts } from "./native-android-report";
 import analyticsContract from "../mobile/tests/analytics-contract.json";
 import { addDays, monday } from "../web/src/dates";
 import {
@@ -1873,6 +1873,9 @@ try {
       reason: exitInfo.match(/\breason=([0-9]{1,2})\b/)?.[1] ?? "unknown",
       status: exitInfo.match(/\bstatus=([0-9]{1,3})\b/)?.[1] ?? "unknown",
     }));
+    let crash = "";
+    try { crash = adb("logcat", "-b", "crash", "-d", "-t", "400"); } catch {}
+    console.log("Installed Android crash facts: " + JSON.stringify(androidCrashFacts(crash)));
   }
   for (const browserError of browserErrors) console.error(browserError);
   throw new Error(safeJourneyError(error, stage, privateValues));

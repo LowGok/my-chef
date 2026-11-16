@@ -109,3 +109,28 @@ export function safeJourneyError(
     (location ? "; " + location : "")
   );
 }
+
+/** Raw emulator crash logs stay private; only closed categories reach CI. */
+export function androidCrashFacts(raw: string) {
+  const empty = { targetProcess: false, javaCrash: false, nativeCrash: false,
+    rendererFailure: false, exceptions: [] as string[], frames: [] as string[] };
+  if (raw.length > 131072) return empty;
+  const lines = raw.split(/\r?\n/);
+  const target = /Process: com\.gkldevelopment\.mychef\.preview(?:,|$)|>>> com\.gkldevelopment\.mychef\.preview <<</;
+  let index = -1;
+  for (let i = 0; i < lines.length; i++) if (target.test(lines[i]!)) index = i;
+  if (index < 0) return empty;
+  let end = index + 1;
+  while (end < lines.length && !/FATAL EXCEPTION:|\bProcess: |>>> .* <<</.test(lines[end]!)) end++;
+  const block = lines.slice(Math.max(0, index - 1), end).join("\n");
+  const known = ["SecurityException", "NullPointerException", "IllegalStateException",
+    "FileUriExposedException", "RuntimeException", "UnsupportedOperationException",
+    "OutOfMemoryError", "NoSuchMethodError", "UnsatisfiedLinkError"];
+  const frames = [...block.matchAll(/\bat\s+(?:com\.gkldevelopment\.mychef\.(?:preview|testing)|com\.getcapacitor)\.[\w.$]+\(((?:ProtectedRefresh|ProtectedShopping|MyChefNativePlugin|MainActivity|NativeBoundary|NativeRuntime|NativeMediaFiles|NativeJourneyProbe|Bridge|BridgeWebViewClient|WebViewLocalServer|PluginCall|PluginHandle)\.java):([0-9]{1,5})\)/g)]
+    .map(match => match[1] + ":" + match[2]);
+  return { targetProcess: true, javaCrash: block.includes("FATAL EXCEPTION:"),
+    nativeCrash: /signal [0-9]{1,2} \(SIG(?:ABRT|SEGV|BUS|ILL)\)/.test(block),
+    rendererFailure: /[Rr]ender(?:er| process).*crash|lib(?:webviewchromium|monochrome)\.so/.test(block),
+    exceptions: known.filter(name => new RegExp("\\b" + name + "\\b").test(block)),
+    frames: [...new Set(frames)].slice(0, 8) };
+}
