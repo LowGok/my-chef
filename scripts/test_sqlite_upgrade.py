@@ -184,15 +184,17 @@ def main():
                 original.backup(candidate)
             migrate(CACHE / "mychef-migrate", "up", "--db", upgraded)
             with sqlite3.connect(upgraded) as candidate:
-                assert candidate.execute("SELECT version,dirty FROM schema_migrations").fetchone() == (26, 0)
+                assert candidate.execute("SELECT version,dirty FROM schema_migrations").fetchone() == (27, 0)
                 assert candidate.execute("SELECT count(*) FROM users WHERE isNewsletterOnly <> 0").fetchone()[0] == 0
                 assert candidate.execute("SELECT COUNT(*) FROM entitlement_grants").fetchone()[0] == 0
+                assert candidate.execute("SELECT count(*) FROM newsletter_identity_namespace").fetchone()[0] == 0
+                assert candidate.execute("SELECT count(*) FROM newsletter_identity_matches").fetchone()[0] == 0
                 for table in ("analytics_preferences", "analytics_receipts", "analytics_outbox", "analytics_signup", "analytics_generation", "analytics_gaps"):
                     assert candidate.execute(f"SELECT count(*) FROM {table}").fetchone()[0] == 0
                 assert {"personal_recipes", "personal_recipe_versions", "personal_photo_assets", "personal_recipe_queue"}.issubset(
                     {row[0] for row in candidate.execute("SELECT name FROM sqlite_master WHERE type='table'")})
             with sqlite3.connect(str(upgraded) + ".lifecycle") as journal:
-                assert journal.execute("SELECT version FROM lifecycle_journal_meta").fetchone()[0] == 2
+                assert journal.execute("SELECT version FROM lifecycle_journal_meta").fetchone()[0] == 3
             future = root / "future-schema.db"
             with sqlite3.connect(upgraded) as current, sqlite3.connect(future) as copy:
                 current.backup(copy)
