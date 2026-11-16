@@ -178,7 +178,7 @@ def full_journeys(receipt, artifact):
             # phone's authenticated journey or claim screen-reader speech.
             small = state / 'small-phone'
             small.mkdir(mode=0o700)
-            small_metadata, _, _, _ = native.ios(small, stack, ca, artifact,
+            small_metadata, _, _, small_diagnostic = native.ios(small, stack, ca, artifact,
                 model='iPhone SE (3rd generation)', fixture_name='MyChef analytics small fixture')
             devices = json.loads(native.command('xcrun', 'simctl', 'list', 'devices', 'booted', '-j'))['devices']
             identifiers = [d['udid'] for group in devices.values() for d in group if d.get('name') == 'MyChef analytics small fixture']
@@ -187,7 +187,8 @@ def full_journeys(receipt, artifact):
             small_id = identifiers[0]
             native.command('xcrun', 'simctl', 'ui', small_id, 'content_size', 'accessibility-medium')
             small_container = Path(native.command('xcrun', 'simctl', 'get_app_container', small_id, native.APP, 'data'))
-            small_checks = analytics_ios.run(small, control, account, small_id, small_container, layout_only=True)
+            small_checks = analytics_ios.run(small, control, account, small_id, small_container, layout_only=True,
+                before_test=lambda: analytics_ios.bootstrap(small_id, events, rejected, small_diagnostic))
             small_scale = json.loads((small_container / 'tmp/analytics-text-result.json').read_text())
             if (set(small_scale) != {'root', 'label', 'notice', 'fits', 'osTextEnlarged'}
                     or not all(value is True for value in small_scale.values())

@@ -261,10 +261,12 @@ async function activateControl(control: Locator, name: string) {
   // keyboard and TalkBack focus changes. Trial performs no click. Retain the
   // separate exact-center check required by the OS instrumentation below.
   await control.click({ trial: true });
+  let previousGeometry = "";
+  let stableGeometry = 0;
   await expect
     .poll(
-      () =>
-        control.evaluate((node) => {
+      async () => {
+        const geometry = await control.evaluate((node) => {
           const rect = node.getBoundingClientRect();
           const target = document.elementFromPoint(
             rect.left + rect.width / 2,
@@ -273,11 +275,17 @@ async function activateControl(control: Locator, name: string) {
           const viewport = visualViewport;
           const x = rect.left + rect.width / 2 - (viewport?.offsetLeft ?? 0);
           const y = rect.top + rect.height / 2 - (viewport?.offsetTop ?? 0);
-          return Boolean(target && node.contains(target)
-            && x >= 0 && y >= 0 && x < (viewport?.width ?? innerWidth)
-            && y < (viewport?.height ?? innerHeight));
-        }),
-      { message: name + " must own its center point in the native WebView" },
+          if (!target || !node.contains(target) || x < 0 || y < 0
+              || x >= (viewport?.width ?? innerWidth) || y >= (viewport?.height ?? innerHeight)) return "";
+          return JSON.stringify([rect.x, rect.y, rect.width, rect.height,
+            viewport?.offsetLeft ?? 0, viewport?.offsetTop ?? 0,
+            viewport?.width ?? innerWidth, viewport?.height ?? innerHeight]);
+        });
+        stableGeometry = geometry && geometry === previousGeometry ? stableGeometry + 1 : geometry ? 1 : 0;
+        previousGeometry = geometry;
+        return stableGeometry >= 3;
+      },
+      { message: name + " must keep its center point and native viewport stable", intervals: [150], timeout: 10_000 },
     )
     .toBe(true);
   // The input still comes from the actual OS probe, with no activation retry.
@@ -1382,11 +1390,13 @@ async function analyticsJourneys() {
     // Observe the single native activation without changing form values or
     // dispatching a synthetic input. Only closed booleans leave the runner.
     const activation = await button("Create my account").evaluateHandle((node) => {
-      const facts = { touch: false, trusted: false, clicked: false, submitted: false };
+      const facts = { touch: false, trusted: false, released: false, cancelled: false, clicked: false, submitted: false };
       node.addEventListener("pointerdown", (event) => {
         facts.touch = (event as PointerEvent).pointerType === "touch";
         facts.trusted = event.isTrusted;
       }, { once: true });
+      node.addEventListener("pointerup", () => { facts.released = true; }, { once: true });
+      node.addEventListener("pointercancel", () => { facts.cancelled = true; }, { once: true });
       node.addEventListener("click", () => { facts.clicked = true; }, { once: true });
       (node as HTMLButtonElement).form?.addEventListener("submit", () => { facts.submitted = true; }, { once: true });
       return facts;

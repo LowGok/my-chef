@@ -662,6 +662,14 @@ final class AnalyticsProbe: XCTestCase {
                     if let found = focusedMatch(output) { return found }
                 }
             }
+            // Describe only known choice nodes if speech remains missing.
+            let choices = app.descendants(matching: .any).matching(NSPredicate(format:
+                "label BEGINSWITH %@", "Help improve MyChef")).allElementsBoundByIndex
+            for node in choices.prefix(8) {
+                let value = node.value as? String
+                let choice = value == "0" ? "off" : value == "1" ? "on" : "other"
+                print("Analytics iOS accessibility type: \(node.elementType.rawValue) state: \(choice) enabled: \(node.isEnabled)")
+            }
             // Only fixed app vocabulary, never arbitrary speech or fields.
             print("Analytics iOS spoken vocabulary: " + seen.sorted().joined(separator: ","))
             XCTFail("Required app control or error must be spoken by VoiceOver")
