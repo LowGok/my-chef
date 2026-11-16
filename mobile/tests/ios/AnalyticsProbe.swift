@@ -93,7 +93,9 @@ final class AnalyticsProbe: XCTestCase {
     }
     func hasTapRegion(_ element: XCUIElement) -> Bool {
         guard element.exists else { return false }
-        let frame = element.frame
+        return hasTapRegion(frame: element.frame)
+    }
+    func hasTapRegion(frame: CGRect) -> Bool {
         guard !frame.isNull, !frame.isInfinite, frame.width > 1, frame.height > 1,
               [frame.minX, frame.minY, frame.maxX, frame.maxY].allSatisfy({ $0.isFinite }) else { return false }
         // A visible centre can still leave the control under the keyboard
@@ -176,7 +178,10 @@ final class AnalyticsProbe: XCTestCase {
                 continue
             }
             let frame = element.frame
-            if (!hasTapRegion(element) || !element.isHittable) && adjustments < 3 {
+            // Reuse one native geometry and hit-test observation per sample.
+            // Every next sample still resolves fresh measurements.
+            let ready = hasTapRegion(frame: frame) && element.isHittable
+            if !ready && adjustments < 3 {
                 // A late WebKit reflow can move a previously revealed control.
                 // Scroll toward its current position, including upward targets.
                 scrollContent(up: frame.midY > app.frame.midY)
@@ -187,7 +192,7 @@ final class AnalyticsProbe: XCTestCase {
             let stable = !previous.isNull && abs(frame.minX - previous.minX) <= 1
                 && abs(frame.minY - previous.minY) <= 1 && abs(frame.width - previous.width) <= 1
                 && abs(frame.height - previous.height) <= 1
-            unchanged = hasTapRegion(element) && element.isHittable && stable ? unchanged + 1 : 0
+            unchanged = ready && stable ? unchanged + 1 : 0
             if unchanged >= 2 {
                 if nativeElement { element.tap() }
                 else { element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap() }
@@ -415,6 +420,13 @@ final class AnalyticsProbe: XCTestCase {
         XCTAssertTrue(checkbox().waitForExistence(timeout: 20), "Profile privacy control is labelled")
     }
     func relaunch() { app.terminate(); app.launch(); XCTAssertTrue(app.wait(for: .runningForeground, timeout: 20)) }
+    func verifyDeletedSignOut(_ message: String) {
+        // A new document can restore a scroll offset. Reach the actual heading
+        // with normal OS gestures before requiring its visible sign-out state.
+        let heading = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Welcome back.")).firstMatch
+        reveal(heading)
+        waitFor({ self.text("Welcome back.") }, message)
+    }
     func signup(_ recipient: String, assessed: Bool) throws {
         print("Analytics iOS phase: " + (assessed ? "assessed signup" : "disabled signup"))
         tap("Create an account")
@@ -513,6 +525,7 @@ final class AnalyticsProbe: XCTestCase {
         try signup("analyticsdisabled@example.test", assessed: false)
         _ = try control("approved"); relaunch()
         try signup("analyticsassessed@example.test", assessed: true)
+        print("Analytics iOS phase: primary signup complete")
         fill("Email", configuration["email"] ?? "")
         fill("Password", configuration["password"] ?? "", secure: true)
         tap("Sign in to MyChef"); profile(); details()
@@ -525,6 +538,7 @@ final class AnalyticsProbe: XCTestCase {
         relaunch(); profile(); details(); XCTAssertEqual(checkbox().value as? String, "1")
         _ = try control("tick")
         XCTAssertEqual(try control("counts")["delivered"] as? Int, 1)
+        print("Analytics iOS phase: primary participation complete")
         mark("participation", "restarted", "exactlyOneEvent")
         _ = try control("other-session-choice", ["enabled": false])
         tapSettled(checkbox())
@@ -536,6 +550,7 @@ final class AnalyticsProbe: XCTestCase {
         XCTAssertEqual(checkbox().value as? String, "1"); mark("conflict", "offlineOffUnconfirmed")
         _ = try control("online"); enabled(false)
         waitFor({ self.text("Active deletion is in progress") }, "Active cleanup is truthful")
+        print("Analytics iOS phase: primary conflict complete")
         mark("conflict", "reconnectFenceAcknowledged"); mark("lifecycle", "activeCleanup")
         _ = try control("maintenance"); enabled(true)
         tap("Shopping list"); waitFor({ self.text("Saved") }, "Shopping snapshot must load")
@@ -604,9 +619,10 @@ final class AnalyticsProbe: XCTestCase {
         try app.performAccessibilityAudit(for: [.elementDetection, .hitRegion, .sufficientElementDescription])
         tap("Delete my account"); fill("Current password", configuration["password"] ?? "", secure: true)
         fill("Type DELETE to confirm", "DELETE"); tap("Permanently delete account")
-        waitFor({ self.text("Welcome back.") }, "Account deletion must return to sign in")
+        verifyDeletedSignOut("Account deletion must return to sign in")
+        print("Analytics iOS phase: primary deletion acknowledged")
         mark("lifecycle", "accountDeleted"); relaunch()
-        waitFor({ self.text("Welcome back.") }, "Deleted session must stay signed out after relaunch")
+        verifyDeletedSignOut("Deleted session must stay signed out after relaunch")
         guard let output = configuration["output"] else { throw Failure.invalidFixture }
         try JSONSerialization.data(withJSONObject: ["checks": observations]).write(to: URL(fileURLWithPath: output), options: .atomic)
         // Unobserved speech, layout sizes and private-cache inspection remain
