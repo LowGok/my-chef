@@ -1,6 +1,6 @@
 ---
 status: in-progress
-status_description: "R-7 verifies full race success; final required CI exceeded the overall 30-minute job limit. AC-04 and delivery remain open."
+status_description: "R-7 verifies full race success; the overall checks budget is repaired locally. Fresh review and complete exact-head CI remain required; no merge or activation."
 branch: feat/newsletter-inactive-identity-minimisation
 issue: null
 goal: "Inactive newsletter contacts retain their userID and non-consenting state without unnecessary clear email or expired mail/proof history."
@@ -206,6 +206,7 @@ Keep the existing one-second deadline on the first account update after cancelli
 - [x] T24 `internal/analytics/privacy_test.go` - retain the one-second post-cancellation update check and give the following full maintenance operation an independent five-second context; repeated targeted race checks pass, while the complete unchanged race command remains required (AC-03, AC-04).
       Evidence: the unchanged original test repeatedly failed during Maintain after its one-second Update succeeded (min-final-analytics-unloaded.log); independent R-5 review reproduced that failure and the proposed context-only correction. Applied exactly the accepted separate five-second maintenance context, retaining the original Update deadline/data/assertions. Five focused race repetitions pass (min-t24-focused-race.log), full required repository tests pass (all Go/type checks,88 Bun tests470 assertions; min-t24-repo.log), lint0 (min-t24-lint.log). Manual doc impact is this verification record; production analytics/SQL policy and the final image are unchanged. Full unchanged race verification, including the earlier separate dataset timeout, remains T20 and is not claimed passed.
 - [ ] T25 `.github/workflows/delivery.yml` - repair the observed overall checks-job budget from30 to45 minutes so all unchanged required steps can finish; retain the exact20-minute full race command, runners, permissions, other job limits and signing/release conditions, validate the workflow and rerun normal exact-head CI (AC-04).
+      Evidence: hosted run43790951807 check annotation explicitly states the job exceeded30m0s; the exact full race step passed in19m12s before browser/process cancellation. Only the outer checks budget changes. No normative job-wide30-minute requirement exists; the accepted20-minute race command is byte-identical. Actual hosted completion remains required before this task is checked. Manual doc impact is this budget/evidence record; runtime/operator and release guidance are unchanged.
 - [ ] T20 the feature document and covered documentation - finish required build/generate/test/lint/audit/browser/import/upgrade/race/container checks and manual documentation impact, recording exact results and limitations (AC-01, AC-02, AC-03, AC-04, AC-05).
 - [ ] T21 the feature document - obtain an exact-commit independent implementation review, store its returned records verbatim and record criterion/task outcomes truthfully before delivery (AC-01, AC-02, AC-03, AC-04, AC-05).
 
