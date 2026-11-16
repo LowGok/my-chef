@@ -21,7 +21,7 @@ const event = JSON.parse(
 );
 if (!authorizedAnalyticsCI(event, process.env))
   throw Error("Analytics verification authorization refused");
-const env = { ...process.env, CI: "1", CAPACITOR_TELEMETRY_DISABLED: "1" };
+const env: Record<string, string | undefined> = { ...process.env, CI: "1", CAPACITOR_TELEMETRY_DISABLED: "1" };
 if (platform === "android") {
   env.JAVA_HOME = process.env.JAVA_HOME_21_X64;
   env.PATH = env.JAVA_HOME + "/bin:" + env.PATH;
@@ -96,10 +96,16 @@ if (platform === "ios-simulator") {
     `<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>application-identifier</key><string>${id}</string><key>keychain-access-groups</key><array><string>${id}</string></array></dict></plist>`,
   );
 }
-run(
-  compilePlan(platform as "android" | "ios-simulator", false, entitlements),
-  platform === "android" ? join(mobile, "android") : mobile,
-);
+const plan = compilePlan(platform as "android" | "ios-simulator", false, entitlements);
+if (platform === "ios-simulator") {
+  // Primary Intel and VoiceOver Apple Silicon must install the same archive.
+  plan.splice(-1, 0, "ARCHS=arm64 x86_64", "ONLY_ACTIVE_ARCH=NO");
+}
+run(plan, platform === "android" ? join(mobile, "android") : mobile);
+if (platform === "ios-simulator") {
+  run(["/usr/bin/lipo", "-verify_arch", "arm64", "x86_64",
+    join(generated, "ios-build/Build/Products/Release-iphonesimulator/App.app/App")]);
+}
 if (platform === "android") {
   const report = run(
     [

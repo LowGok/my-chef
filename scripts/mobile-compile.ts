@@ -166,8 +166,9 @@ async function compile() {
   if (input.platform !== "android")
     env.DEVELOPER_DIR = `/Applications/Xcode_${xcode[input.platform].version}.app/Contents/Developer`;
   else {
-    if (!process.env.JAVA_HOME_21_X64) stop();
-    env.JAVA_HOME = process.env.JAVA_HOME_21_X64;
+    const javaHome = process.env.JAVA_HOME_21_X64;
+    if (!javaHome) return stop();
+    env.JAVA_HOME = javaHome;
     env.PATH = join(env.JAVA_HOME, "bin") + ":" + env.PATH;
   }
   await mkdir(artifacts, { recursive: true });

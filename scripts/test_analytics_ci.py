@@ -78,6 +78,13 @@ class AnalyticsAuthorizationTest(unittest.TestCase):
         self.assertNotIn('secrets:', lane)
         self.assertNotIn('mobile-compile', lane)
 
+    def test_primary_ios_uses_standard_intel_capacity_without_changing_voiceover(self):
+        workflow = (ROOT / '.github/workflows/native-compile.yml').read_text()
+        primary = workflow.split('  analytics-journeys:\n', 1)[1].split('  analytics-voiceover:\n', 1)[0]
+        self.assertIn("runs-on: ${{ matrix.platform == 'android' && 'ubuntu-24.04' || 'macos-15-intel' }}", primary)
+        self.assertNotIn('xlarge', primary)
+        self.assertNotIn('macos-15-large', primary)
+
     def test_isolated_artifact_uploads_allow_same_source_job_retries(self):
         workflow = (ROOT / '.github/workflows/native-compile.yml').read_text().split('  compile:\n', 1)[0]
         uploads = [step for step in re.split(r'(?m)^      - ', workflow)[1:]

@@ -1858,6 +1858,22 @@ try {
     ),
   );
 } catch (error) {
+  if (group === "analytics") {
+    const log = await readFile(join(state, "probe-private.log"), "utf8").catch(() => "");
+    const reason = log.match(/probeReason=([a-z-]{1,50})\b/)?.[1] ?? "unreported";
+    // Fixed instrumentation fields only; raw probe/crash logs stay private.
+    console.log("Installed Android probe completion: " + JSON.stringify({
+      failed: /probe=failed\b/.test(log), reason,
+      finished: /INSTRUMENTATION_CODE:/.test(log),
+      processCrash: /Process crashed|FATAL EXCEPTION/.test(log),
+    }));
+    let exitInfo = "";
+    try { exitInfo = adb("shell", "dumpsys", "activity", "exit-info", app); } catch {}
+    console.log("Installed Android process exit: " + JSON.stringify({
+      reason: exitInfo.match(/\breason=([0-9]{1,2})\b/)?.[1] ?? "unknown",
+      status: exitInfo.match(/\bstatus=([0-9]{1,3})\b/)?.[1] ?? "unknown",
+    }));
+  }
   for (const browserError of browserErrors) console.error(browserError);
   throw new Error(safeJourneyError(error, stage, privateValues));
 } finally {
