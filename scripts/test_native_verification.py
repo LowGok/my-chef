@@ -8,7 +8,7 @@ import json
 import re
 import threading
 import types
-from contextlib import closing
+from contextlib import closing, ExitStack
 from email.message import Message
 import importlib.util
 import io
@@ -480,6 +480,27 @@ class NativeSystemPickerTest(unittest.TestCase):
 
 
 class XcodeUIHostTest(unittest.TestCase):
+    def test_ui_readiness_requires_the_selected_bundle_process(self):
+        with tempfile.TemporaryDirectory(prefix='analytics-ui-process-') as folder, ExitStack() as stack:
+            state = Path(folder)
+            bundle = state / 'Xcode.app/Contents/Applications/DeviceHub.app'
+            (bundle / 'Contents/MacOS').mkdir(parents=True)
+            (bundle / 'Contents/Info.plist').write_bytes(plistlib.dumps({'CFBundleExecutable': 'DeviceHub'}))
+            executable = bundle / 'Contents/MacOS/DeviceHub'
+            executable.write_text('fictional executable')
+            launcher = types.SimpleNamespace(poll=lambda: 0)
+            outputs = iter([' /different/Xcode.app/DeviceHub\n', str(executable) + '\n'])
+            def observe(*args, **kwargs):
+                return types.SimpleNamespace(returncode=0, stdout=next(outputs))
+            def wait(check, description, seconds):
+                self.assertFalse(check(), 'Another Xcode UI process cannot establish readiness')
+                self.assertTrue(check(), 'The selected UI executable must actually be running')
+            with patch.object(installed.subprocess, 'Popen', return_value=launcher) as launch, \
+                 patch.object(installed.subprocess, 'run', side_effect=observe), \
+                 patch.object(installed, 'wait_for', side_effect=wait):
+                installed.start_ios_ui(state, stack, ['/usr/bin/open', '-a', str(bundle)])
+                self.assertEqual(launch.call_args.args[0], ['/usr/bin/open', '-a', str(bundle)])
+
     def test_modern_runtime_requires_device_hub_from_the_selected_xcode(self):
         with tempfile.TemporaryDirectory(prefix='analytics-xcode-ui-') as folder:
             developer = Path(folder) / 'Xcode_27.1.app/Contents/Developer'

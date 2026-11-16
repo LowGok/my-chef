@@ -22,6 +22,20 @@ class FixtureBoundaryTest(unittest.TestCase):
         for private in ('ignored secret stdout', '/private', 'user@example.test', 'x' * 43, 'synthetic-password'):
             self.assertNotIn(private, value)
 
+    def test_native_profile_input_requires_exact_persisted_fixture_content(self):
+        fixture = object.__new__(Fixture)
+        calls = []
+        def response(method, route):
+            calls.append((method, route))
+            return 200, json.dumps({'preferences': {'diet': ['Vegetarian meals']}}).encode(), None
+        fixture.call = response
+        self.assertEqual(fixture.operate({'operation': 'profile-input', 'target': 'initial'}), {'passed': True})
+        self.assertEqual(fixture.operate({'operation': 'profile-input', 'target': 'updated'}), {'passed': False})
+        self.assertEqual(calls, [('GET', 'profile'), ('GET', 'profile')])
+        for fields in ({'operation': 'profile-input', 'target': 'arbitrary'},
+                       {'operation': 'profile-input', 'target': 'initial', 'recipient': 'private@example.test'}):
+            with self.assertRaises(ValueError): fixture.operate(fields)
+
     def test_approval_fixture_requires_a_real_disabled_notice_before_switching(self):
         with tempfile.TemporaryDirectory(prefix='analytics-notice-') as folder:
             state = Path(folder)

@@ -139,6 +139,16 @@ class Fixture:
                 return proof is not None
             native.wait_for(ready, 'disposable signup message', 20)
             return {'url': native.ORIGIN + '/app/signup#' + proof}
+        if op == 'profile-input':
+            expected = {'initial': ['Vegetarian meals'], 'updated': ['Mediterranean']}
+            if set(value) != {'operation', 'target'} or type(value.get('target')) is not str or value['target'] not in expected:
+                raise ValueError('Closed native profile fixture target required')
+            status, raw, _ = self.call('GET', 'profile')
+            if status != 200:
+                raise RuntimeError('Fixture profile content unavailable')
+            profile = json.loads(raw)
+            preferences = profile.get('preferences') if isinstance(profile, dict) else None
+            return {'passed': isinstance(preferences, dict) and preferences.get('diet') == expected[value['target']]}
         if op == 'preference':
             status, raw, _ = self.call('GET', 'analytics/preferences')
             if status != 200:
@@ -221,7 +231,7 @@ class Fixture:
                     status = 200
                 except (ValueError, RuntimeError, OSError) as error:
                     operation = request.get('operation') if type(request) is dict else None
-                    closed = {'proof', 'approved', 'speech-start', 'speech-stop', 'speech-gesture', 'preference', 'counts',
+                    closed = {'proof', 'approved', 'profile-input', 'speech-start', 'speech-stop', 'speech-gesture', 'preference', 'counts',
                               'tick', 'backup', 'maintenance', 'other-session-choice', 'offline', 'online',
                               'foreign-export', 'verify-native-export'}
                     operation = operation if isinstance(operation, str) and operation in closed else 'unknown'

@@ -565,6 +565,31 @@ def ios_host_resources(state):
     print("Simulator runner resources: " + json.dumps(result, sort_keys=True), flush=True)
 
 
+def start_ios_ui(state, stack, arguments):
+    bundle = Path(arguments[2])
+    info = bundle / 'Contents/Info.plist'
+    if not info.is_file() or info.stat().st_size > 65536:
+        raise RuntimeError('Selected Xcode UI metadata is unavailable')
+    name = plistlib.loads(info.read_bytes()).get('CFBundleExecutable')
+    if (not isinstance(name, str) or not 1 <= len(name) <= 128 or name in ('.', '..')
+            or any(value in name for value in ('/', '\\', '\0'))):
+        raise RuntimeError('Selected Xcode UI metadata is unavailable')
+    executable = bundle / 'Contents/MacOS' / name
+    if not executable.is_file():
+        raise RuntimeError('Selected Xcode UI executable is unavailable')
+    expected = {str(executable), str(executable.resolve())}
+    log = stack.enter_context((Path(state) / 'simulator-ui-private.log').open('wb'))
+    launcher = subprocess.Popen(arguments, cwd=ROOT, env=ENV, stdout=log, stderr=log)
+    stack.callback(terminate, launcher)
+    def ready():
+        # Read executable names only, never process arguments or environments.
+        result = subprocess.run(['/bin/ps', '-axo', 'comm='], env=ENV, text=True,
+                                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=10)
+        return result.returncode == 0 and any(line.strip() in expected for line in result.stdout.splitlines())
+    wait_for(ready, 'selected Xcode UI process', 60)
+    print('Selected Xcode UI process is running', flush=True)
+
+
 def ios_ui_command(developer, model, identifier):
     developer = Path(developer)
     if model == 'iPhone 17':
@@ -636,7 +661,10 @@ def ios(state, stack, ca, package, model="iPhone 16", fixture_name="MyChef fixtu
     # the same owned device must still finish boot, trust and real HTTPS.
     ui_command = ios_ui_command(ENV["DEVELOPER_DIR"], model, identifier)
     if ui_command:
-        command(*ui_command, timeout=30)
+        if model == "iPhone 17":
+            start_ios_ui(state, stack, ui_command)
+        else:
+            command(*ui_command, timeout=30)
         print("Opened selected Xcode " + ("Device Hub" if model == "iPhone 17" else "Simulator"), flush=True)
     else:
         print("Legacy Simulator GUI unavailable; continuing with actual headless runtime checks", flush=True)

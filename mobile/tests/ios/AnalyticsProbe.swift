@@ -289,8 +289,8 @@ final class AnalyticsProbe: XCTestCase {
             XCUIElement.ElementType.textField.rawValue, XCUIElement.ElementType.textView.rawValue)).firstMatch
         let element = secure ? app.secureTextFields[label].firstMatch : ordinary
         reveal(element); tapSettled(element)
-        if let current = element.value as? String, !current.isEmpty,
-           current != element.placeholderValue {
+        let current = element.value as? String ?? ""
+        if label == "Diet" || (!current.isEmpty && current != element.placeholderValue) {
             // Use the OS keyboard command instead of depending on the edit
             // menu's presentation or accessibility element type.
             element.typeKey("a", modifierFlags: .command)
@@ -301,7 +301,10 @@ final class AnalyticsProbe: XCTestCase {
             }, "Native field must clear the previous fixture value")
         }
         element.typeText(text)
-        if !secure {
+        // Multiline WebKit AX values may report a placeholder/stale value.
+        // Every Diet edit is checked against the actual authenticated profile
+        // after its native Save action, rather than accepted from this snapshot.
+        if !secure && label != "Diet" {
             XCTAssertTrue((element.value as? String) == text,
                           "Native field must retain the typed fixture input")
         }
@@ -412,6 +415,7 @@ final class AnalyticsProbe: XCTestCase {
         XCTAssertEqual(checkbox().value as? String, "0"); mark("participation", "existingOff")
         enabled(true); mark("participation", "explicitEnable")
         fill("Diet", "Vegetarian meals"); tap("Save preferences")
+        waitFor({ ((try? self.control("profile-input", ["target": "initial"])["passed"]) as? Bool) == true }, "Native preference must persist the requested fixture value")
         waitFor({ ((try? self.control("counts")["queued"]) as? Int) == 1 }, "Completed action has one queued event")
         mark("participation", "committedCoreAction")
         relaunch(); profile(); details(); XCTAssertEqual(checkbox().value as? String, "1")
@@ -464,6 +468,7 @@ final class AnalyticsProbe: XCTestCase {
         XCTAssertEqual(try control("counts")["delivered"] as? Int, 0)
         mark("queue", "retryNoDuplicate", "relaunchNoDuplicate")
         profile(); fill("Diet", "Mediterranean"); tap("Save preferences")
+        waitFor({ ((try? self.control("profile-input", ["target": "updated"])["passed"]) as? Bool) == true }, "Native replacement must persist the requested fixture value")
         waitFor({ ((try? self.control("counts")["queued"]) as? Int) == 1 }, "New permitted action must commit")
         _ = try control("backup"); details(); enabled(false); _ = try control("maintenance")
         tap("Refresh analytics setting")
@@ -672,6 +677,7 @@ final class AnalyticsProbe: XCTestCase {
         let save = app.buttons["Save preferences"].firstMatch; reveal(save)
         try enableVoice()
         _ = try focusSpeech(save, "Save preferences"); app.doubleTap()
+        waitFor({ ((try? self.control("profile-input", ["target": "updated"])["passed"]) as? Bool) == true }, "VoiceOver Save must persist the requested fixture value")
         waitFor({ ((try? self.control("counts")["queued"]) as? Int) == 1 }, "VoiceOver core action commits one event")
         _ = try control("tick"); _ = try control("backup")
         try voice.disable()
