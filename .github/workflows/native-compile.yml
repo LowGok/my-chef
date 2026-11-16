@@ -93,6 +93,7 @@ jobs:
             mobile/.generated/simulator-keychain.plist
           if-no-files-found: error
           retention-days: 1
+          overwrite: true
       - name: Prepare pinned local TalkBack recognition tools
         if: matrix.platform == 'android'
         run: python3 mobile/tests/analytics_speech.py prepare
@@ -108,6 +109,7 @@ jobs:
             mobile/.generated/artifacts/analytics-anonymous.json
           if-no-files-found: ignore
           retention-days: 1
+          overwrite: true
   analytics-voiceover:
     needs: analytics-journeys
     if: >-
@@ -159,6 +161,7 @@ jobs:
           path: mobile/.generated/artifacts/analytics-installed-voiceover.json
           if-no-files-found: error
           retention-days: 1
+          overwrite: true
   compile:
     if: >-
       github.repository == 'LowGok/my-chef' &&
