@@ -456,6 +456,17 @@ def configure_android_speech_display(config):
     config.write_text('\n'.join(lines + [key + '=' + value for key, value in values.items()]) + '\n')
 
 
+def install_android_image(manager, image):
+    """Retry one corrupt public SDK download before any fixture app is booted."""
+    try:
+        command(manager, "--install", image, timeout=240)
+    except RuntimeError as error:
+        if 'Error on ZipFile unknown archive.' not in str(error):
+            raise
+        print('Retrying Android system image after invalid downloaded archive', flush=True)
+        command(manager, "--install", image, timeout=240)
+
+
 def android(state, stack, ca, apk):
     from native_android_probe import SYSTEM_UI_ANR, dismiss_system_ui_anr, focused_window
 
@@ -473,7 +484,7 @@ def android(state, stack, ca, apk):
     if ndks:
         command(manager, "--uninstall", *ndks, timeout=180)
     print(f"Android fixture disk after cleanup: {shutil.disk_usage(sdk).free // 1024**2} MiB", flush=True)
-    command(manager, "--install", image, timeout=240)
+    install_android_image(manager, image)
     if ENV.get("NATIVE_ANALYTICS_SPEECH") == "1":
         avd = state / "avd"
         avd.mkdir(mode=0o700)

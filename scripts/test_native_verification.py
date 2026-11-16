@@ -511,6 +511,24 @@ class NativeLaunchAcknowledgementTest(unittest.TestCase):
 
 
 class OwnedAndroidTransportTest(unittest.TestCase):
+    def test_system_image_retries_only_one_invalid_archive_and_keeps_other_failures(self):
+        invalid = RuntimeError('private-proxy-value: Error on ZipFile unknown archive.')
+        for outcomes, count, failure in ((['installed'], 1, False), ([invalid, 'installed'], 2, False),
+                                          ([invalid, invalid], 2, True),
+                                          ([RuntimeError('Permission denied')], 1, True)):
+            output = io.StringIO()
+            with self.subTest(count=count, failure=failure), redirect_stdout(output), \
+                    patch.object(installed, 'command', side_effect=outcomes) as call:
+                if failure:
+                    with self.assertRaises(RuntimeError):
+                        installed.install_android_image('/fictional/sdkmanager', 'system-images;android-33;google_apis;x86_64')
+                else:
+                    installed.install_android_image('/fictional/sdkmanager', 'system-images;android-33;google_apis;x86_64')
+                self.assertEqual(call.call_count, count)
+                self.assertTrue(all(args == ('/fictional/sdkmanager', '--install', 'system-images;android-33;google_apis;x86_64')
+                                    and kwargs == {'timeout': 240} for args, kwargs in call.call_args_list))
+            self.assertNotIn('private-proxy-value', output.getvalue())
+
     def test_owned_speech_display_reduces_pixels_while_preserving_normal_width(self):
         with tempfile.TemporaryDirectory() as folder:
             avd = Path(folder) / 'mychef-ci.avd'
