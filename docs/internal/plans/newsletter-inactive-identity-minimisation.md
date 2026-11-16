@@ -1,6 +1,6 @@
 ---
 status: in-progress
-status_description: "R-5 test correction applied and focused races pass; complete unchanged full-race verification and exact implementation review."
+status_description: "R-6 finds no new defect; complete race verification remains unresolved at the unchanged dataset CLI timeout. Publication/merge and launch gates remain."
 branch: feat/newsletter-inactive-identity-minimisation
 issue: null
 goal: "Inactive newsletter contacts retain their userID and non-consenting state without unnecessary clear email or expired mail/proof history."
@@ -138,11 +138,16 @@ Keep the existing one-second deadline on the first account update after cancelli
 
 ## Acceptance Criteria
 
-- [ ] AC-01: Inactive newsletter-only contacts preserve their IDs and non-consenting state in the protected matching representation while unnecessary clear-address and expired proof/mail references are absent from logical records and completed active SQLite-file cleanup; historical backups remain separately governed.
-- [ ] AC-02: Fresh verified newsletter/app/email-change flows safely resolve the same identity without enumeration, duplicate ownership or implicit newsletter consent; promotion, later ordinary email change/deletion and address reuse retire stale ownership while valid withdrawal links and operator rights continue working.
+- [x] AC-01: Inactive newsletter-only contacts preserve their IDs and non-consenting state in the protected matching representation while unnecessary clear-address and expired proof/mail references are absent from logical records and completed active SQLite-file cleanup; historical backups remain separately governed.
+      Evidence: R-6 independently returned met at7363dac with executed synthetic focused races, actual executable and independently scanned final-image/restore checks; author final verification observes the corresponding covered behavior. This is backend evidence only; live operations and public activation stay separate.
+- [x] AC-02: Fresh verified newsletter/app/email-change flows safely resolve the same identity without enumeration, duplicate ownership or implicit newsletter consent; promotion, later ordinary email change/deletion and address reuse retire stale ownership while valid withdrawal links and operator rights continue working.
+      Evidence: R-6 independently returned met at7363dac with executed synthetic focused races, actual executable and independently scanned final-image/restore checks; author final verification observes the corresponding covered behavior. This is backend evidence only; live operations and public activation stay separate.
 - [ ] AC-03: Concurrency, expiry, erasure, restart, key recovery and old-backup restore cannot resurrect clear inactive data, old consent or dispatch, and do not change full accounts or unrelated purposes.
+      Evidence: R-6 returned not verified at7363dac because the unchanged complete race command timed out1200s in analyticsdataset TestCLIWorkflow. All other packages and focused/process/image checks passed; the outstanding check is neither waived nor relabelled passed.
 - [ ] AC-04: The additive migration/backfill and compatible rollback are independently verified, with fail-closed readiness for missing keys/journal/ambiguous state and untouched published checksums.
-- [ ] AC-05: The verified backend field/purpose/expiry/rights/key/restore handoff supports the separate private website assessment and localized notice against the approved review/erasure criteria, with no anonymous-data, deployed-behavior or live-delivery claim before its actual proof.
+      Evidence: R-6 returned not verified at7363dac because the unchanged complete race command timed out1200s in analyticsdataset TestCLIWorkflow. All other packages and focused/process/image checks passed; the outstanding check is neither waived nor relabelled passed.
+- [x] AC-05: The verified backend field/purpose/expiry/rights/key/restore handoff supports the separate private website assessment and localized notice against the approved review/erasure criteria, with no anonymous-data, deployed-behavior or live-delivery claim before its actual proof.
+      Evidence: R-6 independently returned met at7363dac with executed synthetic focused races, actual executable and independently scanned final-image/restore checks; author final verification observes the corresponding covered behavior. This is backend evidence only; live operations and public activation stay separate.
 
 ## Test Plan
 
@@ -220,6 +225,7 @@ No new product choice. The owner accepted the independently reviewed R-5 test-co
 | 2026-11-16 | R-4 | implementation | `0119f76fb3621321360e60fca095aaeca2ed3c0c` | unknown | procedural | Blocking expired signup proof/mail restore finding; AC-02 met, AC-01/03/05 not met, AC-04 not verified. Model identity not attested. |
 | 2026-11-16 | R-5 | spec | `bc225ecf5f364ef4b68b6bd2f2a936e895af4871` | unknown | procedural | No findings on the narrow test-coverage/context revision; renewed acceptance pending. Model identity not attested. |
 | 2026-11-16 | R-5 | spec | `bc225ecf5f364ef4b68b6bd2f2a936e895af4871` | n/a | n/a | accepted by owner |
+| 2026-11-16 | R-6 | implementation | `7363dac4779434452218275b14e3af20a8a837a1` | unknown | procedural | AC-01/02/05 met; AC-03/04 not verified pending complete race verification. No new defect; model identity not attested. |
 
 ### R-1
 
@@ -287,3 +293,25 @@ PROPOSAL: Apply bounded purpose-owned account-proof/mail expiry and required inv
 ### R-5
 
 NO FINDINGS
+
+### R-6
+
+CRITERION: AC-01 Inactive newsletter-only contacts preserve their IDs and non-consenting state in the protected matching representation while unnecessary clear-address and expired proof/mail references are absent from logical records and completed active SQLite-file cleanup; historical backups remain separately governed.
+VERDICT: met
+EVIDENCE: At 7363dac4779434452218275b14e3af20a8a837a1, independent feature-focused store/newsletter races passed, including protected matching, retained IDs/choices, current-authority exclusions, expired purpose-owned references, legacy freelists, DB/WAL/SHM canaries, busy readers, cancellation, quota failure and restart/retry. The genuine issued-signup and other account-purpose restore regressions now pass with expired payloads absent and authorized controls retained. The independently rebuilt binaries matched the rehearsed binaries byte-for-byte. The fresh actual-process rehearsal passed elapsed one-minute cleanup and verified expired issued proof/mail absence in restored output before server startup, with source snapshots unchanged. Evidence uses disposable synthetic storage; historical backups and provider retention remain outside active-file cleanup.
+
+CRITERION: AC-02 Fresh verified newsletter/app/email-change flows safely resolve the same identity without enumeration, duplicate ownership or implicit newsletter consent; promotion, later ordinary email change/deletion and address reuse retire stale ownership while valid withdrawal links and operator rights continue working.
+VERDICT: met
+EVIDENCE: At 7363dac4779434452218275b14e3af20a8a837a1, independently executed feature-focused auth, newsletter, HTTP and runtime race checks passed. Inspected assertions cover same-ID newsletter/app flows, canonical collisions, reduced-destination email transfer, unchanged consent choices, promotion epochs, ordinary email change/deletion, address reuse, old-mailbox proof rejection and verified export/erasure. Source inspection confirms public capture acknowledges protected work before recipient resolution and public handlers cannot accept operator authority. The independent actual-process and final-image rehearsals passed fake dispatch, confirmation, restart, pause and withdrawal. No real mailbox receipt or live deployment is established.
+
+CRITERION: AC-03 Concurrency, expiry, erasure, restart, key recovery and old-backup restore cannot resurrect clear inactive data, old consent or dispatch, and do not change full accounts or unrelated purposes.
+VERDICT: not verified
+EVIDENCE: At 7363dac4779434452218275b14e3af20a8a837a1, independent go test -race -timeout 20m ./internal/store ./internal/auth ./internal/newsletter ./internal/email ./internal/email/mailqueue ./internal/http ./cmd/mychef ./internal/analytics -run 'Newsletter|Minimisation|Minimization|Minimise|RestoreExpires|Maintenance|CancelledReportOutput|CaptureCompletesWithRetirement' -count=1 exited successfully. Store, auth, newsletter, email, HTTP, runtime and analytics had matching tests; mailqueue had none under this selector. These checks establish the covered concurrency, expiry, key/ownership, restore and control scenarios, including the corrected R-4 boundary and retained one-second cancellation-fence assertion. Fresh process, historical-upgrade and final-image rehearsals also passed their covered controls. However, the accepted design expressly retains complete race verification. Inspection of min-final-race-r5.log shows that required command failed when unchanged analyticsdataset TestCLIWorkflow exceeded 1200 seconds. No independent passing complete run was observed. The targeted passes cannot establish the composite criterion while that required verification remains unresolved; no new implementation defect was established in this review.
+
+CRITERION: AC-04 The additive migration/backfill and compatible rollback are independently verified, with fail-closed readiness for missing keys/journal/ambiguous state and untouched published checksums.
+VERDICT: not verified
+EVIDENCE: At 7363dac4779434452218275b14e3af20a8a837a1, independent focused migration, key/journal, backfill, ambiguous-state and physical-failure races passed. The actual-process rehearsal passed explicit initialization/schema-23 upgrade, changed-key refusal and compatible paused restart. The historical executable upgrade/restore rehearsal passed account/session/data preservation, deletion replay, integrity and foreign keys. Published migration/checksum assertions passed in the selected store suite. Independently executed scripts/test_rewrite_container.py --scan against an external Git archive and the matching production-code image passed context exclusions, newsletter role, browser journeys, nonroot/read-only runtime, persistence, backup/restore, deletion/admission replay, SIGTERM and the pinned HIGH/CRITICAL scan. Image ID was sha256:94e05e15d4d88c7371580fdf31820f1f66cef383b5a8a2fb8f5d45ab0ddb3fe8; only scratch test ports changed. The expressly retained complete race verification remains unsuccessful at the separate analyticsdataset CLI timeout, so final composite verification is incomplete and T20 remains open.
+
+CRITERION: AC-05 The verified backend field/purpose/expiry/rights/key/restore handoff supports the separate private website assessment and localized notice against the approved review/erasure criteria, with no anonymous-data, deployed-behavior or live-delivery claim before its actual proof.
+VERDICT: met
+EVIDENCE: At 7363dac4779434452218275b14e3af20a8a837a1, inspected README/deployment field-purpose, expiry, nullable export, immutable key, ownership and recovery guidance against the implemented schema/resolvers and independently passing focused/process/image evidence. The corrected restore handoff requires issued account-work cleanup before service startup and preserves current account purposes; independent pre-start restoration checks now establish that boundary. Guidance distinguishes protected personal data from anonymous data and separates active-file cleanup from historical backup/provider retention. The document preserves private website assessment, localized notice, actual operations, real-mail and launch gates, and records the remaining full-race limitation. This establishes the backend handoff, not publication, legal compliance, production readiness or real delivery.
