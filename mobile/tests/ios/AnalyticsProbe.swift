@@ -57,12 +57,14 @@ final class AnalyticsProbe: XCTestCase {
             print("Analytics iOS screen state: " + name + " present=\(present)")
         }
     }
-    func waitFor(_ condition: @escaping () -> Bool, _ message: String, timeout: TimeInterval = 35) {
+    func waitFor(_ condition: @escaping () -> Bool, _ message: String, timeout: TimeInterval = 35,
+                 onTimeout: (() -> Void)? = nil) {
         let end = Date().addingTimeInterval(timeout)
         while Date() < end {
             if condition() { return }
             RunLoop.current.run(until: Date().addingTimeInterval(0.2))
         }
+        onTimeout?()
         for (name, label) in [("Shopping destination", "Shopping list."), ("Profile destination", "Your profile."), ("Shopping saved", "Saved")] {
             let matches = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", label)).allElementsBoundByIndex
             print("Analytics iOS known control: " + name + " types: " + matches.prefix(6).map { String($0.elementType.rawValue) }.joined(separator: ","))
@@ -333,9 +335,11 @@ final class AnalyticsProbe: XCTestCase {
             // Never replace this after any field input or account proof.
             try? app.screenshot().pngRepresentation.write(to: URL(fileURLWithPath: path), options: .atomic)
         }
-        waitFor({ self.app.keyboards.firstMatch.exists }, "Native text input needs the software keyboard")
+        waitFor({ self.app.keyboards.firstMatch.exists }, "Native text input needs the software keyboard", onTimeout: {
+            let frame = element.frame
+            print("Analytics iOS tap rect: \(frame.minX),\(frame.minY),\(frame.width),\(frame.height)")
+        })
         hasEnteredData = true
-        let current = element.value as? String ?? ""
         if replace {
             element.press(forDuration: 1.0)
             let menuItem = app.menuItems["Select All"].firstMatch
@@ -345,12 +349,10 @@ final class AnalyticsProbe: XCTestCase {
             if menuItem.exists && menuItem.isHittable { menuItem.tap() }
             else { menuButton.tap() }
             element.typeText(XCUIKeyboardKey.delete.rawValue)
-        } else if label == "Diet" || (!current.isEmpty && current != element.placeholderValue) {
-            // Use the OS keyboard command instead of depending on the edit
-            // menu's presentation or accessibility element type.
-            element.typeKey("a", modifierFlags: .command)
-            element.typeText(XCUIKeyboardKey.delete.rawValue)
         }
+        // These fictional forms start empty. Use the actual software keyboard
+        // without a hardware command chord or AX-placeholder clearing guess.
+        // The known nonempty replacement above uses the native editing menu.
         element.typeText(text)
         // Acceptance is established by the visible signup completion and the
         // exact persisted profile checks after Save. An immediate WebKit AX
