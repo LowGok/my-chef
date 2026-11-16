@@ -9,16 +9,19 @@ guard CommandLine.arguments.count == 2,
     print("Selected Xcode UI metadata unavailable")
     exit(1)
 }
-let expected = executable.resolvingSymlinksInPath().standardizedFileURL
+let expected = executable.resolvingSymlinksInPath().standardizedFileURL.path
 let deadline = Date().addingTimeInterval(60)
 var sawApplication = false
 var sawOtherExecutable = false
+var sawSameBundle = false
 while Date() < deadline {
     let candidates = NSRunningApplication.runningApplications(withBundleIdentifier: identifier)
     sawApplication = sawApplication || !candidates.isEmpty
     for application in candidates where !application.isTerminated {
         guard let actual = application.executableURL else { continue }
-        if actual.resolvingSymlinksInPath().standardizedFileURL == expected {
+        let actualPath = actual.resolvingSymlinksInPath().standardizedFileURL.path
+        sawSameBundle = sawSameBundle || actualPath.hasPrefix(bundle.bundleURL.resolvingSymlinksInPath().path + "/")
+        if actualPath == expected {
             print("Selected Xcode UI process is running")
             exit(0)
         }
@@ -26,5 +29,5 @@ while Date() < deadline {
     }
     RunLoop.current.run(until: Date().addingTimeInterval(0.5))
 }
-print("Selected Xcode UI readiness: application=\(sawApplication) otherExecutable=\(sawOtherExecutable)")
+print("Selected Xcode UI readiness: application=\(sawApplication) otherExecutable=\(sawOtherExecutable) sameBundle=\(sawSameBundle)")
 exit(1)

@@ -42,6 +42,7 @@ class DisplayGestureTest(unittest.TestCase):
         self.assertEqual(motion.count('click'), 2)
         self.assertEqual(motion.count('mousemove'), 2)
         self.assertIn('198', motion); self.assertIn('222', motion)
+        self.assertIn('384', motion); self.assertIn('396', motion)
         self.assertIn('sleep', motion)
         self.assertFalse(any('adb' in str(call) or 'auth' in str(call) for call in calls))
 

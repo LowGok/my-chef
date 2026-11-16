@@ -521,8 +521,8 @@ class XcodeUIHostTest(unittest.TestCase):
                     installed.start_ios_ui(state, stack, ['/usr/bin/open', '-a', str(bundle)])
                 with self.assertRaisesRegex(RuntimeError, 'did not become ready'):
                     installed.start_ios_ui(state, stack, ['/usr/bin/open', '-a', str(bundle)])
-                installed.start_ios_ui(state, stack, ['/usr/bin/open', '-a', str(bundle)])
-                self.assertEqual(launch.call_args.args[0], ['/usr/bin/open', '-a', str(bundle)])
+                installed.start_ios_ui(state, stack, ['/usr/bin/open', '-Fn', str(bundle)])
+                self.assertEqual(launch.call_args.args[0], ['/usr/bin/open', '-Fn', str(bundle)])
                 self.assertIn('swiftc', compile_host.call_args.args)
                 self.assertIn(str(installed.ROOT / 'mobile/tests/ios/SimulatorHost.swift'), compile_host.call_args.args)
 
@@ -534,11 +534,11 @@ class XcodeUIHostTest(unittest.TestCase):
             hub = developer.parent / 'Applications/DeviceHub.app'
             hub.mkdir(parents=True)
             self.assertEqual(installed.ios_ui_command(developer, 'iPhone 17', 'fictional-device'),
-                             ['/usr/bin/open', '-a', str(hub)])
+                             ['/usr/bin/open', '-Fn', str(hub)])
             legacy = developer / 'Applications/Simulator.app'
             legacy.mkdir(parents=True)
             self.assertEqual(installed.ios_ui_command(developer, 'iPhone 16', 'fictional-device'),
-                             ['/usr/bin/open', '-a', str(legacy), '--args', '-CurrentDeviceUDID', 'fictional-device',
+                             ['/usr/bin/open', '-Fn', str(legacy), '--args', '-CurrentDeviceUDID', 'fictional-device',
                               '-ConnectHardwareKeyboard', 'NO'])
 
 

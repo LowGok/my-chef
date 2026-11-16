@@ -108,8 +108,10 @@ def gesture(kind, native):
         if kind == 'double-tap':
             # One process preserves timing; nearby distinct host positions
             # avoid Qt folding the second press into a host double-click.
-            command(*(move(.5 - 12 / width) + ['click', '1', 'sleep', '.12']
-                      + move(.5 + 12 / width) + ['click', '1']))
+            # Change both axes: the kernel omits unchanged absolute values,
+            # including across separate gestures in a new observer window.
+            command(*(move(.5 - 12 / width, .5 - 6 / height) + ['click', '1', 'sleep', '.12']
+                      + move(.5 + 12 / width, .5 + 6 / height) + ['click', '1']))
         else:
             # A slight vertical change keeps the gesture horizontally dominant
             # while making both absolute axes observable in this fresh trace.

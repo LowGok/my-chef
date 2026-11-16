@@ -595,7 +595,7 @@ def start_ios_ui(state, stack, arguments, observer=None):
                             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=75)
     if result.returncode != 0 or result.stdout.strip() != 'Selected Xcode UI process is running':
         summary = result.stdout.strip()
-        if re.fullmatch(r'Selected Xcode UI readiness: application=(?:true|false) otherExecutable=(?:true|false)', summary):
+        if re.fullmatch(r'Selected Xcode UI readiness: application=(?:true|false) otherExecutable=(?:true|false) sameBundle=(?:true|false)', summary):
             print(summary, flush=True)
         raise RuntimeError('Selected Xcode UI process did not become ready')
     print('Selected Xcode UI process is running', flush=True)
@@ -609,12 +609,12 @@ def ios_ui_command(developer, model, identifier):
         hub = developer.parent / 'Applications/DeviceHub.app'
         if not hub.is_dir():
             raise RuntimeError('Selected Xcode Device Hub is unavailable')
-        return ['/usr/bin/open', '-a', str(hub)]
+        return ['/usr/bin/open', '-Fn', str(hub)]
     legacy = developer / 'Applications/Simulator.app'
     if legacy.is_dir():
         # Keep the software keyboard available for the actual phone-layout
         # checks. NSArgumentDomain overrides this launch without host writes.
-        return ['/usr/bin/open', '-a', str(legacy), '--args', '-CurrentDeviceUDID', identifier,
+        return ['/usr/bin/open', '-Fn', str(legacy), '--args', '-CurrentDeviceUDID', identifier,
                 '-ConnectHardwareKeyboard', 'NO']
     return None
 
