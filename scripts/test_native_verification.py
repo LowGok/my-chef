@@ -506,6 +506,32 @@ class SimulatorBootOrderTest(unittest.TestCase):
             installed.start_ios_simulator(sim, 'owned-device', lambda: calls.append(('host-ui',)))
             self.assertEqual(calls, [('host-ui',), ('list', 'devices', '-j')])
 
+    def test_ui_boot_race_is_corroborated_by_the_exact_device_state(self):
+        for after in ('Booting', 'Booted', 'Shutdown'):
+            calls = []
+            states = iter(('Shutdown', after))
+            def sim(*args, **_):
+                calls.append(args)
+                if args[0] == 'boot':
+                    raise RuntimeError('simctl boot failed (domain=com.apple.CoreSimulator.SimError, code=405): Unable to boot device in current state: Booted')
+                return json.dumps({'devices': {'runtime': [{'udid': 'owned-device', 'state': next(states)}]}})
+            if after == 'Shutdown':
+                with self.assertRaisesRegex(RuntimeError, 'code=405'):
+                    installed.start_ios_simulator(sim, 'owned-device', lambda: None)
+            else:
+                installed.start_ios_simulator(sim, 'owned-device', lambda: None)
+            self.assertEqual(calls, [('list', 'devices', '-j'), ('boot', 'owned-device'), ('list', 'devices', '-j')])
+
+    def test_unrelated_boot_failure_is_not_reinterpreted_as_success(self):
+        calls = []
+        def sim(*args, **_):
+            calls.append(args)
+            if args[0] == 'boot': raise RuntimeError('Fictional permission refusal')
+            return json.dumps({'devices': {'runtime': [{'udid': 'owned-device', 'state': 'Shutdown'}]}})
+        with self.assertRaisesRegex(RuntimeError, 'Fictional permission refusal'):
+            installed.start_ios_simulator(sim, 'owned-device', lambda: None)
+        self.assertEqual(calls, [('list', 'devices', '-j'), ('boot', 'owned-device')])
+
     def test_missing_ambiguous_or_invalid_device_and_ui_failure_prevent_boot(self):
         for devices in ([], [{'udid': 'foreign-device', 'state': 'Shutdown'}],
                         [{'udid': 'owned-device', 'state': 'Shutting Down'}],

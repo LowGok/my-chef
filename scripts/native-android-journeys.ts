@@ -60,6 +60,13 @@ const adb = (...args: string[]) => {
   if (result.exitCode) throw new Error("Disposable Android control failed.");
   return result.stdout.toString().trim();
 };
+function focusOwner() {
+  const result = Bun.spawnSync(["python3", "scripts/native_android_probe.py", "picker-focus"],
+    { stdout: "pipe", stderr: "ignore" });
+  const value = result.stdout.toString().trim();
+  return result.exitCode === 0 && /^(app|documents|system-ui-anr|other|unknown)$/.test(value)
+    ? value : "unknown";
+}
 let device: AndroidDevice | undefined;
 let page: Page;
 let stage = "connect";
@@ -92,13 +99,6 @@ async function connect() {
   let lastFocusCheck = 0;
   let startupOwner = "unknown";
   let reportedStartupRecovery = "";
-  function startupControl(operation: "picker-focus") {
-    const result = Bun.spawnSync(["python3", "scripts/native_android_probe.py", operation],
-      { stdout: "pipe", stderr: "ignore" });
-    const value = result.stdout.toString().trim();
-    return result.exitCode === 0 && /^(app|documents|system-ui-anr|other|unknown)$/.test(value)
-      ? value : "unknown";
-  }
   await expect
     .poll(
       async () => {
@@ -114,7 +114,7 @@ async function connect() {
         if (/INSTRUMENTATION_STATUS: probe=ready/.test(log)) return true;
         if (Date.now() - lastFocusCheck >= 5000) {
           lastFocusCheck = Date.now();
-          startupOwner = startupControl("picker-focus");
+          startupOwner = focusOwner();
           console.log("Android instrumentation startup focus owner: " + startupOwner);
         }
         if (probe.exitCode !== null) {
@@ -207,7 +207,7 @@ async function probeAction(
         const reason = log.match(
           /INSTRUMENTATION_RESULT: probeReason=([a-z-]{1,50})\b/,
         )?.[1];
-        if (reason) throw Error("Disposable OS probe refused: " + reason + "; control " + kind + " " + name);
+        if (reason) throw Error("Disposable OS probe refused: " + reason + "; control " + kind + " " + name + "; owner=" + focusOwner());
         try {
           return adb("shell", "run-as", app, "cat", "cache/native-check-done");
         } catch {

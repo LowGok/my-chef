@@ -576,15 +576,25 @@ def ios_host_resources(state):
 def start_ios_simulator(sim, identifier, open_ui):
     # Open the selected host before boot, as required by the UI client startup
     # sequence. A host may initiate boot itself; inspect the exact owned UUID
-    # before issuing boot and still require bootstatus/HTTPS afterward.
+    # and still require bootstatus/HTTPS afterward.
+    def owned_state():
+        devices = json.loads(sim('list', 'devices', '-j', timeout=30))['devices']
+        matches = [entry for group in devices.values() for entry in group if entry.get('udid') == identifier]
+        if len(matches) != 1 or matches[0].get('state') not in ('Shutdown', 'Booting', 'Booted'):
+            raise RuntimeError('The owned simulator has an unexpected boot state')
+        return matches[0]['state']
     if open_ui is not None:
         open_ui()
-    devices = json.loads(sim('list', 'devices', '-j', timeout=30))['devices']
-    matches = [entry for group in devices.values() for entry in group if entry.get('udid') == identifier]
-    if len(matches) != 1 or matches[0].get('state') not in ('Shutdown', 'Booting', 'Booted'):
-        raise RuntimeError('The owned simulator has an unexpected boot state')
-    if matches[0]['state'] == 'Shutdown':
-        sim('boot', identifier)
+    if owned_state() == 'Shutdown':
+        try:
+            sim('boot', identifier)
+        except RuntimeError as error:
+            message = str(error)
+            already_started = re.search(r'\bcode=405\b', message) and re.search(
+                r'Unable to boot device in current state: (?:Booted|Booting)\b', message)
+            if not already_started or owned_state() not in ('Booting', 'Booted'):
+                raise
+            print('Owned simulator boot corroborated after host UI startup', flush=True)
 
 
 def compile_ios_ui_observer(state):
@@ -593,6 +603,7 @@ def compile_ios_ui_observer(state):
             str(ROOT / 'mobile/tests/ios/SimulatorHost.swift'), '-o', str(observer), timeout=90)
     if command(str(observer), '--identity-self-test', timeout=15) != 'Simulator host file identity checks passed':
         raise RuntimeError('Simulator host file identity checks failed')
+    print('Simulator host file identity checks passed', flush=True)
     return observer
 
 
@@ -617,7 +628,7 @@ def start_ios_ui(state, stack, arguments, observer=None):
                             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=75)
     if result.returncode != 0 or result.stdout.strip() != 'Selected Xcode UI process is running':
         summary = result.stdout.strip()
-        if re.fullmatch(r'Selected Xcode UI readiness: application=(?:true|false) otherExecutable=(?:true|false) sameBundle=(?:true|false) sameFile=(?:true|false) launchCompleted=(?:true|false) launchFailed=(?:true|false) expected=(?:devicehub|trampoline|simulator|other) actual=(?:devicehub|trampoline|simulator|other)', summary):
+        if re.fullmatch(r'Selected Xcode UI readiness: application=(?:true|false) otherExecutable=(?:true|false) sameBundle=(?:true|false) sameFile=(?:true|false) launchCompleted=(?:true|false) launchFailed=(?:true|false) expected=(?:devicehub|trampoline|simulator|other) actual=(?:devicehub|trampoline|simulator|other) candidates=[12]', summary):
             print(summary, flush=True)
         raise RuntimeError('Selected Xcode UI process did not become ready')
     print('Selected Xcode UI process is running', flush=True)
@@ -695,7 +706,8 @@ def ios(state, stack, ca, package, model="iPhone 16", fixture_name="MyChef fixtu
     ui_command = ios_ui_command(ENV["DEVELOPER_DIR"], model, identifier)
     # Compile the small observer before CoreSimulator's boot workload. It must
     # establish the selected UI process before device boot starts.
-    ui_observer = compile_ios_ui_observer(state) if model == 'iPhone 17' else None
+    ui_observer = compile_ios_ui_observer(state) if (model == 'iPhone 17' or
+        model == 'iPhone 16' and os.environ.get('NATIVE_ANALYTICS_JOURNEYS') == '1') else None
     def open_ui():
         if ui_command:
             if model == "iPhone 17":

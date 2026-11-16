@@ -99,6 +99,18 @@ public final class NativeJourneyProbe extends Instrumentation {
                 "Download ZIP", "Permanently delete account", "Current password",
                 "Choose recipe photo", "Recipe-page photos", "Create my account", "Create account").contains(label))
             throw new IllegalStateException("native-control");
+        // A keyboard/scene transition can briefly release window focus.
+        // Wait for the real current WebView before measuring or injecting;
+        // no activation is attempted until this succeeds.
+        boolean[] ready = {false};
+        for (int i = 0; i < 50 && !ready[0]; i++) {
+            runOnMainSync(() -> {
+                refreshWeb();
+                ready[0] = web != null && web.isShown() && web.hasWindowFocus();
+            });
+            if (!ready[0]) SystemClock.sleep(100);
+        }
+        if (!ready[0]) throw new IllegalStateException("native-window-unfocused");
         double[][] point = {null};
         CountDownLatch evaluated = new CountDownLatch(1);
         String quotedLabel = JSONObject.quote(label);

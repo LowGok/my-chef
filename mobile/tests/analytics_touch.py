@@ -23,20 +23,40 @@ def touch_facts(text, contacts=1):
                 positions=x + y, releases=up + ids.count('ffffffff'), mouseButtons=mouse)
 
 
+def touch_devices(snapshot):
+    if not isinstance(snapshot, str) or len(snapshot) > 65536:
+        raise RuntimeError('Emulator touchscreen observer unavailable')
+    devices = set()
+    for block in re.split(r'(?m)(?=^add device [0-9]+: )', snapshot):
+        header = re.match(r'add device [0-9]+: (/dev/input/event[0-9]{1,3})\r?\n', block)
+        if header and all(re.search(r'\b' + axis + r'\b', block)
+                          for axis in ('ABS_MT_POSITION_X', 'ABS_MT_POSITION_Y')):
+            devices.add(header[1])
+    if not 1 <= len(devices) <= 16:
+        raise RuntimeError('Emulator touchscreen observer unavailable')
+    return devices
+
+
 @contextmanager
 def touch_trace(native, contacts):
-    # getevent disables stdout buffering. The remote timeout terminates this
-    # bounded observer on the run-owned device even if the host command fails.
+    # A keyboard header precedes opening the touch device on some boots. Wait
+    # for every measured MT device's own header before releasing the gesture.
     adb = str(Path(native.ENV['ANDROID_HOME']) / 'platform-tools/adb')
+    expected = touch_devices(native.command(adb, '-s', 'emulator-5554', 'shell', 'getevent', '-lp', timeout=10))
     with tempfile.TemporaryFile() as output:
-        process = subprocess.Popen([adb, '-s', 'emulator-5554', 'shell', 'timeout', '2', 'getevent', '-lt'],
+        # The remote cap also cleans up if the host connection disappears.
+        process = subprocess.Popen([adb, '-s', 'emulator-5554', 'shell', 'timeout', '8', 'getevent', '-lt'],
                                    env=native.ENV, stdout=output, stderr=subprocess.DEVNULL)
         try:
-            deadline = time.monotonic() + 2
+            deadline = time.monotonic() + 4
             while time.monotonic() < deadline:
                 # pread leaves the child writer's shared file offset intact.
-                header = os.pread(output.fileno(), 16384, 0)
-                if re.search(rb'add device [0-9]+: /dev/input/event[0-9]+', header):
+                header = os.pread(output.fileno(), 65537, 0)
+                if len(header) > 65536:
+                    raise RuntimeError('Emulator touchscreen observer unavailable')
+                opened = {path.decode() for path in re.findall(
+                    rb'(?m)^add device [0-9]+: (/dev/input/event[0-9]+)\r?\n', header)}
+                if expected <= opened:
                     break
                 if process.poll() is not None:
                     raise RuntimeError('Emulator touchscreen observer unavailable')
@@ -44,9 +64,16 @@ def touch_trace(native, contacts):
             else:
                 raise RuntimeError('Emulator touchscreen observer unavailable')
             yield
-            process.wait(timeout=4)
-        except subprocess.TimeoutExpired:
-            raise RuntimeError("Emulator touchscreen observer unavailable") from None
+            # Stop after observing the complete required contacts, rather than
+            # expiring a short timer that began before device enumeration.
+            deadline = time.monotonic() + 3
+            while time.monotonic() < deadline:
+                raw = os.pread(output.fileno(), 65537, 0)
+                if len(raw) > 65536:
+                    raise RuntimeError('Emulator touchscreen observer unavailable')
+                if touch_facts(raw.decode(errors='replace'), contacts)['touchscreen'] or process.poll() is not None:
+                    break
+                time.sleep(.02)
         finally:
             native.terminate(process)
         output.seek(0)
@@ -59,6 +86,7 @@ def touch_trace(native, contacts):
           + ' mouseButtons=' + str(facts['mouseButtons']), flush=True)
     if not facts['touchscreen']:
         raise RuntimeError('Emulator touchscreen input was not observed')
+
 
 
 def focus_display(native):

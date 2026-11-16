@@ -112,4 +112,46 @@ class TouchTraceTest(unittest.TestCase):
         self.assertFalse(touch_facts('arbitrary text with ABS_MT_POSITION_X and DOWN')['touchscreen'])
 
 
+class TouchObserverReadyTest(unittest.TestCase):
+    profile = ('add device 1: /dev/input/event0\n  name: "keyboard"\n'
+               'add device 2: /dev/input/event7\n  name: "touchscreen"\n'
+               '  ABS_MT_POSITION_X ABS_MT_POSITION_Y ABS_MT_TRACKING_ID\n')
+    contact = ('EV_ABS ABS_MT_POSITION_X 00004000\nEV_ABS ABS_MT_POSITION_Y 00004000\n'
+               'EV_ABS ABS_MT_TRACKING_ID 00000003\nEV_ABS ABS_MT_TRACKING_ID ffffffff\n')
+
+    def exercise(self, headers, ended=False):
+        import analytics_touch
+        from unittest.mock import Mock
+        process = SimpleNamespace(poll=lambda: 0 if ended else None)
+        native = SimpleNamespace(ENV={'ANDROID_HOME': '/fictional-sdk'},
+                                 command=Mock(return_value=self.profile), terminate=Mock())
+        def start(*_, **fields):
+            fields['stdout'].write((self.contact * 2).encode())
+            fields['stdout'].flush()
+            return process
+        with patch.object(analytics_touch.subprocess, 'Popen', side_effect=start), \
+             patch.object(analytics_touch.os, 'pread', side_effect=headers) as read, \
+             patch.object(analytics_touch.time, 'sleep'):
+            with analytics_touch.touch_trace(native, 2):
+                self.assertGreaterEqual(read.call_count, 2, 'A keyboard header cannot release the gesture')
+        native.terminate.assert_called_once_with(process)
+
+    def test_gesture_waits_until_the_actual_touch_device_is_open(self):
+        self.exercise([b'add device 1: /dev/input/event0\n',
+                       b'add device 1: /dev/input/event0\nadd device 2: /dev/input/event7\n',
+                       (self.contact * 2).encode()])
+
+    def test_ended_observer_without_touch_device_prevents_the_gesture(self):
+        with self.assertRaisesRegex(RuntimeError, 'observer unavailable'):
+            self.exercise([b'add device 1: /dev/input/event0\n'], ended=True)
+
+    def test_touch_device_selection_requires_both_mt_axes_and_bounded_real_paths(self):
+        from analytics_touch import touch_devices
+        self.assertEqual(touch_devices(self.profile), {'/dev/input/event7'})
+        for profile in (None, '', 'x' * 65537, self.profile.replace('ABS_MT_POSITION_Y', ''),
+                        self.profile.replace('/dev/input/event7', '/fictional/private-device')):
+            with self.assertRaisesRegex(RuntimeError, 'observer unavailable'):
+                touch_devices(profile)
+
+
 if __name__ == '__main__': unittest.main()
