@@ -217,6 +217,7 @@ No new product choice. The narrow test-coverage/context revision awaits independ
 | 2026-11-15 | R-2 | spec | `fa1881e211a98565e05503832c48a58326282d5f` | n/a | n/a | accepted by owner |
 | 2026-11-15 | R-3 | spec | `436e6822b08b08c383ba635c0faf5eb0f762c583` | unknown | procedural | No findings after merged-runtime/default freshness review; accepted normative baseline unchanged. Model identity not attested. |
 | 2026-11-16 | R-4 | implementation | `0119f76fb3621321360e60fca095aaeca2ed3c0c` | unknown | procedural | Blocking expired signup proof/mail restore finding; AC-02 met, AC-01/03/05 not met, AC-04 not verified. Model identity not attested. |
+| 2026-11-16 | R-5 | spec | `bc225ecf5f364ef4b68b6bd2f2a936e895af4871` | unknown | procedural | No findings on the narrow test-coverage/context revision; renewed acceptance pending. Model identity not attested. |
 
 ### R-1
 
@@ -280,3 +281,7 @@ SEVERITY: blocking
 WHERE: internal/store/account_restore.go:58-72 and 135-143; internal/store/backup.go:256-259; feature document Design active-file cleanup lines 100 and 104, authoritative restore line 120, AC-01, AC-03, AC-05 and their Test Plan rows; README.md:229 and 339; deploy/newsletter/README.md:107-109.
 EVIDENCE: The new restore implementation deletes newsletter work and unissued signup_requests, but does not expire issued signup proofs or their purpose-owned mail before completing physical cleanup and publishing the copy. An independent read-only overlay test at 0119f76fb3621321360e60fca095aaeca2ed3c0c created genuine contact-bound signup proof/mail, saved a snapshot, advanced expiry and ran Maintain, verifying current signup_proofs=0. Explicit restore of the snapshot then succeeded with NewsletterFilesReady passing, while queries returned signup_proofs=1 and expired signup outbox=1, and byte inspection found the synthetic clear address in managed active files. The probe is retained outside the repository at /dev/shm/mychef-nl-g6zukt_a/independent-review-0119f76/overlay.json and runs through run-min-go.py test -overlay <path> ./internal/newsletter -run '^TestIndependentReviewRestoreExpiredSignupPayload$' -count=1 -v.
 PROPOSAL: Apply bounded purpose-owned account-proof/mail expiry and required invalidation to the unpublished restored copy before certifying physical completion, preserving unrelated current account purposes. Add restore regressions with issued signup and other expired account-transition payloads, active-file canaries and authorized controls.
+
+### R-5
+
+NO FINDINGS
