@@ -721,13 +721,17 @@ final class AnalyticsProbe: XCTestCase {
             // Enabling VoiceOver may scroll to its current focus. Use a real
             // visible touch anchor when available; otherwise let VoiceOver's
             // own navigation reach and scroll to the required announcement.
-            if element.exists && element.isHittable {
-                // Ask XCTest for the element's hittable point. The geometric
-                // centre of a WebKit label can focus adjacent static text.
-                // This remains a native tap; actual speech/state is required.
-                element.tap()
-            }
             let control = ["Help improve MyChef", "Save preferences", "Refresh analytics setting"].contains(phrase)
+            if hasTapRegion(element) {
+                if control {
+                    // Interactive controls require the native computed hit point.
+                    if element.isHittable { element.tap() }
+                } else {
+                    // Readable static text has no activation point. A real
+                    // visible touch can anchor VoiceOver without activating it.
+                    element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+                }
+            }
             return try spoken(phrase, backward: control, controlRole: control)
         }
         func state(_ utterance: String) -> String {
