@@ -506,21 +506,25 @@ class SimulatorBootOrderTest(unittest.TestCase):
             installed.start_ios_simulator(sim, 'owned-device', lambda: calls.append(('host-ui',)))
             self.assertEqual(calls, [('host-ui',), ('list', 'devices', '-j')])
 
-    def test_ui_boot_race_is_corroborated_by_the_exact_device_state(self):
-        for after in ('Booting', 'Booted', 'Shutdown'):
+    def test_ui_boot_race_requires_targeted_boot_completion_without_reenumerating(self):
+        for completes in (True, False):
             calls = []
-            states = iter(('Shutdown', after))
             def sim(*args, **_):
                 calls.append(args)
                 if args[0] == 'boot':
                     raise RuntimeError('simctl boot failed (domain=com.apple.CoreSimulator.SimError, code=405): Unable to boot device in current state: Booted')
-                return json.dumps({'devices': {'runtime': [{'udid': 'owned-device', 'state': next(states)}]}})
-            if after == 'Shutdown':
-                with self.assertRaisesRegex(RuntimeError, 'code=405'):
-                    installed.start_ios_simulator(sim, 'owned-device', lambda: None)
-            else:
+                if args[0] == 'bootstatus':
+                    if not completes: raise RuntimeError('Fictional target boot status refused')
+                    return ''
+                if calls.count(('list', 'devices', '-j')) > 1:
+                    raise RuntimeError('Fictional all-device enumeration unavailable during boot')
+                return json.dumps({'devices': {'runtime': [{'udid': 'owned-device', 'state': 'Shutdown'}]}})
+            if completes:
                 installed.start_ios_simulator(sim, 'owned-device', lambda: None)
-            self.assertEqual(calls, [('list', 'devices', '-j'), ('boot', 'owned-device'), ('list', 'devices', '-j')])
+            else:
+                with self.assertRaisesRegex(RuntimeError, 'Fictional target boot status refused'):
+                    installed.start_ios_simulator(sim, 'owned-device', lambda: None)
+            self.assertEqual(calls, [('list', 'devices', '-j'), ('boot', 'owned-device'), ('bootstatus', 'owned-device')])
 
     def test_unrelated_boot_failure_is_not_reinterpreted_as_success(self):
         calls = []

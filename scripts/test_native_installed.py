@@ -592,8 +592,11 @@ def start_ios_simulator(sim, identifier, open_ui):
             message = str(error)
             already_started = re.search(r'\bcode=405\b', message) and re.search(
                 r'Unable to boot device in current state: (?:Booted|Booting)\b', message)
-            if not already_started or owned_state() not in ('Booting', 'Booted'):
+            if not already_started:
                 raise
+            # Enumerating every device can block while the UI is completing
+            # this boot. Corroborate with actual completion for this UUID.
+            sim('bootstatus', identifier, timeout=240)
             print('Owned simulator boot corroborated after host UI startup', flush=True)
 
 
