@@ -27,8 +27,18 @@ Manual documentation impact: the public/operator behavior, source and schema/exp
 
 ## Reviews
 
-No repair review yet. The preceding independent diagnostic proved a blocking timing-dependent availability defect, not data/consent corruption.
+### R-1
+
+Target: e8ebf332996da2c27dc1c4fd56d888758293e025
+Model: unknown (identity not attested)
+Isolation: procedural
+
+```text
+NO FINDINGS
+```
+
+The independent reviewer replayed the new regression against the original production blobs, ran exact-repair normal/race and neighboring purpose/expiry/address-binding/withdrawal tests, verified the actual paused HTTP role and independently matching binaries, and executed fresh process/historical recovery plus archived-source final container/browser/storage/scan checks. Its actual container transcript reports the same image9ce97d35 with scan=true. These are synthetic local checks; final hosted PR CI is still a delivery gate.
 
 ## State
 
-Review pending: all required local checks passed on the proposed repair. Dispatch an independent exact-commit maintenance review before local completion/publication. The authorized follow-up PR must then pass normal final-head CI; merge and signed release require separate approval.
+Locally complete: required local checks pass and current independent R-1 has no findings. The affected source, verification inputs and Definition match the reviewed commit. The authorized follow-up PR still needs its full normal final-head CI, then separate exact-head merge and signed-release approval. No production activation or backup policy is included.
