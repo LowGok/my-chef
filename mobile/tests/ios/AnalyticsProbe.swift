@@ -29,20 +29,32 @@ final class AnalyticsProbe: XCTestCase {
     func control(_ operation: String, _ fields: [String: Any] = [:]) throws -> [String: Any] {
         guard let url = URL(string: configuration["url"] ?? "") else { throw Failure.invalidFixture }
         var input = fields; input["operation"] = operation
-        var request = URLRequest(url: url, timeoutInterval: 40)
+        // The fixture can spend 15 seconds stopping and 35 becoming ready.
+        // This is the private test controller, not a product request budget.
+        let controllerTimeout: TimeInterval = 60
+        var request = URLRequest(url: url, timeoutInterval: controllerTimeout)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer " + (configuration["token"] ?? ""), forHTTPHeaderField: "Authorization")
         request.httpBody = try JSONSerialization.data(withJSONObject: input)
         let finished = expectation(description: "Private fixture operation")
         var result: [String: Any]?
-        URLSession.shared.dataTask(with: request) { data, response, _ in
-            if (response as? HTTPURLResponse)?.statusCode == 200, let data = data {
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            if status == 200, let data = data {
                 result = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+            }
+            if result == nil {
+                let code = error.map { ($0 as NSError).code } ?? 0
+                let network = [0, -999, -1001, -1003, -1004, -1005, -1009, -1022].contains(code) ? String(code) : "other"
+                let http = (100...599).contains(status) ? status : 0
+                let kind = operation == "approved" ? "restart" : "operation"
+                // Fixed categories only: no URL, token, fields or response body.
+                print("Analytics iOS controller: kind=\(kind) status=\(http) network=" + network)
             }
             finished.fulfill()
         }.resume()
-        wait(for: [finished], timeout: 45)
+        wait(for: [finished], timeout: controllerTimeout + 5)
         guard let result = result else { throw Failure.controllerRefused }
         return result
     }

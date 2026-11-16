@@ -249,6 +249,7 @@ class Fixture:
                     operation = operation if isinstance(operation, str) and operation in closed else 'unknown'
                     reason = {'Timed out waiting for disposable signup message': 'proof-timeout',
                               'Fixture signup inbox refused': 'proof-inbox',
+                              'Native disabled notice was not corroborated': 'notice-disabled',
                               'Speaker capture is silent or outside bounds': 'speech-audio',
                               'Speech capture timeline mismatch': 'speech-timeline',
                               'Offline model changed': 'speech-model',

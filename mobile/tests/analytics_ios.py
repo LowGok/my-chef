@@ -216,6 +216,10 @@ def run(state, control, account, identifier, container, layout_only=False, voice
             containers = re.findall(r'Analytics iOS spoken container: privacy=(true|false) label=(true|false) depth=([0-3])', text)
             if containers:
                 detail += '; container privacy/label/depth ' + ','.join('/'.join(row) for row in containers[-6:])
+            controllers = re.findall(r'Analytics iOS controller: kind=(restart|operation) status=([0-9]{1,3}) '
+                                     r'network=(0|-999|-1001|-1003|-1004|-1005|-1009|-1022|other)\b', text)
+            if controllers:
+                detail += '; controller kind/status/network ' + ','.join('/'.join(row) for row in controllers[-3:])
             repeats = re.findall(r'Analytics iOS spoken container repeat: kind=(web|privacy|label)', text)
             if repeats:
                 detail += '; container repeats ' + ','.join(repeats[-6:])
