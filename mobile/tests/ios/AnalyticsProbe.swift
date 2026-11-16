@@ -354,6 +354,11 @@ final class AnalyticsProbe: XCTestCase {
     func signup(_ recipient: String, assessed: Bool) throws {
         print("Analytics iOS phase: " + (assessed ? "assessed signup" : "disabled signup"))
         tap("Create an account")
+        // Follow the form from its top. Inspecting the lower privacy panel
+        // first can leave an earlier field clipped above the viewport while
+        // WebKit still reports a hittable accessibility rectangle for it.
+        fill("First name", "Analytics"); fill("Last name", "Fixture")
+        fill("Username", recipient.components(separatedBy: "@")[0]); fill("Email", recipient)
         let box = checkbox(); reveal(box)
         if assessed {
             XCTAssertTrue(box.isEnabled); XCTAssertEqual(box.value as? String, "1")
@@ -362,8 +367,6 @@ final class AnalyticsProbe: XCTestCase {
             XCTAssertFalse(box.isEnabled); XCTAssertEqual(box.value as? String, "0")
             mark("signup", "disabledNotice")
         }
-        fill("First name", "Analytics"); fill("Last name", "Fixture")
-        fill("Username", recipient.components(separatedBy: "@")[0]); fill("Email", recipient)
         tap("Create my account")
         waitFor({ self.text("Check your inbox") }, "Signup submission must reach the inbox screen before proof retrieval")
         let proof = try control("proof", ["recipient": recipient])
