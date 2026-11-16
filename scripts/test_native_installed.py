@@ -443,7 +443,9 @@ def android(state, stack, ca, apk):
     boot_output = stack.enter_context(boot_log.open("w"))
     subprocess.run([adb_path, "start-server"], env=ENV, check=True, timeout=25,
                    stdout=boot_output, stderr=boot_output)
-    audio_flags = [] if ENV.get("NATIVE_ANALYTICS_SPEECH") == "1" else ["-no-window", "-no-audio"]
+    # TalkBack gestures need touchscreen input, rather than an emulated mouse
+    # or tablet. Restrict this override to the disposable speech fixture.
+    audio_flags = ["-feature", "-VirtioMouse,-VirtioTablet,-VirtioDualModeMouse"] if ENV.get("NATIVE_ANALYTICS_SPEECH") == "1" else ["-no-window", "-no-audio"]
     emulator = subprocess.Popen([emu_path, "-avd", "mychef-ci", "-port", "5554", *audio_flags,
                                 "-no-snapshot", "-writable-system", "-gpu", "software", "-no-boot-anim",
                                 "-camera-back", "none", "-memory", "2048", "-partition-size", "2048"], env=ENV,

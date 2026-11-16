@@ -425,7 +425,7 @@ final class AnalyticsProbe: XCTestCase {
         tap("Sign in to MyChef"); profile(); details()
         XCTAssertEqual(checkbox().value as? String, "0"); mark("participation", "existingOff")
         enabled(true); mark("participation", "explicitEnable")
-        fill("Diet", "Vegetarian"); tap("Save preferences")
+        fill("Diet", "Vegetarian meals"); tap("Save preferences")
         waitFor({ ((try? self.control("counts")["queued"]) as? Int) == 1 }, "Completed action has one queued event")
         mark("participation", "committedCoreAction")
         relaunch(); profile(); details(); XCTAssertEqual(checkbox().value as? String, "1")

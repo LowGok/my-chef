@@ -1,6 +1,54 @@
 """Fixed host gestures through the run-owned emulator's actual X11 window."""
+from contextlib import contextmanager
+from pathlib import Path
 import re
+import subprocess
+import tempfile
 import time
+
+
+def touch_facts(text):
+    if not isinstance(text, str) or len(text) > 65536:
+        raise ValueError('Bounded input trace required')
+    x = len(re.findall(r'\bEV_ABS\s+ABS_MT_POSITION_X\s+[0-9a-f]{8}\b', text))
+    y = len(re.findall(r'\bEV_ABS\s+ABS_MT_POSITION_Y\s+[0-9a-f]{8}\b', text))
+    ids = re.findall(r'\bEV_ABS\s+ABS_MT_TRACKING_ID\s+([0-9a-f]{8})\b', text)
+    down = len(re.findall(r'\bEV_KEY\s+BTN_TOUCH\s+(?:DOWN|00000001)\b', text))
+    up = len(re.findall(r'\bEV_KEY\s+BTN_TOUCH\s+(?:UP|00000000)\b', text))
+    mouse = len(re.findall(r'\bEV_KEY\s+BTN_(?:LEFT|MOUSE)\s+(?:DOWN|00000001)\b', text))
+    return dict(touchscreen=bool(x and y and (down or any(int(value, 16) < 0x80000000 for value in ids))
+                                and (up or 'ffffffff' in ids)),
+                positions=x + y, releases=up + ids.count('ffffffff'), mouseButtons=mouse)
+
+
+@contextmanager
+def touch_trace(native):
+    # getevent disables stdout buffering. The remote timeout terminates this
+    # bounded observer on the run-owned device even if the host command fails.
+    adb = str(Path(native.ENV['ANDROID_HOME']) / 'platform-tools/adb')
+    with tempfile.TemporaryFile() as output:
+        process = subprocess.Popen([adb, '-s', 'emulator-5554', 'shell', 'timeout', '2', 'getevent', '-lt'],
+                                   env=native.ENV, stdout=output, stderr=subprocess.DEVNULL)
+        try:
+            time.sleep(.2)
+            if process.poll() is not None:
+                raise RuntimeError('Emulator touchscreen observer unavailable')
+            yield
+            process.wait(timeout=4)
+        except subprocess.TimeoutExpired:
+            raise RuntimeError("Emulator touchscreen observer unavailable") from None
+        finally:
+            native.terminate(process)
+        output.seek(0)
+        raw = output.read(65537)
+        if len(raw) > 65536:
+            raise RuntimeError('Emulator touchscreen observer unavailable')
+        facts = touch_facts(raw.decode(errors='replace'))
+    print('Analytics hardware input: touchscreen=' + str(facts['touchscreen']).lower()
+          + ' positions=' + str(facts['positions']) + ' releases=' + str(facts['releases'])
+          + ' mouseButtons=' + str(facts['mouseButtons']), flush=True)
+    if not facts['touchscreen']:
+        raise RuntimeError('Emulator touchscreen input was not observed')
 
 
 def gesture(kind, native):
@@ -38,16 +86,17 @@ def gesture(kind, native):
         command('mousemove', '--sync', '--window', window, str(round(width * fraction)), str(round(height / 2)))
     # QEMU's actual host pointer path chooses the correct touchscreen device.
     # Generic console event-send and UiAutomation injection do not prove that.
-    move(.5 if kind == 'double-tap' else .3)
-    if kind == 'double-tap':
-        command('click', '--repeat', '2', '--delay', '120', '1')
-    else:
-        command('mousedown', '1')
-        try:
-            for step in range(1, 11):
-                time.sleep(.018)
-                move(.3 + .04 * step)
-        finally:
-            command('mouseup', '1')
+    with touch_trace(native):
+        move(.5 if kind == 'double-tap' else .3)
+        if kind == 'double-tap':
+            command('click', '--repeat', '2', '--delay', '120', '1')
+        else:
+            command('mousedown', '1')
+            try:
+                for step in range(1, 11):
+                    time.sleep(.018)
+                    move(.3 + .04 * step)
+            finally:
+                command('mouseup', '1')
     print('Analytics hardware gesture: owned emulator X11 pointer', flush=True)
     return {'passed': True}

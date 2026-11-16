@@ -1,11 +1,16 @@
 """Closed gestures through this run's X11 emulator, without a real display."""
 import unittest
+from contextlib import nullcontext
 from types import SimpleNamespace
 from unittest.mock import patch
 from analytics_touch import gesture
 
 
 class DisplayGestureTest(unittest.TestCase):
+    def setUp(self):
+        trace = patch('analytics_touch.touch_trace', return_value=nullcontext())
+        trace.start()
+        self.addCleanup(trace.stop)
     def native(self, windows='42\n43\n', geometries=None, owner='101'):
         calls = []
         geometries = geometries or {'42': 'X=0\nY=0\nWIDTH=420\nHEIGHT=780\n',
@@ -58,6 +63,20 @@ class DisplayGestureTest(unittest.TestCase):
         with patch('analytics_touch.time.sleep'), self.assertRaises(RuntimeError):
             gesture('next', native)
         self.assertEqual(calls[-1], ('xdotool', 'mouseup', '1'))
+
+
+class TouchTraceTest(unittest.TestCase):
+    def test_mouse_or_incomplete_contact_is_not_touchscreen_evidence(self):
+        from analytics_touch import touch_facts
+        contact = "EV_ABS ABS_MT_POSITION_X 00004000\nEV_ABS ABS_MT_POSITION_Y 00004000\nEV_ABS ABS_MT_TRACKING_ID 00000003\n"
+        release = "EV_ABS ABS_MT_TRACKING_ID ffffffff\n"
+        self.assertTrue(touch_facts(contact + release)['touchscreen'])
+        self.assertFalse(touch_facts(contact)['touchscreen'])
+        self.assertFalse(touch_facts(release)['touchscreen'])
+        self.assertFalse(touch_facts('EV_KEY BTN_LEFT DOWN\nEV_KEY BTN_LEFT UP\n')['touchscreen'])
+        single = contact.replace('EV_ABS ABS_MT_TRACKING_ID 00000003', 'EV_KEY BTN_TOUCH DOWN')
+        self.assertTrue(touch_facts(single + 'EV_KEY BTN_TOUCH UP\n')['touchscreen'])
+        self.assertFalse(touch_facts('arbitrary text with ABS_MT_POSITION_X and DOWN')['touchscreen'])
 
 
 if __name__ == '__main__': unittest.main()
