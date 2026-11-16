@@ -116,9 +116,17 @@ def wait_owned_android_transport(adb_path, emulator, seconds=180):
     wait_for(attached, 'owned Android ADB transport', seconds)
 
 
-def verify_stage(check, description, events, rejected_tls, diagnostics, *, launch, event_start=0, tls_start=0):
+def verify_stage(check, description, events, rejected_tls, diagnostics, *, launch, event_start=0, tls_start=0,
+                 wait_after_launch_timeout=False):
     try:
-        launch()
+        try:
+            launch()
+        except subprocess.TimeoutExpired:
+            if not wait_after_launch_timeout:
+                raise
+            # A delayed simctl reply is not session proof. Do not relaunch or
+            # change state: require the actual native HTTPS responses below.
+            print("Native launch acknowledgement delayed; waiting for actual session proof", flush=True)
         wait_for(check, description)
     except (RuntimeError, subprocess.SubprocessError):
         print(f"Synthetic session response statuses: {events[event_start:][-12:]}", flush=True)
@@ -590,7 +598,7 @@ def ios_host_resources(state):
     print("Simulator runner resources: " + json.dumps(result, sort_keys=True), flush=True)
 
 
-def start_ios_simulator(sim, identifier, open_ui):
+def start_ios_simulator(sim, identifier, open_ui, *, boot_timeout=240):
     # Open the selected host before boot, as required by the UI client startup
     # sequence. A host may initiate boot itself; inspect the exact owned UUID
     # and still require bootstatus/HTTPS afterward.
@@ -613,7 +621,7 @@ def start_ios_simulator(sim, identifier, open_ui):
                 raise
             # Enumerating every device can block while the UI is completing
             # this boot. Corroborate with actual completion for this UUID.
-            sim('bootstatus', identifier, timeout=240)
+            sim('bootstatus', identifier, timeout=boot_timeout)
             print('Owned simulator boot corroborated after host UI startup', flush=True)
 
 
@@ -738,9 +746,13 @@ def ios(state, stack, ca, package, model="iPhone 16", fixture_name="MyChef fixtu
             print("Opened selected Xcode " + ("Device Hub" if model == "iPhone 17" else "Simulator"), flush=True)
         else:
             print("Legacy Simulator GUI unavailable; continuing with actual headless runtime checks", flush=True)
-    start_ios_simulator(sim, identifier, open_ui)
+    # The existing iOS27 StoreKit job took about eight minutes to reach
+    # tests on this standard runner. Keep actual completion mandatory while
+    # allowing that cold modern-runtime startup; older fixtures keep240s.
+    boot_timeout = 600 if model == "iPhone 17" else 240
+    start_ios_simulator(sim, identifier, open_ui, boot_timeout=boot_timeout)
     try:
-        sim("bootstatus", identifier, timeout=240)
+        sim("bootstatus", identifier, timeout=boot_timeout)
     except subprocess.TimeoutExpired as error:
         output = error.stdout or b""
         if isinstance(output, bytes):

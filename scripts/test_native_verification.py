@@ -479,6 +479,37 @@ class NativeSystemPickerTest(unittest.TestCase):
         self.assertEqual(sum('dumpsys' in argv for argv in commands[back:]), 1)
 
 
+class NativeLaunchAcknowledgementTest(unittest.TestCase):
+    def test_delayed_cli_acknowledgement_requires_the_actual_session_response(self):
+        events = []
+        def launch():
+            events.extend([('POST', 'session', 201), ('GET', 'session', 200)])
+            raise installed.subprocess.TimeoutExpired('fictional simctl', 150)
+        check = lambda: ('POST', 'session', 201) in events and ('GET', 'session', 200) in events
+        diagnostics = unittest.mock.Mock()
+        installed.verify_stage(check, 'fictional native session', events, [], diagnostics,
+                               launch=launch, wait_after_launch_timeout=True)
+        diagnostics.assert_not_called()
+
+    def test_absent_session_proof_still_fails_after_a_launch_timeout(self):
+        diagnostics = unittest.mock.Mock()
+        with patch.object(installed, 'wait_for', side_effect=RuntimeError('No actual session proof')):
+            with self.assertRaisesRegex(RuntimeError, 'No actual session proof'):
+                installed.verify_stage(lambda: False, 'fictional native session', [], [], diagnostics,
+                    launch=lambda: (_ for _ in ()).throw(installed.subprocess.TimeoutExpired('fictional simctl', 150)),
+                    wait_after_launch_timeout=True)
+        diagnostics.assert_called_once()
+
+    def test_launch_errors_and_default_legacy_timeouts_do_not_enter_the_wait(self):
+        for error, options in [(RuntimeError('Fictional permission refusal'), {'wait_after_launch_timeout': True}),
+                               (installed.subprocess.TimeoutExpired('fictional simctl', 150), {})]:
+            with self.subTest(error=type(error).__name__), patch.object(installed, 'wait_for') as wait:
+                with self.assertRaises(type(error)):
+                    installed.verify_stage(lambda: True, 'fictional native session', [], [], lambda: None,
+                        launch=lambda: (_ for _ in ()).throw(error), **options)
+                wait.assert_not_called()
+
+
 class OwnedAndroidTransportTest(unittest.TestCase):
     def test_reboot_wait_requires_real_exact_serial_readiness_after_transient_loss(self):
         process = types.SimpleNamespace(poll=lambda: None)
@@ -549,6 +580,17 @@ class SimulatorBootOrderTest(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, 'Fictional target boot status refused'):
                     installed.start_ios_simulator(sim, 'owned-device', lambda: None)
             self.assertEqual(calls, [('list', 'devices', '-j'), ('boot', 'owned-device'), ('bootstatus', 'owned-device')])
+
+    def test_modern_boot_budget_also_applies_to_a_host_initiated_boot_race(self):
+        calls = []
+        def sim(*args, **options):
+            calls.append((args, options))
+            if args[0] == 'boot':
+                raise RuntimeError('simctl boot failed (code=405): Unable to boot device in current state: Booting')
+            if args[0] == 'bootstatus': return ''
+            return json.dumps({'devices': {'runtime': [{'udid': 'owned-device', 'state': 'Shutdown'}]}})
+        installed.start_ios_simulator(sim, 'owned-device', lambda: None, boot_timeout=600)
+        self.assertEqual(calls[-1], (('bootstatus', 'owned-device'), {'timeout': 600}))
 
     def test_unrelated_boot_failure_is_not_reinterpreted_as_success(self):
         calls = []

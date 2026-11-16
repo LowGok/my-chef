@@ -110,7 +110,8 @@ def full_journeys(receipt, artifact):
         else:
             metadata, launch, stop, diagnostic = native.ios(state, stack, ca, artifact)
         native.verify_stage(lambda: ('POST', 'session', 201) in events and ('GET', 'session', 200) in events,
-                            'native analytics fixture session', events, rejected, diagnostic, launch=launch)
+                            'native analytics fixture session', events, rejected, diagnostic, launch=launch,
+                            wait_after_launch_timeout=native.PLATFORM == 'ios-simulator')
         if native.PLATFORM == 'android':
             install_android_probe(state, artifact)
             (state / 'native-android-account.json').write_text(json.dumps(account))
@@ -256,7 +257,8 @@ def main():
         else:
             metadata, launch, stop, diagnostic = native.ios(state, stack, ca, artifact)
         native.verify_stage(lambda: ('POST', 'session', 201) in events and ('GET', 'session', 200) in events,
-                            'native analytics fixture session', events, rejected, diagnostic, launch=launch)
+                            'native analytics fixture session', events, rejected, diagnostic, launch=launch,
+                            wait_after_launch_timeout=native.PLATFORM == 'ios-simulator')
         if native.PLATFORM == 'android':
             sdk = Path(native.ENV['ANDROID_HOME'])
             signer = (native.GENERATED / 'analytics-debug-keystore-path').read_text().strip()
