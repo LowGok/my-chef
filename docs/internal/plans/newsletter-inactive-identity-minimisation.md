@@ -130,10 +130,15 @@ Backend and website retain separate independent reviews and delivery receipts. T
 ## Acceptance Criteria
 
 - [ ] AC-01: Inactive newsletter-only contacts preserve their IDs and non-consenting state in the protected matching representation while unnecessary clear-address and expired proof/mail references are absent from logical records and completed active SQLite-file cleanup; historical backups remain separately governed.
+      Evidence: R-4 at0119f76 returned not met; see the verbatim criterion record. Criteria remain unticked pending the complete corrected verification and fresh review.
 - [ ] AC-02: Fresh verified newsletter/app/email-change flows safely resolve the same identity without enumeration, duplicate ownership or implicit newsletter consent; promotion, later ordinary email change/deletion and address reuse retire stale ownership while valid withdrawal links and operator rights continue working.
+      Evidence: R-4 at0119f76 returned met; see the verbatim criterion record. Criteria remain unticked pending the complete corrected verification and fresh review.
 - [ ] AC-03: Concurrency, expiry, erasure, restart, key recovery and old-backup restore cannot resurrect clear inactive data, old consent or dispatch, and do not change full accounts or unrelated purposes.
+      Evidence: R-4 at0119f76 returned not met; see the verbatim criterion record. Criteria remain unticked pending the complete corrected verification and fresh review.
 - [ ] AC-04: The additive migration/backfill and compatible rollback are independently verified, with fail-closed readiness for missing keys/journal/ambiguous state and untouched published checksums.
+      Evidence: R-4 at0119f76 returned not verified; see the verbatim criterion record. Criteria remain unticked pending the complete corrected verification and fresh review.
 - [ ] AC-05: The verified backend field/purpose/expiry/rights/key/restore handoff supports the separate private website assessment and localized notice against the approved review/erasure criteria, with no anonymous-data, deployed-behavior or live-delivery claim before its actual proof.
+      Evidence: R-4 at0119f76 returned not met; see the verbatim criterion record. Criteria remain unticked pending the complete corrected verification and fresh review.
 
 ## Test Plan
 
@@ -202,6 +207,7 @@ None for the product scope. The owner selected Q1 option A, protected matching a
 | 2026-11-15 | R-2 | spec | `fa1881e211a98565e05503832c48a58326282d5f` | unknown | procedural | No findings after the complete correction review. Technical-baseline acceptance pending; model identity not attested. |
 | 2026-11-15 | R-2 | spec | `fa1881e211a98565e05503832c48a58326282d5f` | n/a | n/a | accepted by owner |
 | 2026-11-15 | R-3 | spec | `436e6822b08b08c383ba635c0faf5eb0f762c583` | unknown | procedural | No findings after merged-runtime/default freshness review; accepted normative baseline unchanged. Model identity not attested. |
+| 2026-11-16 | R-4 | implementation | `0119f76fb3621321360e60fca095aaeca2ed3c0c` | unknown | procedural | Blocking expired signup proof/mail restore finding; AC-02 met, AC-01/03/05 not met, AC-04 not verified. Model identity not attested. |
 
 ### R-1
 
@@ -236,3 +242,32 @@ NO FINDINGS
 - [SQLite PRAGMAs](https://www.sqlite.org/pragma.html) and [VACUUM](https://www.sqlite.org/lang_vacuum.html): secure deletion, explicit WAL checkpoint results and legacy file maintenance support the active-file cleanup contract; they do not establish historical-backup or provider deletion.
 - [SQLite ALTER TABLE](https://www.sqlite.org/lang_altertable.html): direct nullable-column alteration is available since 3.53.0; the pinned engine was independently probed as 3.54.1, avoiding a users-table rebuild.
 - [European Commission, legal grounds](https://commission.europa.eu/law/law-topic/data-protection/information-business-and-organisations/legal-grounds-processing-data_en): necessity/balancing, consent withdrawal and separate grounds. This source does not certify this proposed representation.
+
+### R-4
+
+CRITERION: AC-01 Inactive newsletter-only contacts preserve their IDs and non-consenting state in the protected matching representation while unnecessary clear-address and expired proof/mail references are absent from logical records and completed active SQLite-file cleanup; historical backups remain separately governed.
+VERDICT: not met
+EVIDENCE: At 0119f76fb3621321360e60fca095aaeca2ed3c0c, the independent overlay test TestIndependentReviewRestoreExpiredSignupPayload first ran Maintain and verified that current expired signup proofs were removed. Restoring an earlier snapshot then published one expired signup proof, one signup outbox recipient and its plaintext address in active files, despite NewsletterFilesReady succeeding. The independent newsletter race suite and actual-process maintenance rehearsal passed, but do not establish the composite criterion because this restore path fails.
+
+CRITERION: AC-02 Fresh verified newsletter/app/email-change flows safely resolve the same identity without enumeration, duplicate ownership or implicit newsletter consent; promotion, later ordinary email change/deletion and address reuse retire stale ownership while valid withdrawal links and operator rights continue working.
+VERDICT: met
+EVIDENCE: At 0119f76fb3621321360e60fca095aaeca2ed3c0c, independently executed go test -race ./internal/auth ./internal/newsletter ./internal/email/mailqueue ./cmd/mychef within the selected package invocation passed those packages. Inspected assertions establish same-ID signup, preserved newsletter choices, reduced-destination transfer, promotion epochs, A-to-B change, fresh-A reuse, ordinary deletion, fresh-B reuse, stale withdrawal rejection and reduced export/erasure. Source inspection confirmed public capture acknowledges protected work before recipient lookup. The actual-process rehearsal independently passed proof confirmation, withdrawal, stable IDs across restart and operator rights. All storage and delivery evidence used synthetic fixtures and fake mail.
+
+CRITERION: AC-03 Concurrency, expiry, erasure, restart, key recovery and old-backup restore cannot resurrect clear inactive data, old consent or dispatch, and do not change full accounts or unrelated purposes.
+VERDICT: not met
+EVIDENCE: At 0119f76fb3621321360e60fca095aaeca2ed3c0c, TestIndependentReviewRestoreExpiredSignupPayload reproduced resurrection of expired contact-bound signup proof/mail and a clear inactive address from an older snapshot after successful current maintenance. Newsletter/auth/runtime race packages, the actual-process rehearsal and the historical upgrade/restore rehearsal passed their covered scenarios. Those passing scenarios do not cover the failing issued-signup snapshot boundary.
+
+CRITERION: AC-04 The additive migration/backfill and compatible rollback are independently verified, with fail-closed readiness for missing keys/journal/ambiguous state and untouched published checksums.
+VERDICT: not verified
+EVIDENCE: At 0119f76fb3621321360e60fca095aaeca2ed3c0c, the independent actual-process rehearsal passed explicit initialization, schema-23 upgrade, changed-key refusal, paused operation and compatible restart. The historical executable upgrade/restore rehearsal also passed integrity, foreign keys, account preservation and deletion replay checks. Inspected migration tests bind published schema-26 SQL and checksums to fixed expected values. Independently rebuilt application/migration binaries matched the rehearsed binaries byte-for-byte. The selected store race package timed out after 600 seconds in TestPersonalMigrationPreservesExistingIdentityAndSchema; the final-container check was inspected but not independently executed in this review. Complete verification is therefore not established.
+
+CRITERION: AC-05 The verified backend field/purpose/expiry/rights/key/restore handoff supports the separate private website assessment and localized notice against the approved review/erasure criteria, with no anonymous-data, deployed-behavior or live-delivery claim before its actual proof.
+VERDICT: not met
+EVIDENCE: At 0119f76fb3621321360e60fca095aaeca2ed3c0c, inspected README and deployment guidance accurately distinguish protected personal data, historical backups, provider retention and synthetic delivery evidence. However, the restore handoff describes sanitizing the unpublished working copy and verifying absence of expired authority and obsolete clear canaries. The independent restore probe contradicts that boundary for issued signup proof/mail. The restore portion of the handoff cannot yet be treated as verified.
+
+FINDING: F-01
+KIND: factual
+SEVERITY: blocking
+WHERE: internal/store/account_restore.go:58-72 and 135-143; internal/store/backup.go:256-259; feature document Design active-file cleanup lines 100 and 104, authoritative restore line 120, AC-01, AC-03, AC-05 and their Test Plan rows; README.md:229 and 339; deploy/newsletter/README.md:107-109.
+EVIDENCE: The new restore implementation deletes newsletter work and unissued signup_requests, but does not expire issued signup proofs or their purpose-owned mail before completing physical cleanup and publishing the copy. An independent read-only overlay test at 0119f76fb3621321360e60fca095aaeca2ed3c0c created genuine contact-bound signup proof/mail, saved a snapshot, advanced expiry and ran Maintain, verifying current signup_proofs=0. Explicit restore of the snapshot then succeeded with NewsletterFilesReady passing, while queries returned signup_proofs=1 and expired signup outbox=1, and byte inspection found the synthetic clear address in managed active files. The probe is retained outside the repository at /dev/shm/mychef-nl-g6zukt_a/independent-review-0119f76/overlay.json and runs through run-min-go.py test -overlay <path> ./internal/newsletter -run '^TestIndependentReviewRestoreExpiredSignupPayload$' -count=1 -v.
+PROPOSAL: Apply bounded purpose-owned account-proof/mail expiry and required invalidation to the unpublished restored copy before certifying physical completion, preserving unrelated current account purposes. Add restore regressions with issued signup and other expired account-transition payloads, active-file canaries and authorized controls.
