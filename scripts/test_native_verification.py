@@ -479,6 +479,26 @@ class NativeSystemPickerTest(unittest.TestCase):
         self.assertEqual(sum('dumpsys' in argv for argv in commands[back:]), 1)
 
 
+class AndroidStartupRecoveryTest(unittest.TestCase):
+    def test_recovery_only_closes_the_verified_system_ui_anr(self):
+        for owner in ('app', 'documents', 'other', 'unknown'):
+            with patch.object(probe, 'picker_focus', return_value=owner), \
+                 patch.object(probe, 'dismiss_system_ui_anr') as dismiss, \
+                 patch.object(probe, '_adb') as adb:
+                self.assertEqual(probe.recover_startup_focus(), 'unchanged')
+                dismiss.assert_not_called(); adb.assert_not_called()
+        with patch.object(probe, 'picker_focus', return_value='system-ui-anr'), \
+             patch.object(probe, 'dismiss_system_ui_anr', return_value=True), \
+             patch.object(probe, '_adb') as adb:
+            self.assertEqual(probe.recover_startup_focus(), 'recovered')
+            adb.assert_called_once_with('shell', 'am', 'start', '-W', '-n', probe.APP + '/.MainActivity')
+        with patch.object(probe, 'picker_focus', return_value='system-ui-anr'), \
+             patch.object(probe, 'dismiss_system_ui_anr', return_value=False), \
+             patch.object(probe, '_adb') as adb:
+            self.assertEqual(probe.recover_startup_focus(), 'unavailable')
+            adb.assert_not_called()
+
+
 class XcodeUIHostTest(unittest.TestCase):
     def test_ui_readiness_requires_the_selected_bundle_process(self):
         with tempfile.TemporaryDirectory(prefix='analytics-ui-process-') as folder, ExitStack() as stack:

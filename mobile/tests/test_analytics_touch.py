@@ -24,6 +24,15 @@ class DisplayGestureTest(unittest.TestCase):
             return ''
         return SimpleNamespace(ENV={'DISPLAY': ':91', 'MYCHEF_ANALYTICS_EMULATOR_PID': '101'}, command=command), calls
 
+    def test_startup_focus_uses_the_owned_window_without_input(self):
+        from analytics_touch import focus_display
+        native, calls = self.native()
+        self.assertEqual(focus_display(native), ('42', 420, 780))
+        self.assertEqual(calls[-1], ('xdotool', 'windowfocus', '--sync', '42'))
+        self.assertFalse(any('click' in call or 'mousedown' in call for call in calls))
+        native, _ = self.native(owner='999')
+        with self.assertRaises(RuntimeError): focus_display(native)
+
     def test_double_tap_targets_largest_visible_window_owned_by_this_emulator(self):
         native, calls = self.native()
         self.assertEqual(gesture('double-tap', native), {'passed': True})

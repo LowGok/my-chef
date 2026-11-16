@@ -89,6 +89,16 @@ async function connect() {
     ],
     { stdout: Bun.file(join(state, "probe-private.log")), stderr: "ignore" },
   );
+  let lastFocusCheck = 0;
+  let startupOwner = "unknown";
+  let startupRecoveryAttempted = false;
+  function startupControl(operation: "picker-focus" | "recover-system-ui-anr") {
+    const result = Bun.spawnSync(["python3", "scripts/native_android_probe.py", operation],
+      { stdout: "pipe", stderr: "ignore" });
+    const value = result.stdout.toString().trim();
+    return result.exitCode === 0 && /^(app|documents|system-ui-anr|other|unknown|recovered|unchanged|unavailable)$/.test(value)
+      ? value : "unknown";
+  }
   await expect
     .poll(
       async () => {
@@ -97,13 +107,23 @@ async function connect() {
           "utf8",
         ).catch(() => "");
         if (/INSTRUMENTATION_STATUS: probe=ready/.test(log)) return true;
+        if (Date.now() - lastFocusCheck >= 5000) {
+          lastFocusCheck = Date.now();
+          startupOwner = startupControl("picker-focus");
+          console.log("Android instrumentation startup focus owner: " + startupOwner);
+          if (probe.exitCode === null && startupOwner === "system-ui-anr" && !startupRecoveryAttempted) {
+            startupRecoveryAttempted = true;
+            console.log("Android instrumentation startup recovery: " + startupControl("recover-system-ui-anr"));
+          }
+        }
         if (probe.exitCode !== null) {
           const reason = log.match(/probeReason=([a-z-]{1,50})\b/)?.[1];
           const category = /UiAutomationService.*already registered/.test(log) ? "automation-busy"
             : /UiAutomation.*(?:not connected|connect)/.test(log) ? "automation-connect" : "unclassified";
           const state = [...log.matchAll(/INSTRUMENTATION_STATUS: (probe(?:ActivityReplaced|ActivityDestroyed|WebShown|WindowFocus))=(true|false)\b/g)]
             .map(match => match[1] + "=" + match[2]).join(",");
-          throw new Error("Disposable instrumentation stopped before ready: " + (reason ?? category) + (state ? "; " + state : ""));
+          throw new Error("Disposable instrumentation stopped before ready: " + (reason ?? category)
+            + "; owner=" + startupOwner + (state ? "; " + state : ""));
         }
         return false;
       },

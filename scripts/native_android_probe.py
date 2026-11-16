@@ -88,6 +88,16 @@ def dismiss_system_ui_anr(adb):
     return True
 
 
+def recover_startup_focus():
+    """Close only Android's verified System UI ANR, then refront MyChef."""
+    if picker_focus() != 'system-ui-anr':
+        return 'unchanged'
+    if not dismiss_system_ui_anr(_adb):
+        return 'unavailable'
+    _adb('shell', 'am', 'start', '-W', '-n', APP + '/.MainActivity')
+    return 'recovered'
+
+
 def cancel_picker():
     """Send OS Back only to the focused system picker and wait for MyChef."""
     deadline = time.monotonic() + 35
@@ -123,6 +133,17 @@ def picker_focus():
 if __name__ == "__main__":
     if sys.argv[1:] == ["picker-focus"]:
         print(picker_focus())
+        raise SystemExit(0)
+    if sys.argv[1:] == ['recover-system-ui-anr']:
+        if not (os.environ.get('GITHUB_ACTIONS') == 'true'
+                and os.environ.get('GITHUB_REPOSITORY') == 'LowGok/my-chef'
+                and os.environ.get('GITHUB_REF') == 'refs/heads/ci/analytics-installed-b9e9699'
+                and os.environ.get('NATIVE_PLATFORM') == 'android'):
+            raise SystemExit('Disposable startup recovery authorization refused')
+        try:
+            print(recover_startup_focus())
+        except (OSError, RuntimeError, subprocess.SubprocessError):
+            print('unavailable')
         raise SystemExit(0)
     if sys.argv[1:] != ["cancel-picker"]:
         raise SystemExit("Only disposable picker cancellation is executable directly")

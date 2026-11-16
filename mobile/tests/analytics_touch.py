@@ -61,9 +61,8 @@ def touch_trace(native, contacts):
         raise RuntimeError('Emulator touchscreen input was not observed')
 
 
-def gesture(kind, native):
-    if kind not in ('double-tap', 'next'):
-        raise ValueError('Closed hardware gesture required')
+def focus_display(native):
+    """Activate only the run-owned emulator window without sending input."""
     pid = native.ENV.get('MYCHEF_ANALYTICS_EMULATOR_PID', '')
     if native.ENV.get('DISPLAY') != ':91' or not re.fullmatch(r'[1-9][0-9]{0,8}', pid):
         raise RuntimeError('Owned emulator display unavailable')
@@ -92,10 +91,19 @@ def gesture(kind, native):
     if not candidates or len(candidates) > 1 and candidates[0][0] == candidates[1][0]:
         raise RuntimeError('Owned emulator display unavailable')
     _, window, width, height = candidates[0]
-    def move(fraction):
-        return ['mousemove', '--window', window, str(round(width * fraction)), str(round(height / 2))]
     command('windowfocus', '--sync', window)
     time.sleep(.15)
+    return window, width, height
+
+
+def gesture(kind, native):
+    if kind not in ('double-tap', 'next'):
+        raise ValueError('Closed hardware gesture required')
+    window, width, height = focus_display(native)
+    def command(*args):
+        return native.command('xdotool', *args, timeout=10)
+    def move(fraction):
+        return ['mousemove', '--window', window, str(round(width * fraction)), str(round(height / 2))]
     with touch_trace(native, 2 if kind == 'double-tap' else 1):
         if kind == 'double-tap':
             # One process preserves timing; nearby distinct host positions

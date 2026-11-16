@@ -146,7 +146,7 @@ final class AnalyticsProbe: XCTestCase {
         }
         XCTAssertTrue(hasTapRegion(element) && element.isHittable, "Control must be reachable at OS text size")
     }
-    func tapSettled(_ element: XCUIElement) {
+    func tapSettled(_ element: XCUIElement, nativeElement: Bool = false) {
         if !hasTapRegion(element) || !element.isHittable { reveal(element) }
         let end = Date().addingTimeInterval(20)
         var previous = CGRect.null
@@ -171,7 +171,11 @@ final class AnalyticsProbe: XCTestCase {
                 && abs(frame.minY - previous.minY) <= 1 && abs(frame.width - previous.width) <= 1
                 && abs(frame.height - previous.height) <= 1
             unchanged = hasTapRegion(element) && element.isHittable && stable ? unchanged + 1 : 0
-            if unchanged >= 2 { element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap(); return }
+            if unchanged >= 2 {
+                if nativeElement { element.tap() }
+                else { element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap() }
+                return
+            }
             previous = frame
             RunLoop.current.run(until: Date().addingTimeInterval(0.2))
         }
@@ -298,7 +302,8 @@ final class AnalyticsProbe: XCTestCase {
             "label == %@ AND (elementType == %d OR elementType == %d)", label,
             XCUIElement.ElementType.textField.rawValue, XCUIElement.ElementType.textView.rawValue)).firstMatch
         let element = secure ? app.secureTextFields[label].firstMatch : ordinary
-        reveal(element); tapSettled(element)
+        reveal(element); tapSettled(element, nativeElement: true)
+        waitFor({ self.app.keyboards.firstMatch.exists }, "Native text input needs the software keyboard")
         let current = element.value as? String ?? ""
         if label == "Diet" || (!current.isEmpty && current != element.placeholderValue) {
             // Use the OS keyboard command instead of depending on the edit

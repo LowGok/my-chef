@@ -98,6 +98,9 @@ def full_journeys(receipt, artifact):
                 speech = Speech(state, stack, native)
                 fixture.speech = speech
             metadata, launch, stop, diagnostic = native.android(state, stack, ca, artifact)
+            if speech is not None:
+                from analytics_touch import focus_display
+                focus_display(native)
             adb_path = str(Path(native.ENV['ANDROID_HOME']) / 'platform-tools/adb')
             # Establish a measured normal viewport before the 320-CSS-pixel
             # large-text case, independent of the runner's AVD defaults.
