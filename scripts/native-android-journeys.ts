@@ -265,8 +265,9 @@ async function activateControl(control: Locator, name: string) {
   // keyboard and TalkBack focus changes. Trial performs no click. Retain the
   // separate exact-center check required by the OS instrumentation below.
   await control.click({ trial: true });
-  let previousGeometry = "";
+  let previousGeometry: number[] | null = null;
   let stableGeometry = 0;
+  let sawGeometry = false;
   await expect
     .poll(
       async () => {
@@ -285,13 +286,25 @@ async function activateControl(control: Locator, name: string) {
             viewport?.offsetLeft ?? 0, viewport?.offsetTop ?? 0,
             viewport?.width ?? innerWidth, viewport?.height ?? innerHeight]);
         });
-        stableGeometry = geometry && geometry === previousGeometry ? stableGeometry + 1 : geometry ? 1 : 0;
-        previousGeometry = geometry;
+        const current = geometry ? (JSON.parse(geometry) as number[]) : null;
+        const before = previousGeometry;
+        // WebView reports fractional CSS pixels. Three samples within one
+        // pixel still require a valid centre hit and the native bounds guard.
+        const settled = current !== null && before !== null && current.length === before.length
+          && current.every((value, index) => Number.isFinite(value) && Math.abs(value - before[index]!) <= 1);
+        stableGeometry = current ? (settled ? stableGeometry + 1 : 1) : 0;
+        sawGeometry ||= current !== null;
+        previousGeometry = current;
         return stableGeometry >= 3;
       },
       { message: name + " must keep its center point and native viewport stable", intervals: [150], timeout: 10_000 },
     )
-    .toBe(true);
+    .toBe(true).catch((error: unknown) => {
+      console.log("Installed Android viewport state: " + JSON.stringify({
+        observed: sawGeometry, valid: previousGeometry !== null, stable: stableGeometry, owner: focusOwner(),
+      }));
+      throw error;
+    });
   // The input still comes from the actual OS probe, with no activation retry.
   await probeAction("activate", name);
 }
