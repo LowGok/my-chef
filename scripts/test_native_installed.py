@@ -691,7 +691,7 @@ def ios(state, stack, ca, package, model="iPhone 16", fixture_name="MyChef fixtu
             raise
 
     runtimes = json.loads(sim("list", "devices", "available", "-j"))["devices"]
-    required_runtime = "iOS-27-0" if model == "iPhone 17" else "iOS-18-6"
+    required_runtime = "iOS-27-2" if model == "iPhone 17" else "iOS-18-6"
     runtime, device = next((runtime, device) for runtime, devices in runtimes.items()
                            if runtime.endswith(required_runtime) for device in devices if device["name"] == model)
     identifier = sim("create", fixture_name, device["deviceTypeIdentifier"], runtime)
@@ -730,8 +730,11 @@ def ios(state, stack, ca, package, model="iPhone 16", fixture_name="MyChef fixtu
             output = output.decode(errors="replace")
         phases = re.findall(r"\bStatus=(\d{1,3}),\s*isTerminal=(?:YES|NO)", output)
         devices = json.loads(sim("list", "devices", "booted", "-j", timeout=30))["devices"]
-        if not any(entry.get("udid") == identifier and entry.get("state") == "Booted"
-                   for entry in devices.get(runtime, [])):
+        owned_booted = any(entry.get("udid") == identifier and entry.get("state") == "Booted"
+                           for entry in devices.get(runtime, []))
+        print("Simulator boot observation: owned=" + str(owned_booted).lower()
+              + " bootedDevices=" + str(sum(len(group) for group in devices.values())), flush=True)
+        if not owned_booted:
             print("iPhone simulator did not boot. CoreSimulator status: "
                   + (phases[-1] if phases else "unreported"), flush=True)
             raise

@@ -591,7 +591,7 @@ class XcodeUIHostTest(unittest.TestCase):
 
     def test_modern_runtime_requires_device_hub_from_the_selected_xcode(self):
         with tempfile.TemporaryDirectory(prefix='analytics-xcode-ui-') as folder:
-            developer = Path(folder) / 'Xcode_27.1.app/Contents/Developer'
+            developer = Path(folder) / 'Xcode_27.2.app/Contents/Developer'
             with self.assertRaisesRegex(RuntimeError, 'Device Hub'):
                 installed.ios_ui_command(developer, 'iPhone 17', 'fictional-device')
             hub = developer.parent / 'Applications/DeviceHub.app'
