@@ -473,3 +473,31 @@ func TestMinimisationDirectOlderCopyCannotServe(t *testing.T) {
 		t.Fatal("direct old SQL copy was allowed to serve stale consent")
 	}
 }
+
+func TestMinimisationRestorePreservesKnownOutstandingWithdrawal(t *testing.T) {
+	for _, confirmed := range []bool{false, true} {
+		name := "pending"
+		if confirmed {
+			name = "confirmed"
+		}
+		t.Run(name, func(t *testing.T) {
+			n, j, key, _ := minimisationRestoreFixture(t)
+			confirmation, withdrawal := restoreCapture(t, n, "surviving-link@example.test")
+			if confirmed {
+				if err := n.Confirm(t.Context(), confirmation); err != nil {
+					t.Fatal(err)
+				}
+			}
+			snapshot := minimisationSnapshot(t, n.Store)
+			restored, paired := restoreMinimised(t, snapshot, j, key)
+			active := &newsletter.Service{Store: restored, Keys: n.Keys, RateKey: n.RateKey, Origin: n.Origin, ConsentVersion: n.ConsentVersion, Now: n.Now, Lifecycle: paired}
+			if err := active.Unsubscribe(t.Context(), withdrawal); err != nil {
+				t.Fatal("known unchanged-mailbox withdrawal lost during restore", err)
+			}
+			var status string
+			if err := restored.SQL.QueryRowContext(t.Context(), "SELECT status FROM newsletter_subscriptions").Scan(&status); err != nil || status != "unsubscribed" {
+				t.Fatal("surviving withdrawal had no effect", err)
+			}
+		})
+	}
+}

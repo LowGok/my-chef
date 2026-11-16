@@ -322,3 +322,15 @@ internal/notifications/**
 
 !cmd/mychef/newsletter_serve.go
 !internal/config/newsletter_email.go
+
+!migrations/027_newsletter_identity_minimisation.sql
+!internal/store/account_restore.go
+!internal/store/newsletter_minimisation_schema.go
+!internal/store/newsletter_identity.go
+!internal/store/newsletter_identity_journal.go
+!internal/store/newsletter_identity_transaction.go
+!internal/store/newsletter_identity_backfill.go
+!internal/store/newsletter_file_cleanup.go
+!internal/newsletter/minimisation.go
+!internal/newsletter/maintenance.go
+!internal/email/mailqueue/account_expiry.go

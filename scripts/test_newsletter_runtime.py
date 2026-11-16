@@ -209,10 +209,10 @@ def main():
             assert sql("SELECT count(*) FROM email_outbox WHERE state IN ('queued','sending')", database=restored) == [(0,)]
         checks.append("protected export/erase, authoritative restore replay and old-link suppression")
         # A wrong-purpose queue row stops the actual role worker and capture.
-        with server():
+        with server(restored):
             now = int(time.time())
             sql("INSERT INTO email_outbox(key,recipient,template,data,state,next_at,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)",
-                ("wrong-purpose", "synthetic@runtime.example.test", "provider-smoke-test/v1", "{}", "queued", now, now, now))
+                ("wrong-purpose", "synthetic@runtime.example.test", "provider-smoke-test/v1", "{}", "queued", now, now, now), database=restored)
             for _ in range(200):
                 report = call("/internal/newsletter/readiness")
                 if not report["checks"]["worker"]:
@@ -221,8 +221,8 @@ def main():
             else:
                 raise AssertionError("wrong-purpose dispatch did not fail readiness")
             call("/api/v1/newsletter/subscribe", {}, expected=503)
-            assert sql("SELECT state,reason,attempts FROM email_outbox WHERE key='wrong-purpose'") == [("failed", "newsletter_role_template", 0)]
-        with server():
+            assert sql("SELECT state,reason,attempts FROM email_outbox WHERE key='wrong-purpose'", database=restored) == [("failed", "newsletter_role_template", 0)]
+        with server(restored):
             assert not call("/internal/newsletter/readiness")["ready"]
         checks.append("failed worker fences capture and compatible paused restart recovers")
         assert token.encode() not in (state / "process.log").read_bytes(), "credential in diagnostics"

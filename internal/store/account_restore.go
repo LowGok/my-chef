@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"time"
 
 	"gorm.io/gorm"
 )
@@ -138,7 +139,7 @@ func (j *LifecycleJournal) restoreNewsletterIdentitiesOwned(ctx context.Context,
 			"DELETE FROM signup_requests",
 			"DELETE FROM email_events WHERE provider_id IN (SELECT provider_id FROM email_outbox WHERE key LIKE 'newsletter/%')",
 			"DELETE FROM email_outbox WHERE key LIKE 'newsletter/%'",
-			"DELETE FROM newsletter_proofs",
+			"DELETE FROM newsletter_proofs WHERE purpose='confirm'",
 		} {
 			if err := tx.Exec(query).Error; err != nil {
 				return err
@@ -200,6 +201,9 @@ VALUES(?,?,?,NULL,?,NULL,NULL,NULL,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET e
 			}
 			TrackNewsletterIdentity(tx, record.UserID)
 		}
+		if err := preserveRestoredWithdrawals(ctx, tx, key, known); err != nil {
+			return err
+		}
 		if err := tx.Exec("INSERT INTO sqlite_sequence(name,seq) SELECT 'users',? WHERE NOT EXISTS(SELECT 1 FROM sqlite_sequence WHERE name='users')", binding.HighWater).Error; err != nil {
 			return err
 		}
@@ -249,4 +253,83 @@ func (j *LifecycleJournal) ValidateNewsletterIdentities(ctx context.Context) err
 		}
 	}
 	return nil
+}
+
+type restoredNewsletterProof struct {
+	Hash                      string
+	UserID                    int64
+	EmailKey                  *string
+	Revision                  int64
+	ConsumedUnix, ExpiresUnix *int64
+	IdentityIncarnation       *string
+	IdentityKeyVersion        *int
+	IdentityAddressTag        *string
+}
+
+// Retain only a snapshot's recognizable unchanged-mailbox withdrawal hashes.
+// A superseded revision becomes an acknowledgment, never renewed authority.
+// Current unconsumed authority survives the administrative restore reset.
+func preserveRestoredWithdrawals(ctx context.Context, tx *gorm.DB, key *NewsletterIdentityKey, known map[int64]NewsletterIdentityRecord) error {
+	after := ""
+	for {
+		var proofs []restoredNewsletterProof
+		if err := tx.WithContext(ctx).Table("newsletter_proofs").Where("purpose='unsubscribe' AND hash>?", after).Order("hash").Limit(100).Find(&proofs).Error; err != nil {
+			return err
+		}
+		if len(proofs) == 0 {
+			return nil
+		}
+		for _, proof := range proofs {
+			after = proof.Hash
+			var user User
+			if err := tx.First(&user, proof.UserID).Error; err != nil {
+				return err
+			}
+			var incarnation string
+			if err := tx.Raw("SELECT incarnation FROM account_incarnations WHERE user_id=?", user.ID).Row().Scan(&incarnation); err != nil {
+				return err
+			}
+			record, tracked := known[user.ID]
+			tag := ""
+			if tracked && record.Class == "contact" {
+				tag = record.AddressTag
+			} else {
+				var err error
+				tag, err = key.Tag(user.Email)
+				if err != nil {
+					return err
+				}
+			}
+			matches := true
+			if proof.EmailKey != nil {
+				actual, err := key.Tag(*proof.EmailKey)
+				matches = err == nil && actual == tag
+			}
+			if proof.IdentityIncarnation != nil {
+				matches = matches && *proof.IdentityIncarnation == incarnation && proof.IdentityKeyVersion != nil && *proof.IdentityKeyVersion == key.Version() && proof.IdentityAddressTag != nil && *proof.IdentityAddressTag == tag
+			} else if proof.EmailKey == nil {
+				matches = false
+			}
+			if !matches {
+				if err := tx.Exec("DELETE FROM newsletter_proofs WHERE hash=?", proof.Hash).Error; err != nil {
+					return err
+				}
+				continue
+			}
+			current := tracked && proof.Revision == record.Revision && record.Status != "unsubscribed" && proof.ConsumedUnix == nil && (proof.ExpiresUnix == nil || *proof.ExpiresUnix > time.Now().Unix())
+			updates := map[string]any{"email_key": nil, "identity_incarnation": incarnation, "identity_key_version": key.Version(), "identity_address_tag": tag, "proposal": ""}
+			if current {
+				var revision int64
+				if err := tx.Raw("SELECT revision FROM newsletter_subscriptions WHERE user_id=?", user.ID).Row().Scan(&revision); err != nil {
+					return err
+				}
+				updates["revision"] = revision
+			} else {
+				updates["consumed_unix"] = gorm.Expr("COALESCE(consumed_unix,?)", time.Now().Unix())
+			}
+			if err := tx.Table("newsletter_proofs").Where("hash=?", proof.Hash).Updates(updates).Error; err != nil {
+				return err
+			}
+		}
+	}
 }
