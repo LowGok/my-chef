@@ -142,6 +142,9 @@ def run(state, control, account, identifier, container, layout_only=False, voice
             picker_types = re.findall(r'Analytics iOS picker types: (Cancel|Close|Done|Save|Browse|Locations|On My iPhone|Downloads) all=([0-9,]{0,30})', text)
             if picker_types:
                 detail += '; picker types ' + ','.join(name + '=' + types for name, types in picker_types[-8:])
+            navigation = re.findall(r'Analytics iOS picker navigation: (Cancel|Close|Done|Save|Browse|Locations|On My iPhone|Downloads) count=([0-9]{1,2})', text)
+            if navigation:
+                detail += '; picker navigation ' + ','.join(name + '=' + count for name, count in navigation[-8:])
             taps = re.findall(r'Analytics iOS tap state: type=([0-9]{1,3}) exists=(true|false) hittable=(true|false) stable=([0-9]{1,3})', text)
             if taps:
                 detail += '; tap type/exists/hittable/stable ' + ', '.join('/'.join(row) for row in taps[-3:])

@@ -1690,10 +1690,38 @@ async function analyticsJourneys() {
       await dialog
         .getByLabel("Type DELETE to confirm", { exact: true })
         .fill("DELETE");
+      const activation = await button("Permanently delete account").evaluateHandle((node) => {
+        const facts = { pointer: false, trusted: false, clicked: false, submitted: false };
+        node.addEventListener("pointerdown", (event) => {
+          facts.pointer = (event as PointerEvent).pointerType === "touch";
+          facts.trusted = event.isTrusted;
+        }, { once: true });
+        node.addEventListener("click", () => { facts.clicked = true; }, { once: true });
+        (node as HTMLButtonElement).form?.addEventListener("submit", () => { facts.submitted = true; }, { once: true });
+        return facts;
+      });
       await activate("Permanently delete account");
-      await expect(
-        page.getByRole("heading", { name: "Welcome back.", exact: true }),
-      ).toBeVisible();
+      try {
+        await expect(
+          page.getByRole("heading", { name: "Welcome back.", exact: true }),
+        ).toBeVisible();
+      } catch (error) {
+        // Only fixed booleans from this fictional form; never echo values,
+        // arbitrary alerts, page text, cookies or session identifiers.
+        const facts = await dialog.evaluate((node, password) => {
+          const current = node.querySelector<HTMLInputElement>('input[name="currentPassword"]');
+          const confirmation = node.querySelector<HTMLInputElement>('input[name="confirmation"]');
+          const submit = node.querySelector<HTMLButtonElement>('button[type="submit"]');
+          return { open: node.hasAttribute("open"), passwordMatches: current?.value === password,
+            confirmationMatches: confirmation?.value === "DELETE", busy: node.querySelector("form")?.getAttribute("aria-busy") === "true",
+            submitDisabled: submit?.disabled === true, alert: node.querySelector('[role="alert"]') !== null };
+        }, account.password).catch(() => ({ unavailable: true }));
+        const touch = await activation.jsonValue().catch(() => ({ unavailable: true }));
+        console.log("Installed Android deletion state: " + JSON.stringify({ ...facts, touch }));
+        throw error;
+      } finally {
+        await activation.dispose().catch(() => undefined);
+      }
       remember("lifecycle", "accountDeleted");
       await relaunch();
       await expect(

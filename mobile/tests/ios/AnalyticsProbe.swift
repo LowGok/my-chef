@@ -231,6 +231,11 @@ final class AnalyticsProbe: XCTestCase {
     }
     func pickerButton(_ label: String) -> XCUIElement? {
         let predicate = NSPredicate(format: "label == %@", label)
+        // UIKit navigation bars give a structural native boundary. Prefer
+        // their controls over frame comparisons during sheet animations.
+        let navigation = app.navigationBars.buttons.matching(predicate).allElementsBoundByIndex
+            .filter { $0.exists && $0.isHittable }
+        if navigation.count == 1 { return navigation[0] }
         let webFrames = app.webViews.buttons.matching(predicate).allElementsBoundByIndex.filter { $0.exists }.map { $0.frame }
         let native = app.buttons.matching(predicate).allElementsBoundByIndex.filter { element in
             guard element.exists && element.isHittable else { return false }
@@ -264,14 +269,19 @@ final class AnalyticsProbe: XCTestCase {
         for name in ["Cancel", "Close", "Done", "Save", "Browse", "Locations", "On My iPhone", "Downloads"] {
             let p = NSPredicate(format: "label == %@", name)
             print("Analytics iOS picker control: " + name + " total=\(app.buttons.matching(p).count) web=\(app.webViews.buttons.matching(p).count)")
+            print("Analytics iOS picker navigation: " + name + " count=\(app.navigationBars.buttons.matching(p).count)")
             let types = app.descendants(matching: .any).matching(p).allElementsBoundByIndex.prefix(8)
                 .map { String($0.elementType.rawValue) }.joined(separator: ",")
             print("Analytics iOS picker types: " + name + " all=" + types)
         }
     }
     func pickerAction(save: Bool) {
-        // The HTML dialog also has Cancel. Require an actual system control
-        // outside every WebView, including remote file-provider presentations.
+        // HTTP success precedes presentation of the system UI. Wait for its
+        // Save control before looking for Cancel, which is also in the HTML
+        // dialog. This avoids mistaking the underlying animated dialog for
+        // a system picker that has not appeared yet.
+        guard waitPickerButton("Save") != nil else { return }
+        print("Analytics iOS phase: native picker presented")
         if !save {
             guard let cancel = waitPickerButton("Cancel") else { return }
             var button = cancel

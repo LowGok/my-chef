@@ -116,7 +116,11 @@ def full_journeys(receipt, artifact):
             (state / 'native-android-account.json').write_text(json.dumps(account))
             for key in ('GITHUB_ACTIONS', 'GITHUB_REPOSITORY', 'NATIVE_PLATFORM'):
                 native.ENV[key] = os.environ[key]
-            native.command('bun', 'scripts/native-android-journeys.ts', str(state), 'analytics', timeout=900)
+            try:
+                native.command('bun', 'scripts/native-android-journeys.ts', str(state), 'analytics', timeout=900)
+            except RuntimeError:
+                print('Native Android account API results: ' + native.account_api_summary(events), flush=True)
+                raise
             startup_recovery = re.search(r'INSTRUMENTATION_STATUS: probeSystemUiRecovery=(closed|unavailable)\b',
                                          (state / 'probe-private.log').read_text())
             metadata['instrumentationStartupRecovery'] = startup_recovery[1] if startup_recovery else 'not needed'
@@ -142,6 +146,7 @@ def full_journeys(receipt, artifact):
                 checks = analytics_ios.run(state, control, account, identifier, container)
             except RuntimeError:
                 # Fixed route groups and HTTP statuses; no headers/bodies/IDs.
+                print('Native iOS account API results: ' + native.account_api_summary(events), flush=True)
                 print('Native iOS API results: ' + ', '.join(method + '/' + kind + '/' + str(status)
                     for method, kind, status in events[-16:]), flush=True)
                 raise

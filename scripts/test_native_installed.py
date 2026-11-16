@@ -86,6 +86,14 @@ def command(*argv, timeout=90, data=None):
     return result.stdout.strip()
 
 
+def account_api_summary(events):
+    """Closed diagnostic vocabulary; never request paths, headers or bodies."""
+    records = [(method, kind, status) for method, kind, status in events
+               if method == 'POST' and kind in ('account-export', 'account-deletion')
+               and type(status) is int and 100 <= status <= 599]
+    return ', '.join(method + '/' + kind + '/' + str(status) for method, kind, status in records[-8:])
+
+
 def wait_for(check, description, seconds=100):
     end = time.monotonic() + seconds
     while time.monotonic() < end:

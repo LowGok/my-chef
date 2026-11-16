@@ -479,6 +479,15 @@ class NativeSystemPickerTest(unittest.TestCase):
         self.assertEqual(sum('dumpsys' in argv for argv in commands[back:]), 1)
 
 
+class AccountAPIDiagnosticTest(unittest.TestCase):
+    def test_summary_retains_only_closed_account_operations_and_status_codes(self):
+        records = [('POST', 'account-export', 200), ('GET', 'account-deletion', 200),
+                   ('POST', 'account-deletion', 401), ('POST', 'private@example.test', 200),
+                   ('POST', 'account-export', 'private token'), ('POST', 'account-deletion', True)]
+        self.assertEqual(installed.account_api_summary(records), 'POST/account-export/200, POST/account-deletion/401')
+        self.assertEqual(installed.account_api_summary([('POST', 'account-deletion', 204)] * 20).count('204'), 8)
+
+
 class XcodeUIHostTest(unittest.TestCase):
     def test_compiled_observer_must_pass_its_actual_file_identity_checks(self):
         with tempfile.TemporaryDirectory(prefix='analytics-observer-') as folder:
