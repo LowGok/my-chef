@@ -405,12 +405,14 @@ final class AnalyticsProbe: XCTestCase {
         tap("Create my account")
         waitFor({ self.text("Check your inbox") }, "Signup submission must reach the inbox screen before proof retrieval")
         let proof = try control("proof", ["recipient": recipient])
-        guard let url = proof["url"] as? String, let container = configuration["appContainer"],
-              url.range(of: "^https://localhost:8977/app/signup#[A-Za-z0-9_-]{43}$", options: .regularExpression) != nil else { throw Failure.invalidFixture }
-        let path = URL(fileURLWithPath: container).appendingPathComponent("tmp/analytics-fixture-link")
-        try Data(url.utf8).write(to: path, options: .atomic)
-        app.terminate(); app.launchArguments = ["--mychef-analytics-native-fixture", "--mychef-analytics-fixture-link"]; app.launch()
-        app.launchArguments = ["--mychef-analytics-native-fixture"]
+        guard let value = proof["url"] as? String,
+              value.range(of: "^https://localhost:8977/app/signup#[A-Za-z0-9_-]{43}$", options: .regularExpression) != nil,
+              let url = URL(string: value) else { throw Failure.invalidFixture }
+        // Deliver the bounded fictional URL to this installed app through
+        // XCTest's native URL launch API and the actual SceneDelegate route.
+        // No file handoff, manual termination or alternate app is needed.
+        app.open(url)
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 20))
         waitFor({ self.text("Finish signing up") }, "Fixture proof reaches real completion UI")
         XCTAssertEqual(checkbox().value as? String, "0")
         fill("Password", configuration["password"] ?? "", secure: true)
@@ -424,7 +426,16 @@ final class AnalyticsProbe: XCTestCase {
         tap("Back to MyChef")
     }
     func testAuthenticatedAnalytics() throws {
-        app.launch()
+        if configuration["voiceOverOnly"] == "true" {
+            // The coordinator already launched this same unsigned app with
+            // fixture arguments and verified its actual HTTPS bootstrap.
+            // activate preserves that instance; launch would terminate it.
+            app.activate()
+            print("Analytics iOS phase: preserved native bootstrap instance")
+        } else {
+            app.launch()
+        }
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 20))
         waitFor({ self.text("Welcome back.") || self.app.buttons["Create an account"].firstMatch.exists },
                 "Native session bootstrap must finish before account controls", timeout: 90)
         if configuration["voiceOverOnly"] == "true" {

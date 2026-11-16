@@ -165,6 +165,12 @@ def full_journeys(receipt, artifact):
             if len(copies) != 1 or not own_export(copies[0].read_bytes(), account['email']):
                 raise RuntimeError('OS-saved iOS export ownership verification failed')
             checks['lifecycle']['ownExportOnly'] = True
+            # The primary receipt and exported-file checks are now complete.
+            # Stop only this run-owned device before booting the second phone;
+            # two live simulators needlessly compete on the standard runner.
+            native.command('xcrun', 'simctl', 'shutdown', identifier, timeout=60)
+            metadata['primaryShutdownBeforeSmallLayout'] = True
+            print('Primary iOS journeys complete; owned device stopped before small-phone layout', flush=True)
             # A separate fresh supported small iPhone uses the same verified
             # archive, API and OS text setting; it does not replace the first
             # phone's authenticated journey or claim screen-reader speech.

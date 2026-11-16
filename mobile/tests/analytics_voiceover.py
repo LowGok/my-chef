@@ -108,11 +108,17 @@ def main():
         native.command('xcrun', 'simctl', 'ui', identifier, 'content_size', 'accessibility-medium')
         metadata['contentSize'] = 'accessibility-medium'
         container = Path(native.command('xcrun', 'simctl', 'get_app_container', identifier, native.APP, 'data'))
-        native.verify_stage(lambda: ('POST', 'session', 201) in events and ('GET', 'session', 200) in events,
-                            'VoiceOver native session bootstrap', events, rejected, diagnostic, launch=launch)
-        # XCTest launches/restarts the installed target itself. A separate
-        # simctl terminate can stall the hosted runtime after HTTPS warm-up.
-        checks = analytics_ios.run(state, control, account, identifier, container, voiceover_only=True)
+        def bootstrap():
+            # Compile the separate probe first, so its workload cannot expire
+            # or interrupt the installed app's fresh fixture observations.
+            native.verify_stage(lambda: ('POST', 'session', 201) in events and ('GET', 'session', 200) in events,
+                                'VoiceOver native session bootstrap', events, rejected, diagnostic,
+                                launch=lambda: native.command('xcrun', 'simctl', 'launch', identifier, native.APP,
+                                                              '--mychef-analytics-native-fixture'))
+        # XCTest activates the already bootstrapped fixture instance. Later
+        # relaunch tests still terminate/restart it with these same arguments.
+        checks = analytics_ios.run(state, control, account, identifier, container, voiceover_only=True,
+                                   before_test=bootstrap)
         if not all(('GET', kind, 200) in events for kind in ('analytics-notice-disabled', 'analytics-notice-assessed')):
             raise RuntimeError('VoiceOver requires both actual signup notice responses')
         text_scale = json.loads((container / 'tmp/analytics-text-result.json').read_text())

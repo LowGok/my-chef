@@ -90,7 +90,7 @@ def project(state):
     return path
 
 
-def run(state, control, account, identifier, container, layout_only=False, voiceover_only=False):
+def run(state, control, account, identifier, container, layout_only=False, voiceover_only=False, before_test=None):
     root = Path(state)
     output = root / 'analytics-ios-observations.json'
     input_path = root / 'analytics-ios-input.json'
@@ -194,6 +194,8 @@ def run(state, control, account, identifier, container, layout_only=False, voice
     target['SystemAttachmentLifetime'] = 'deleteAlways'
     target['UserAttachmentLifetime'] = 'deleteAlways'
     plans[0].write_bytes(plistlib.dumps(plan))
+    if before_test is not None:
+        before_test()
     execute(['xcodebuild', 'test-without-building', '-xctestrun', str(plans[0]), '-destination', 'id=' + identifier,
              '-parallel-testing-enabled', 'NO', '-maximum-concurrent-test-simulator-destinations', '1'], 900)
     value = json.loads(output.read_text())

@@ -87,6 +87,8 @@ def main() -> None:
         run("python3", "scripts/test_native_verification.py")
         run("python3", "scripts/test_analytics_ci.py")
         run("python3", "mobile/tests/test_analytics_fixture.py")
+        run("python3", "mobile/tests/test_analytics_ios.py")
+        run("python3", "mobile/tests/test_analytics_lane.py")
         run("python3", "mobile/tests/test_analytics_speech.py")
         run("python3", "mobile/tests/test_analytics_touch.py")
         run("go", "test", "./...")
