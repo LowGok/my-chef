@@ -103,6 +103,19 @@ def wait_for(check, description, seconds=100):
     raise RuntimeError(f"Timed out waiting for {description}")
 
 
+def wait_owned_android_transport(adb_path, emulator, seconds=180):
+    # A CA remount reboot can outlive one long adb wait. Poll only this
+    # disposable emulator's actual transport while its owned process lives.
+    def attached():
+        if emulator.poll() is not None:
+            raise RuntimeError('The owned Android emulator exited before reconnecting')
+        try:
+            return command(adb_path, '-s', 'emulator-5554', 'get-state', timeout=10) == 'device'
+        except (RuntimeError, subprocess.TimeoutExpired):
+            return False
+    wait_for(attached, 'owned Android ADB transport', seconds)
+
+
 def verify_stage(check, description, events, rejected_tls, diagnostics, *, launch, event_start=0, tls_start=0):
     try:
         launch()
@@ -493,7 +506,11 @@ def android(state, stack, ca, apk):
     if "remount succeeded" not in remount.lower():
         adb("disable-verity")
         adb("reboot")
-        adb("wait-for-device")
+        if ENV.get("NATIVE_ANALYTICS_SPEECH") == "1":
+            wait_owned_android_transport(adb_path, emulator)
+            print("Owned Android remount transport reconnected", flush=True)
+        else:
+            adb("wait-for-device")
         wait_for(lambda: adb("shell", "getprop", "sys.boot_completed") == "1", "Android remount reboot", 120)
         root_adb()
         adb("wait-for-device")

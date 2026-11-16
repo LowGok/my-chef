@@ -62,6 +62,21 @@ class DisplayGestureTest(unittest.TestCase):
         self.assertIn('mouseup', motion)
         self.assertEqual(calls[-1], ('xdotool', 'mouseup', '1'))
 
+    def test_swipe_starts_inside_the_phone_on_a_wide_emulator_canvas(self):
+        # A centred portrait phone can occupy only the middle of a wide Qt
+        # window. Pressing its host margins never creates a guest contact.
+        native, calls = self.native(geometries={
+            '42': 'WIDTH=1280\nHEIGHT=800\n', '43': 'WIDTH=50\nHEIGHT=500\n'})
+        with patch('analytics_touch.time.sleep'):
+            gesture('next', native)
+        motion = next(call for call in calls if 'mousedown' in call)
+        points = [(int(motion[i + 3]), int(motion[i + 4]))
+                  for i, value in enumerate(motion) if value == 'mousemove']
+        self.assertTrue(all(450 < x < 830 and 300 < y < 500 for x, y in points),
+                        'The complete pressed swipe must stay in the centred phone surface')
+        self.assertGreater(points[-1][0] - points[0][0], 120,
+                           'A bounded swipe still needs meaningful physical travel')
+
     def test_missing_foreign_ambiguous_or_unbounded_windows_are_refused(self):
         for options in ({'windows': ''}, {'owner': '999'},
                         {'geometries': {'42': 'WIDTH=1\nHEIGHT=2\n', '43': 'WIDTH=1\nHEIGHT=2\n'}},

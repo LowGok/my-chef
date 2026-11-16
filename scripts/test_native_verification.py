@@ -479,6 +479,30 @@ class NativeSystemPickerTest(unittest.TestCase):
         self.assertEqual(sum('dumpsys' in argv for argv in commands[back:]), 1)
 
 
+class OwnedAndroidTransportTest(unittest.TestCase):
+    def test_reboot_wait_requires_real_exact_serial_readiness_after_transient_loss(self):
+        process = types.SimpleNamespace(poll=lambda: None)
+        responses = [installed.subprocess.TimeoutExpired('fictional adb', 10), 'offline', 'device']
+        with patch.object(installed, 'command', side_effect=responses) as call, patch.object(installed.time, 'sleep'):
+            installed.wait_owned_android_transport('/fictional-sdk/adb', process)
+        self.assertEqual(call.call_count, 3)
+        self.assertTrue(all(item.args == ('/fictional-sdk/adb', '-s', 'emulator-5554', 'get-state')
+                            and item.kwargs == {'timeout': 10} for item in call.call_args_list))
+
+    def test_exited_owned_emulator_cannot_borrow_another_device(self):
+        with patch.object(installed, 'command') as call:
+            with self.assertRaisesRegex(RuntimeError, 'owned Android emulator exited'):
+                installed.wait_owned_android_transport('/fictional-sdk/adb', types.SimpleNamespace(poll=lambda: 1))
+        call.assert_not_called()
+
+    def test_missing_or_non_device_state_stays_failed_at_the_deadline(self):
+        for value in ('offline', 'unauthorized', 'emulator-5556\tdevice', ''):
+            with self.subTest(value=value), patch.object(installed, 'command', return_value=value), \
+                 patch.object(installed.time, 'monotonic', side_effect=[0, 0, 181]), patch.object(installed.time, 'sleep'):
+                with self.assertRaisesRegex(RuntimeError, 'owned Android ADB transport'):
+                    installed.wait_owned_android_transport('/fictional-sdk/adb', types.SimpleNamespace(poll=lambda: None))
+
+
 class AccountAPIDiagnosticTest(unittest.TestCase):
     def test_summary_retains_only_closed_account_operations_and_status_codes(self):
         records = [('POST', 'register', 202), ('GET', 'register', 200), ('POST', 'account-export', 200), ('GET', 'account-deletion', 200),

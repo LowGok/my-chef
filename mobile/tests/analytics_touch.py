@@ -132,6 +132,12 @@ def gesture(kind, native):
         return native.command('xdotool', *args, timeout=10)
     def move(fraction, vertical=.5):
         return ['mousemove', '--window', window, str(round(width * fraction)), str(round(height * vertical))]
+    # The controlled Android display is portrait1080x1920. Qt can keep a
+    # wider canvas around that phone. Scale swipes to the fitted portrait
+    # width, keeping the initial press around the already-tested centre.
+    portrait_width = min(width, height * 9 / 16)
+    print('Analytics host touch viewport: width=' + str(width) + ' height=' + str(height)
+          + ' portraitWidth=' + str(round(portrait_width)), flush=True)
     with touch_trace(native, 2 if kind == 'double-tap' else 1):
         if kind == 'double-tap':
             # One process preserves timing; nearby distinct host positions
@@ -149,9 +155,11 @@ def gesture(kind, native):
         else:
             # A slight vertical change keeps the gesture horizontally dominant
             # while making both absolute axes observable in this fresh trace.
-            sequence = move(.3, .48) + ['mousedown', '1']
+            def swipe_point(step):
+                return move(.5 + (-.2 + .04 * step) * portrait_width / width, .48 + .004 * step)
+            sequence = swipe_point(0) + ['mousedown', '1']
             for step in range(1, 11):
-                sequence += ['sleep', '.018'] + move(.3 + .04 * step, .48 + .004 * step)
+                sequence += ['sleep', '.018'] + swipe_point(step)
             sequence += ['mouseup', '1']
             try:
                 command(*sequence)
