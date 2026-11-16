@@ -88,7 +88,7 @@ public class NativeContract {
   }
 }, 30_000);
 
-test("native probe maps visible CSS controls into the focused WebView screen", async () => {
+test("native probe confines touch geometry and startup system-dialog recovery", async () => {
   const output = await mkdtemp(join(tmpdir(), "mychef-native-touch-"));
   try {
     const harness = join(output, "TouchPointContract.java");
@@ -96,10 +96,21 @@ test("native probe maps visible CSS controls into the focused WebView screen", a
       harness,
       `
 import com.gkldevelopment.mychef.testing.NativeTouchPoint;
+import com.gkldevelopment.mychef.testing.NativeStartupWindow;
 import java.util.Arrays;
 public class TouchPointContract {
   static void reject(Runnable work) { try { work.run(); } catch (IllegalArgumentException expected) { return; } throw new AssertionError("Unsafe touch point accepted"); }
   public static void main(String[] args) {
+    String title = "Application Not Responding: com.android.systemui";
+    String close = "android:id/aerr_close";
+    if (!NativeStartupWindow.canClose(title, "android", "android", close)) throw new AssertionError("Known system dialog refused");
+    for (String[] foreign : new String[][] {
+      {"Application Not Responding: com.example.other", "android", "android", close},
+      {title, "com.example.other", "android", close},
+      {title, "android", "com.example.other", close},
+      {title, "android", "android", "android:id/aerr_wait"},
+      {null, "android", "android", close}
+    }) if (NativeStartupWindow.canClose(foreign[0], foreign[1], foreign[2], foreign[3])) throw new AssertionError("Unrelated dialog accepted");
     int[] point = NativeTouchPoint.locate(new double[]{180,220,0,120,360,400}, new int[]{0,72},1080,1200,true);
     if (!Arrays.equals(point,new int[]{540,372})) throw new AssertionError("Viewport offset or screen origin ignored");
     point = NativeTouchPoint.locate(new double[]{180,220,0,120,360,400},new int[]{-8,-20},1080,1200,true);
@@ -122,6 +133,7 @@ public class TouchPointContract {
       "-d",
       output,
       resolve(import.meta.dir, "native-android/NativeTouchPoint.java"),
+      resolve(import.meta.dir, "native-android/NativeStartupWindow.java"),
       harness,
     ]);
     expect(compile.exitCode, compile.stderr.toString()).toBe(0);

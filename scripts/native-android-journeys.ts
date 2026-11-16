@@ -91,12 +91,12 @@ async function connect() {
   );
   let lastFocusCheck = 0;
   let startupOwner = "unknown";
-  let startupRecoveryAttempted = false;
-  function startupControl(operation: "picker-focus" | "recover-system-ui-anr") {
+  let reportedStartupRecovery = "";
+  function startupControl(operation: "picker-focus") {
     const result = Bun.spawnSync(["python3", "scripts/native_android_probe.py", operation],
       { stdout: "pipe", stderr: "ignore" });
     const value = result.stdout.toString().trim();
-    return result.exitCode === 0 && /^(app|documents|system-ui-anr|other|unknown|recovered|unchanged|unavailable)$/.test(value)
+    return result.exitCode === 0 && /^(app|documents|system-ui-anr|other|unknown)$/.test(value)
       ? value : "unknown";
   }
   await expect
@@ -106,15 +106,16 @@ async function connect() {
           join(state, "probe-private.log"),
           "utf8",
         ).catch(() => "");
+        const recovery = log.match(/INSTRUMENTATION_STATUS: probeSystemUiRecovery=(closed|unavailable)\b/)?.[1];
+        if (recovery && recovery !== reportedStartupRecovery) {
+          reportedStartupRecovery = recovery;
+          console.log("Android instrumentation startup recovery: " + recovery);
+        }
         if (/INSTRUMENTATION_STATUS: probe=ready/.test(log)) return true;
         if (Date.now() - lastFocusCheck >= 5000) {
           lastFocusCheck = Date.now();
           startupOwner = startupControl("picker-focus");
           console.log("Android instrumentation startup focus owner: " + startupOwner);
-          if (probe.exitCode === null && startupOwner === "system-ui-anr" && !startupRecoveryAttempted) {
-            startupRecoveryAttempted = true;
-            console.log("Android instrumentation startup recovery: " + startupControl("recover-system-ui-anr"));
-          }
         }
         if (probe.exitCode !== null) {
           const reason = log.match(/probeReason=([a-z-]{1,50})\b/)?.[1];

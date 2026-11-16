@@ -164,6 +164,34 @@ public final class NativeJourneyProbe extends Instrumentation {
         return automation;
     }
 
+    private AccessibilityNodeInfo systemCloseButton(AccessibilityNodeInfo node, int depth) {
+        if (node == null || depth > 24) return null;
+        if ("android".equals(String.valueOf(node.getPackageName()))
+                && "android:id/aerr_close".equals(node.getViewIdResourceName())
+                && node.isVisibleToUser() && node.isEnabled() && node.isClickable()) return node;
+        for (int i = 0; i < node.getChildCount(); i++) {
+            AccessibilityNodeInfo found = systemCloseButton(node.getChild(i), depth + 1);
+            if (found != null) return found;
+        }
+        return null;
+    }
+
+    private String recoverSystemUiAnr() {
+        // Reuse this instrumentation's connection; a second uiautomator
+        // process cannot register while the probe owns UiAutomation.
+        UiAutomation automation = interactiveWindows();
+        for (AccessibilityWindowInfo window : automation.getWindows()) {
+            if (!window.isFocused()) continue;
+            AccessibilityNodeInfo root = window.getRoot();
+            AccessibilityNodeInfo close = systemCloseButton(root, 0);
+            if (root == null || close == null || !NativeStartupWindow.canClose(
+                    String.valueOf(window.getTitle()), String.valueOf(root.getPackageName()),
+                    String.valueOf(close.getPackageName()), close.getViewIdResourceName())) continue;
+            return close.performAction(AccessibilityNodeInfo.ACTION_CLICK) ? "closed" : "unavailable";
+        }
+        return "absent";
+    }
+
     private static AccessibilityNodeInfo pickerRoot(UiAutomation automation) {
         boolean hasFocusedAppWindow = false;
         for (AccessibilityWindowInfo window : automation.getWindows()) {
@@ -470,12 +498,22 @@ public final class NativeJourneyProbe extends Instrumentation {
             }
             if (web == null) throw new IllegalStateException("webview");
             boolean[] focused = {false};
+            boolean systemUiRecoveryAttempted = false;
             for (int i = 0; i < 300 && !focused[0]; i++) {
                 runOnMainSync(() -> {
                     refreshWeb();
                     focused[0] = web.isShown() && web.hasWindowFocus();
                 });
                 if (!focused[0]) {
+                    if (!systemUiRecoveryAttempted && i % 10 == 0) {
+                        String recovery = recoverSystemUiAnr();
+                        if (!recovery.equals("absent")) {
+                            systemUiRecoveryAttempted = true;
+                            Bundle result = new Bundle(); result.putString("probeSystemUiRecovery", recovery);
+                            sendStatus(1, result);
+                            getTargetContext().startActivity(launch);
+                        }
+                    }
                     // Bring only this fixture's activity forward after cold
                     // system startup; never accept an unfocused app window.
                     if (i > 0 && i % 50 == 0) getTargetContext().startActivity(launch);

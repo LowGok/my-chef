@@ -114,9 +114,12 @@ def full_journeys(receipt, artifact):
         if native.PLATFORM == 'android':
             install_android_probe(state, artifact)
             (state / 'native-android-account.json').write_text(json.dumps(account))
-            for key in ('GITHUB_ACTIONS', 'GITHUB_REPOSITORY', 'GITHUB_REF', 'NATIVE_PLATFORM'):
+            for key in ('GITHUB_ACTIONS', 'GITHUB_REPOSITORY', 'NATIVE_PLATFORM'):
                 native.ENV[key] = os.environ[key]
             native.command('bun', 'scripts/native-android-journeys.ts', str(state), 'analytics', timeout=900)
+            startup_recovery = re.search(r'INSTRUMENTATION_STATUS: probeSystemUiRecovery=(closed|unavailable)\b',
+                                         (state / 'probe-private.log').read_text())
+            metadata['instrumentationStartupRecovery'] = startup_recovery[1] if startup_recovery else 'not needed'
             checks = json.loads((state / 'native-android-journeys-analytics.json').read_text())['checks']
             if speech is not None:
                 from analytics_speech import TARGETS
