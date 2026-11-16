@@ -1,5 +1,5 @@
 ---
-status: planned
+status: in-progress
 status_description: "R-5 test-only correction accepted through the Hub; resume T24 and complete verification on the existing claimed branch."
 branch: feat/newsletter-inactive-identity-minimisation
 issue: null
