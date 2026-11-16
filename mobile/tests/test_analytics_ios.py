@@ -65,6 +65,17 @@ class IOSProbeOrderTest(unittest.TestCase):
 
 
 class IOSSessionBootstrapTest(unittest.TestCase):
+    def test_voice_environment_summary_keeps_only_closed_flags_and_counts(self):
+        raw = ('private fictional utterance must stay private\n'
+               'Analytics iOS voice environment: api=true native=false voices=12 english=2\n')
+        self.assertEqual(analytics_ios.voice_environment(raw),
+                         'api=true native=false voices=12 english=2')
+        for value in ('api=yes native=false voices=12 english=2',
+                      'api=true native=false voices=1000 english=2',
+                      'api=true native=false voices=1 english=2',
+                      'api=true native=false voices=12 english=2 private'):
+            self.assertIsNone(analytics_ios.voice_environment('Analytics iOS voice environment: ' + value))
+
     def test_only_fresh_native_session_responses_acknowledge_the_warmed_app(self):
         for responses, accepted in (([], False), ([('GET', 'session', 200)], False),
                 ([('POST', 'session', 201)], False),

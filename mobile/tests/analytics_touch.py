@@ -160,17 +160,33 @@ def _reader_touch_devices(snapshot, counts):
     if len(hubs) != 1 or len(readers) != 1:
         raise ValueError(message)
     counts['stage'] = 2
-    paths = {}
+    paths, disabled, aliases = {}, set(), set()
     for block in re.split(r'(?m)(?=^    [0-9]+: )', hubs[0])[1:]:
         header = re.match(r'    ([0-9]{1,6}): [^\n]*\n', block)
         if header is None or int(header[1]) in paths or len(paths) >= 128:
             raise ValueError(message)
         fields = re.findall(r'^      Path: (/dev/input/event[0-9]{1,3})$', block, re.M)
         enabled = re.findall(r'^      Enabled: (true|false)$', block, re.M)
+        if header[0].endswith(' (aka device 0 - built-in keyboard)\n'):
+            aliases.add(int(header[1]))
+        if len(fields) == 1 and enabled == ['false']:
+            disabled.add(int(header[1]))
         # Virtual/non-event devices are excluded; duplicate IDs remain refused.
         paths[int(header[1])] = fields[0] if len(fields) == 1 and enabled == ['true'] else None
         counts['hubs'] += 1
         counts['enabled'] += int(paths[int(header[1])] is not None)
+    builtins = re.findall(r'^  BuiltInKeyboardId: (-?[0-9]{1,6})$', hubs[0], re.M)
+    if len(builtins) > 1:
+        raise ValueError(message)
+    if builtins and int(builtins[0]) >= 0:
+        builtin = int(builtins[0])
+        # EventHub explicitly reports built-in keyboard events as device 0.
+        # Require both its root ID and the corresponding node's alias label.
+        if builtin not in paths or builtin not in aliases or (0 in paths and paths[0] != paths[builtin]):
+            raise ValueError(message)
+        paths[0] = paths[builtin]
+        if builtin in disabled:
+            disabled.add(0)
     counts['stage'] = 3
     result, seen = set(), set()
     for block in re.split(r'(?m)(?=^  Device [0-9]+: )', readers[0])[1:]:
@@ -207,8 +223,15 @@ def _reader_touch_devices(snapshot, counts):
             raise ValueError(message)
         ids = [int(value) for value in re.findall(r'[0-9]+', mappings[0])]
         counts['stage'] = 5
-        if len(ids) != len(set(ids)) or any(paths.get(value) is None for value in ids):
+        if len(ids) != len(set(ids)) or any(value not in paths for value in ids):
             raise ValueError(message)
+        if any(paths[value] is None and value not in disabled for value in ids):
+            raise ValueError(message)
+        # A known disabled reader cannot supply input. Exclude its entire
+        # combined mapping instead of borrowing a source from its other nodes.
+        if any(value in disabled for value in ids):
+            counts['stage'] = 3
+            continue
         result.update(paths[value] for value in ids)
         counts['mapped'] = len(result)
         counts['stage'] = 3

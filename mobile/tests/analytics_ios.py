@@ -25,6 +25,18 @@ def safe_diagnostic(text, secrets):
     return value[:1200]
 
 
+def voice_environment(text):
+    """Retain no voice identifiers, raw utterance, locale list or device paths."""
+    rows = re.findall(r'^Analytics iOS voice environment: api=(true|false) native=(true|false) '
+                      r'voices=([0-9]{1,3}) english=([0-9]{1,3})$', text, re.M)
+    if not rows:
+        return None
+    api, native_enabled, voices, english = rows[-1]
+    if int(english) > int(voices):
+        return None
+    return 'api=' + api + ' native=' + native_enabled + ' voices=' + voices + ' english=' + english
+
+
 def project(state):
     root = Path(state) / 'ios-analytics-probe'
     root.mkdir(mode=0o700)
@@ -162,6 +174,9 @@ def run(state, control, account, identifier, container, layout_only=False, voice
                 detail += '; source lines ' + ', '.join(lines[-6:])
             if stages:
                 detail += '; controls ' + ', '.join(stages[-4:])
+            environment = voice_environment(text)
+            if environment:
+                detail += '; voice environment ' + environment
             roles = re.findall(r'Analytics iOS accessibility type: ([0-9]{1,3}) state: (off|on|other) enabled: (true|false)', text)
             if roles:
                 detail += '; observed roles ' + ', '.join('/'.join(role) for role in roles[-8:])

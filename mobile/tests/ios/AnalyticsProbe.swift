@@ -1,4 +1,6 @@
 import XCTest
+import UIKit
+import AVFAudio
 
 // Runs against the already installed, digest-verified simulator app. This test
 // bundle is a separate unsigned probe and is never a distributed application.
@@ -588,6 +590,14 @@ final class AnalyticsProbe: XCTestCase {
             XCTAssertTrue(voice.isEnabled)
             app.activate()
             XCTAssertTrue(app.wait(for: .runningForeground, timeout: 20))
+            let nativeEnabled = Thread.isMainThread
+                ? MainActor.assumeIsolated { UIAccessibility.isVoiceOverRunning }
+                : DispatchQueue.main.sync { UIAccessibility.isVoiceOverRunning }
+            let voices = AVSpeechSynthesisVoice.speechVoices()
+            let english = voices.filter { $0.language == "en" || $0.language.hasPrefix("en-") }.count
+            // Availability and flags diagnose missing speech; they never set
+            // a spoken-output observation or synthesize a replacement voice.
+            print("Analytics iOS voice environment: api=\(voice.isEnabled) native=\(nativeEnabled) voices=\(min(999, voices.count)) english=\(min(999, english))")
         }
         func spoken(_ phrase: String, backward: Bool = false, controlRole: Bool = false) throws -> String {
             func words(_ value: String) -> String {

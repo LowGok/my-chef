@@ -101,6 +101,22 @@ class KernelGestureTest(unittest.TestCase):
             with self.subTest(source=source), self.assertRaises(ValueError):
                 touch.reader_touch_devices(reader)
 
+    def test_builtin_alias_requires_both_the_hub_record_and_its_explicit_alias_label(self):
+        alias = READER.replace('  Devices:\n', '  BuiltInKeyboardId: 12\n  Devices:\n').replace(
+            '12: fictional touchscreen\n', '12: fictional touchscreen (aka device 0 - built-in keyboard)\n').replace(
+            'EventHub Devices: [ 12 ]', 'EventHub Devices: [ 0 ]')
+        self.assertEqual(touch.reader_touch_devices(alias), {'/dev/input/event7'})
+        for value in (alias.replace(' (aka device 0 - built-in keyboard)', ''),
+                      alias.replace('BuiltInKeyboardId: 12', 'BuiltInKeyboardId: 13')):
+            with self.assertRaises(ValueError): touch.reader_touch_devices(value)
+
+    def test_disabled_reader_is_excluded_without_hiding_another_enabled_reader(self):
+        disabled = READER.replace('    12: fictional touchscreen', '    13: disabled touchscreen\n'
+            '      Path: /dev/input/event8\n      Enabled: false\n    12: fictional touchscreen')
+        disabled = disabled.replace('  Device 27:', '  Device 26: disabled touchscreen\n'
+            '    EventHub Devices: [ 13 ]\n    Sources: TOUCHSCREEN\n  Device 27:')
+        self.assertEqual(touch.reader_touch_devices(disabled), {'/dev/input/event7'})
+
     def test_missing_ambiguous_or_non_touch_reader_mapping_is_refused(self):
         for reader in (None, '', 'x' * 524289,
                        READER.replace('Sources: 0x00001002', 'Sources: 0x00002002'),
