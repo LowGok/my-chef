@@ -295,7 +295,7 @@ final class AnalyticsProbe: XCTestCase {
         waitFor({ saveButton.isEnabled && saveButton.isHittable }, "System picker needs a writable local destination")
         saveButton.tap()
     }
-    func fill(_ label: String, _ text: String, secure: Bool = false) {
+    func fill(_ label: String, _ text: String, secure: Bool = false, replace: Bool = false) {
         print("Analytics iOS control: " + label)
         let ordinary = app.descendants(matching: .any).matching(NSPredicate(format:
             "label == %@ AND (elementType == %d OR elementType == %d)", label,
@@ -310,7 +310,16 @@ final class AnalyticsProbe: XCTestCase {
         waitFor({ self.app.keyboards.firstMatch.exists }, "Native text input needs the software keyboard")
         hasEnteredData = true
         let current = element.value as? String ?? ""
-        if label == "Diet" || (!current.isEmpty && current != element.placeholderValue) {
+        if replace {
+            element.press(forDuration: 1.0)
+            let menuItem = app.menuItems["Select All"].firstMatch
+            let menuButton = app.buttons["Select All"].firstMatch
+            waitFor({ (menuItem.exists && menuItem.isHittable) || (menuButton.exists && menuButton.isHittable) },
+                    "Native editing must expose Select All for replacement")
+            if menuItem.exists && menuItem.isHittable { menuItem.tap() }
+            else { menuButton.tap() }
+            element.typeText(XCUIKeyboardKey.delete.rawValue)
+        } else if label == "Diet" || (!current.isEmpty && current != element.placeholderValue) {
             // Use the OS keyboard command instead of depending on the edit
             // menu's presentation or accessibility element type.
             element.typeKey("a", modifierFlags: .command)
@@ -482,7 +491,7 @@ final class AnalyticsProbe: XCTestCase {
         XCTAssertEqual(try control("counts")["queuedProductItems"] as? Int, 1)
         XCTAssertEqual(try control("counts")["delivered"] as? Int, 0)
         mark("queue", "retryNoDuplicate", "relaunchNoDuplicate")
-        profile(); fill("Diet", "Mediterranean"); tap("Save preferences")
+        profile(); fill("Diet", "Mediterranean", replace: true); tap("Save preferences")
         waitFor({ ((try? self.control("profile-input", ["target": "updated"])["passed"]) as? Bool) == true }, "Native replacement must persist the requested fixture value")
         waitFor({ ((try? self.control("counts")["queued"]) as? Int) == 1 }, "New permitted action must commit")
         _ = try control("backup"); details(); enabled(false); _ = try control("maintenance")
