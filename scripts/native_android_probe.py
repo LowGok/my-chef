@@ -30,7 +30,8 @@ android:targetPackage="com.gkldevelopment.mychef.preview" android:functionalTest
     classes.mkdir(); dex.mkdir()
     source = Path(__file__).resolve().parent / "native-android/NativeJourneyProbe.java"
     run("javac", "--release", "17", "-classpath", str(platform), "-d", str(classes), str(source),
-        str(source.with_name("NativeTouchPoint.java")), str(source.with_name("NativeStartupWindow.java")))
+        str(source.with_name("NativeTouchPoint.java")), str(source.with_name("NativeStartupWindow.java")),
+        str(source.with_name("NativeTouchFrames.java")), str(source.with_name("NativeTouchWriter.java")))
     jar = state / "probe.jar"
     run("jar", "--create", "--file", str(jar), "-C", str(classes), ".")
     run(str(tools / "d8"), "--lib", str(platform), "--output", str(dex), str(jar))

@@ -260,6 +260,7 @@ class Fixture:
                               'Emulator touchscreen observer unavailable': 'touch-observer',
                               'Emulator touchscreen writer is not rooted': 'touch-permission',
                               'Unsupported emulator touch ABI': 'touch-abi',
+                              'Owned native touch helper unavailable': 'touch-helper',
                               'Emulator touchscreen injection failed': 'touch-kernel',
                               'Emulator touchscreen input was not observed': 'touch-input'}.get(str(error), 'refused')
                     print('Analytics fixture refusal: operation=' + operation + ' reason=' + reason, flush=True)

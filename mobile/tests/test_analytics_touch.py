@@ -1,15 +1,6 @@
 """Closed emulator input contracts; these fakes never claim native evidence."""
 import unittest
 import io
-import os
-import pty
-import select
-import struct
-import subprocess
-import tempfile
-import sys
-import tty
-from pathlib import Path
 from contextlib import redirect_stdout
 from contextlib import contextmanager
 from types import SimpleNamespace
@@ -38,7 +29,8 @@ READER = ('Event Hub State:\n  Devices:\n    12: fictional touchscreen\n'
           '\nInput Dispatcher State:\n')
 
 
-def native_fixture(root='0', profile=PROFILE, foreign=False, fail_write=False, reader=READER, architecture='x86_64'):
+def native_fixture(root='0', profile=PROFILE, foreign=False, fail_write=False, reader=READER, architecture='x86_64',
+                   helper='package:/data/app/~~fictional/com.gkldevelopment.mychef.preview.test-fictional/base.apk'):
     calls = []
     def command(*args, **options):
         calls.append((args, options))
@@ -51,8 +43,9 @@ def native_fixture(root='0', profile=PROFILE, foreign=False, fail_write=False, r
         if args[-2:] == ('id', '-u'): return root
         if args[-2:] == ('uname', '-m'): return architecture
         if args[-2:] == ('getevent', '-lp'): return profile
+        if args[-3:] == ('pm', 'path', 'com.gkldevelopment.mychef.preview.test'): return helper
         if args[-4:] == ('dumpsys', '-t', '5', 'input'): return reader
-        if options.get('data') and fail_write and sum(bool(v.get('data')) for _, v in calls) == 1:
+        if 'app_process' in args and fail_write and sum('app_process' in a for a, _ in calls) == 1:
             raise RuntimeError('Fictional input interruption')
         return ''
     return SimpleNamespace(ENV={'DISPLAY': ':91', 'MYCHEF_ANALYTICS_EMULATOR_PID': '101',
@@ -96,44 +89,18 @@ class KernelGestureTest(unittest.TestCase):
         self.assertEqual(touch.writer_failure('ANALYTICS_TOUCH_STAGE=character\nunknown operand'),
                          {'stage': 'character', 'reason': 'unsupported-option'})
 
-    @unittest.skipUnless(sys.platform.startswith('linux'), 'Linux input-event ABI requires procfs')
-    def test_real_shell_frame_encoding_preserves_linux_events_on_an_owned_pty(self):
+    def test_helper_command_rejects_unmeasured_ranges_or_foreign_packages(self):
         device = touch.select_touch_device(PROFILE)
-        script = touch.kernel_script('double-tap', device)
-        self.assertIn('dd of=/proc/$$/fd/3', script)
-        self.assertNotIn('sendevent ', script)
-        self.assertEqual(script.count('exec 3< /dev/input/event7'), 1)
-        master, slave = pty.openpty()
-        try:
-            tty.setraw(slave)
-            # Only this newly owned PTY receives bytes. Production accepts
-            # canonical measured input nodes, with no path override API.
-            script = script.replace('exec 3< /dev/input/event7', 'exec 3< ' + os.ttyname(slave))
-            with tempfile.TemporaryDirectory(prefix='analytics-touch-shell-') as temporary:
-                wrapper = Path(temporary) / 'dd'
-                # A child may close extra inherited descriptors. The pinned
-                # parent must still own the destination until dd finishes.
-                wrapper.write_text('#!/bin/sh\nexec 3<&-\nexec /usr/bin/dd "$@"\n')
-                wrapper.chmod(0o700)
-                result = subprocess.run(['/bin/sh'], input=script, text=True, capture_output=True,
-                                        env=dict(os.environ, PATH=temporary + ':/usr/bin:/bin'), timeout=5)
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertTrue(all(line.startswith('ANALYTICS_TOUCH_STAGE=') for line in result.stdout.splitlines()))
-            raw = bytearray()
-            while select.select([master], [], [], .1)[0]:
-                raw.extend(os.read(master, 4096))
-            self.assertTrue(raw)
-            self.assertEqual(len(raw) % 24, 0)
-            records = [struct.unpack('<qqHHi', raw[i:i + 24]) for i in range(0, len(raw), 24)]
-            self.assertTrue(all(sec == usec == 0 for sec, usec, *_ in records))
-            events = [record[2:] for record in records]
-            self.assertEqual([v for t, c, v in events if (t, c) == (3, 57)], [0, -1, 1, -1])
-            self.assertEqual(events.count((0, 0, 0)), 4)
-            xs = [v for t, c, v in events if (t, c) == (3, 53)]
-            self.assertEqual(len(xs), 2)
-            self.assertLessEqual(abs(xs[1] - xs[0]), 32767 / 100)
-        finally:
-            os.close(master); os.close(slave)
+        apk = '/data/app/~~fictional/com.gkldevelopment.mychef.preview.test-fictional/base.apk'
+        command = touch.helper_command('double-tap', device, apk)
+        self.assertEqual(command[:4], ('env', 'CLASSPATH=' + apk, 'app_process', '/system/bin'))
+        self.assertEqual(command[4:7], ('com.gkldevelopment.mychef.testing.NativeTouchWriter',
+                                       'double-tap', '/dev/input/event7'))
+        self.assertEqual(command[7:], ('0', '32767', '0', '32767', '255', '1'))
+        for kind, measured, source in (('unknown', device, apk), ('next', device, '/data/app/foreign/base.apk'),
+                                        ('next', {**device, 'x': (0, 0)}, apk),
+                                        ('next', {**device, 'path': '/dev/input/event7;unsafe'}, apk)):
+            with self.assertRaises(ValueError): touch.helper_command(kind, measured, source)
 
     def test_reserved_virtual_records_do_not_contaminate_real_device_blocks(self):
         hub = '    -1: virtual keyboard\n      Path: <virtual>\n      Enabled: true\n'
@@ -230,30 +197,13 @@ class KernelGestureTest(unittest.TestCase):
             with self.subTest(profile=type(profile).__name__), self.assertRaises(ValueError):
                 touch.select_touch_device(profile)
 
-    def test_closed_plans_stay_in_the_measured_axes_and_release_every_contact(self):
-        device = touch.select_touch_device(PROFILE)
-        for kind, contacts in (('double-tap', 2), ('next', 1)):
-            frames = touch.kernel_frames(kind, device)
-            events = [event for _, frame in frames for event in frame]
-            self.assertEqual(sum(t == 3 and c == 57 and v >= 0 for t, c, v in events), contacts)
-            self.assertEqual(events.count((3, 57, -1)), contacts)
-            self.assertTrue(all(frame[-1] == (0, 0, 0) for _, frame in frames))
-            self.assertTrue(all(0 <= v <= 32767 for t, c, v in events if t == 3 and c in (53, 54)))
-            self.assertTrue(all(0 <= delay <= .2 for delay, _ in frames))
-        release = [event for _, frame in touch.kernel_frames('release', device) for event in frame]
-        self.assertFalse(any(t == 3 and c == 57 and v >= 0 for t, c, v in release))
-        for kind in ('click:1:2', '', None):
-            with self.assertRaises(ValueError): touch.kernel_frames(kind, device)
-        with self.assertRaises(ValueError):
-            touch.kernel_frames('next', {**device, 'path': '/dev/input/event7;unsafe'})
-
     def test_writer_is_scoped_observed_and_never_retries_activation(self):
         for failed in (False, True):
             native, calls = native_fixture(fail_write=failed)
             observing = [False]
             original = native.command
             def command(*args, **options):
-                if options.get('data'):
+                if 'app_process' in args:
                     self.assertTrue(observing[0])
                     self.assertEqual(args[:3], ('/fictional-sdk/platform-tools/adb', '-s', 'emulator-5554'))
                 return original(*args, **options)
@@ -272,18 +222,18 @@ class KernelGestureTest(unittest.TestCase):
                         touch.gesture('double-tap', native)
                 else:
                     self.assertEqual(touch.gesture('double-tap', native), {'passed': True})
-            writes = [options['data'] for _, options in calls if options.get('data')]
+            writes = [args for args, _ in calls if 'app_process' in args]
             self.assertEqual(len(writes), 2, 'One gesture plus release cleanup only')
-            self.assertNotIn(' 3 57 0', writes[-1]); self.assertNotIn(' 3 57 1', writes[-1])
+            self.assertEqual(writes[-1][9], 'release')
             self.assertFalse(any('mousedown' in args for args, _ in calls))
 
     def test_unrooted_foreign_or_unmeasured_device_refuses_before_writing(self):
         for options in ({'root': '2000'}, {'foreign': True}, {'profile': ''}, {'reader': ''},
-                        {'architecture': 'aarch64'}):
+                        {'architecture': 'aarch64'}, {'helper': ''}, {'helper': 'package:/data/app/foreign/base.apk'}):
             native, calls = native_fixture(**options)
             with patch.object(touch.time, 'sleep'), self.assertRaises((ValueError, RuntimeError)):
                 touch.gesture('next', native)
-            self.assertFalse(any(fields.get('data') for _, fields in calls))
+            self.assertFalse(any('app_process' in args or fields.get('data') for args, fields in calls))
 
 
 class TouchTraceTest(unittest.TestCase):

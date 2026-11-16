@@ -152,3 +152,59 @@ public class TouchPointContract {
     await rm(output, { recursive: true, force: true });
   }
 }, 30_000);
+
+
+test("native kernel touch frames preserve contacts and monotonic timing on JVM", async () => {
+  const output = await mkdtemp(join(tmpdir(), "mychef-native-frames-"));
+  try {
+    const harness = join(output, "TouchFramesContract.java");
+    await writeFile(harness, `
+import com.gkldevelopment.mychef.testing.NativeTouchFrames;
+import java.nio.*;
+import java.util.*;
+public class TouchFramesContract {
+  static void reject(Runnable work) { try { work.run(); } catch (IllegalArgumentException expected) { return; } throw new AssertionError("Unsafe frame plan accepted"); }
+  public static void main(String[] args) throws Exception {
+    List<byte[]> frames = new ArrayList<>();
+    List<Long> times = new ArrayList<>();
+    NativeTouchFrames.write("double-tap",0,32767,0,32767,255,true, bytes -> { frames.add(bytes); times.add(System.nanoTime()); });
+    if (frames.size()!=4) throw new AssertionError("Missing contact frames");
+    List<Integer> tracking = new ArrayList<>(); int syn=0, positions=0;
+    for(byte[] raw:frames) {
+      if(raw.length==0 || raw.length%24!=0) throw new AssertionError("Broken x86_64 event record");
+      ByteBuffer b=ByteBuffer.wrap(raw).order(ByteOrder.LITTLE_ENDIAN);
+      while(b.hasRemaining()) {
+        if(b.getLong()!=0 || b.getLong()!=0) throw new AssertionError("Uncontrolled event timestamp");
+        int type=Short.toUnsignedInt(b.getShort()), code=Short.toUnsignedInt(b.getShort()), value=b.getInt();
+        if(type==3 && code==57) tracking.add(value);
+        if(type==0 && code==0) syn++;
+        if(type==3 && (code==53 || code==54)) { if(value<0 || value>32767) throw new AssertionError("Outside measured axes"); positions++; }
+      }
+    }
+    if(!tracking.equals(Arrays.asList(0,-1,1,-1)) || syn!=4 || positions!=4) throw new AssertionError("Contact/release protocol changed");
+    if(times.get(1)-times.get(0)<20_000_000L || times.get(2)-times.get(1)<75_000_000L || times.get(3)-times.get(2)<20_000_000L) throw new AssertionError("Device wait omitted");
+    // No host upper timing bound can establish Android scheduling; CI still
+    // requires selected-device timestamps, actual state changes and speech.
+    for(String kind:new String[]{"next","release"}) {
+      frames.clear(); NativeTouchFrames.write(kind,0,32767,0,32767,0,false,frames::add);
+      int starts=0, ends=0;
+      for(byte[] raw:frames) { ByteBuffer b=ByteBuffer.wrap(raw).order(ByteOrder.LITTLE_ENDIAN); while(b.hasRemaining()) { b.getLong();b.getLong();int t=b.getShort(),c=b.getShort(),v=b.getInt();if(t==3 && c==57){if(v>=0)starts++;else if(v==-1)ends++;} } }
+      if(starts!=(kind.equals("next")?1:0) || ends!=1) throw new AssertionError("Gesture did not release");
+    }
+    reject(() -> NativeTouchFrames.validate("unknown",0,32767,0,32767,0));
+    reject(() -> NativeTouchFrames.validate("next",0,0,0,32767,0));
+    reject(() -> NativeTouchFrames.validate("next",0,65536,0,32767,0));
+    reject(() -> NativeTouchFrames.validate("next",0,32767,10,1,0));
+    reject(() -> NativeTouchFrames.validate("next",0,32767,0,32767,-1));
+    reject(() -> NativeTouchFrames.validate("next",Integer.MAX_VALUE-1000,Integer.MIN_VALUE,0,32767,0));
+    System.out.println("native kernel frame checks passed");
+  }
+}`);
+    const compile = Bun.spawnSync(["javac", "--release", "17", "-d", output,
+      resolve(import.meta.dir,"native-android/NativeTouchFrames.java"), harness]);
+    expect(compile.exitCode, compile.stderr.toString()).toBe(0);
+    const run = Bun.spawnSync(["java", "-cp", output, "TouchFramesContract"]);
+    expect(run.exitCode, run.stderr.toString()).toBe(0);
+    expect(run.stdout.toString()).toContain("native kernel frame checks passed");
+  } finally { await rm(output, { recursive: true, force: true }); }
+}, 30_000);

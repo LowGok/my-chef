@@ -3,7 +3,6 @@ from contextlib import contextmanager
 from pathlib import Path
 import os
 import re
-import struct
 import subprocess
 import tempfile
 import time
@@ -356,12 +355,13 @@ def select_touch_device(snapshot, *, reader_paths=None, diagnostics=False):
     return devices[0]
 
 
-def kernel_frames(kind, device):
-    """Closed Linux MT frames, not application events or accessibility actions."""
+def helper_command(kind, device, apk):
+    """Only the installed disposable probe may write the measured input node."""
     if (kind not in ('double-tap', 'next', 'release') or type(device) is not dict
             or set(device) != {'path', 'x', 'y', 'pressure', 'button'}
             or not isinstance(device['path'], str) or not re.fullmatch(r'/dev/input/event[0-9]{1,3}', device['path'])
-            or type(device['button']) is not bool):
+            or type(device['button']) is not bool or not isinstance(apk, str)
+            or not re.fullmatch(r'/data/app/(?:[A-Za-z0-9_=+~.-]+/)?com\.gkldevelopment\.mychef\.preview\.test-[A-Za-z0-9_=+~.-]+/base\.apk', apk)):
         raise ValueError('Closed hardware gesture required')
     for name in ('x', 'y'):
         value = device[name]
@@ -372,57 +372,22 @@ def kernel_frames(kind, device):
     if pressure is not None and (type(pressure) is not tuple or len(pressure) != 2
             or any(type(n) is not int for n in pressure) or pressure[0] != 0 or not 1 <= pressure[1] <= 65535):
         raise ValueError('Closed hardware gesture required')
-    def point(axis, fraction):
-        low, high = device[axis]
-        return round(low + (high - low) * fraction)
-    def frame(x=None, y=None, tracking=None, pressed=None):
-        events = [(3, 47, 0)]
-        if tracking is not None: events.append((3, 57, tracking))
-        if x is not None: events.extend(((3, 53, point('x', x)), (3, 54, point('y', y))))
-        if pressed is not None:
-            if pressure is not None: events.append((3, 58, max(1, pressure[1] // 2) if pressed else 0))
-            if device['button']: events.append((1, 330, int(pressed)))
-        return tuple(events + [(0, 0, 0)])
-    release = frame(tracking=-1, pressed=False)
-    if kind == 'release': return [(0, release)]
-    if kind == 'double-tap':
-        return [(0, frame(.498, .499, 0, True)), (.025, release),
-                (.08, frame(.502, .501, 1, True)), (.025, release)]
-    # Three distinct movement frames cross touch slop promptly. Each sleep
-    # also incurs a device process launch, measured separately in CI.
-    return [(0, frame(.3, .48, 0, True))] + [
-        (.001, frame(.3 + .15 * step, .48 + .003 * step))
-        for step in range(1, 4)] + [(.001, release)]
-
-
-def kernel_script(kind, device):
-    frames = kernel_frames(kind, device)
-    # Pin the existing character device in the parent. Keep one dd open for
-    # the whole gesture, so process startup cannot lengthen every contact.
-    # It buffers partial pipe reads into whole 24-byte x86_64 input records.
-    lines = ['set -eu', "printf 'ANALYTICS_TOUCH_STAGE=start\\n' >&2", 'exec 3< ' + device['path'],
-             "printf 'ANALYTICS_TOUCH_STAGE=open\\n' >&2", 'test -c /proc/$$/fd/3',
-             "printf 'ANALYTICS_TOUCH_STAGE=character\\n' >&2", '{']
-    for index, (delay, events) in enumerate(frames):
-        if delay: lines.append('sleep ' + format(delay, '.3f'))
-        raw = b''.join(struct.pack('<qqHHi', 0, 0, *event) for event in events)
-        encoded = ''.join('\\0' + format(value, '03o') for value in raw)
-        lines.append("printf 'ANALYTICS_TOUCH_STAGE=frame-start-" + str(index) + "\\n' >&2")
-        lines.append("printf '%b' '" + encoded + "'")
-        lines.append("printf 'ANALYTICS_TOUCH_STAGE=frame-done-" + str(index) + "\\n' >&2")
-    lines.append('} | dd of=/proc/$$/fd/3 ibs=24 obs=24 conv=notrunc status=none')
-    return '\n'.join(lines) + '\n'
+    return ('env', 'CLASSPATH=' + apk, 'app_process', '/system/bin',
+            'com.gkldevelopment.mychef.testing.NativeTouchWriter', kind, device['path'],
+            *(str(n) for n in (*device['x'], *device['y'], pressure[1] if pressure else 0,
+                              int(device['button']))))
 
 
 def writer_failure(error):
     """Expose only fixed writer steps/reasons, never captured command output."""
     raw = str(error)[-4096:]
-    stages = re.findall(r'(?m)^ANALYTICS_TOUCH_STAGE=(start|open|character|frame-(?:start|done)-(?:[0-9]|1[01]))$', raw)
+    stages = re.findall(r'(?m)^ANALYTICS_TOUCH_STAGE=(start|open|character|complete|frame-(?:start|done)-(?:[0-9]|1[01]))$', raw)
     reason = next((code for phrase, code in (
         ('Permission denied', 'permission'), ('No such file or directory', 'missing'),
         ('Bad file descriptor', 'descriptor'), ('unknown operand', 'unsupported-option'),
         ('Unknown option', 'unsupported-option'), ('Invalid argument', 'argument')) if phrase in raw), 'unknown')
-    return dict(stage=stages[-1] if stages else 'unknown', reason=reason)
+    fixed = re.search(r'(?m)^ANALYTICS_TOUCH_ERROR=(arguments|permission|abi|open|write)$', raw)
+    return dict(stage=stages[-1] if stages else 'unknown', reason=fixed[1] if fixed else reason)
 
 
 def gesture(kind, native):
@@ -430,7 +395,8 @@ def gesture(kind, native):
         raise ValueError('Closed hardware gesture required')
     # Keep the same owned-emulator display/process gate. Kernel input removes
     # the Qt mouse translation, while InputReader/TalkBack and real UI results
-    # remain mandatory. Buffer each frame rather than forking per input record.
+    # remain mandatory. The existing probe APK supplies one device-local JVM
+    # writer, so no process startup occurs between contact frames.
     focus_display(native)
     adb = str(Path(native.ENV['ANDROID_HOME']) / 'platform-tools/adb')
     if native.command(adb, '-s', 'emulator-5554', 'shell', 'id', '-u', timeout=10) != '0':
@@ -441,11 +407,18 @@ def gesture(kind, native):
         adb, '-s', 'emulator-5554', 'shell', 'dumpsys', '-t', '5', 'input', timeout=10), diagnostics=True)
     device = select_touch_device(native.command(adb, '-s', 'emulator-5554', 'shell', 'getevent', '-lp', timeout=10),
                                  reader_paths=reader_paths, diagnostics=True)
+    installed = native.command(adb, '-s', 'emulator-5554', 'shell', 'pm', 'path',
+                               'com.gkldevelopment.mychef.preview.test', timeout=10)
+    package = re.fullmatch(r'package:(/data/app/[^\r\n]{1,512}/base\.apk)', installed)
+    if package is None:
+        raise RuntimeError('Owned native touch helper unavailable')
+    apk = package[1]
+    helper_command(kind, device, apk)
     print('Analytics kernel touchscreen gesture: ' + kind, flush=True)
     def write(target):
         try:
-            native.command(adb, '-s', 'emulator-5554', 'shell', 'sh', '-s',
-                           data=kernel_script(target, device), timeout=10)
+            native.command(adb, '-s', 'emulator-5554', 'shell',
+                           *helper_command(target, device, apk), timeout=10)
         except (OSError, RuntimeError, subprocess.SubprocessError) as error:
             facts = writer_failure(error)
             print('Analytics kernel writer refusal: target=' + target + ' stage=' + facts['stage']
