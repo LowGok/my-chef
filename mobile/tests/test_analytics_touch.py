@@ -29,7 +29,10 @@ class DisplayGestureTest(unittest.TestCase):
         self.assertEqual(gesture('double-tap', native), {'passed': True})
         self.assertIn(('xdotool', 'search', '--onlyvisible', '--name', '^Android Emulator - mychef-ci(:5554)?$'), calls)
         self.assertIn(('xdotool', 'mousemove', '--sync', '--window', '42', '210', '390'), calls)
-        self.assertIn(('xdotool', 'click', '--repeat', '2', '--delay', '120', '1'), calls)
+        self.assertEqual(calls.count(('xdotool', 'click', '1')), 2)
+        self.assertIn(('xdotool', 'windowfocus', '--sync', '42'), calls)
+        self.assertIn(('xdotool', 'mousemove', '--sync', '--window', '42', '198', '390'), calls)
+        self.assertIn(('xdotool', 'mousemove', '--sync', '--window', '42', '222', '390'), calls)
         self.assertFalse(any('adb' in str(call) or 'auth' in str(call) for call in calls))
 
     def test_swipe_releases_button_and_uses_only_the_owned_display(self):
@@ -66,6 +69,12 @@ class DisplayGestureTest(unittest.TestCase):
 
 
 class TouchTraceTest(unittest.TestCase):
+    def test_double_tap_requires_two_complete_contacts(self):
+        from analytics_touch import touch_facts
+        contact = "EV_ABS ABS_MT_POSITION_X 00004000\nEV_ABS ABS_MT_POSITION_Y 00004000\nEV_ABS ABS_MT_TRACKING_ID 00000003\nEV_ABS ABS_MT_TRACKING_ID ffffffff\n"
+        self.assertFalse(touch_facts(contact, contacts=2)['touchscreen'])
+        self.assertTrue(touch_facts(contact + contact, contacts=2)['touchscreen'])
+
     def test_mouse_or_incomplete_contact_is_not_touchscreen_evidence(self):
         from analytics_touch import touch_facts
         contact = "EV_ABS ABS_MT_POSITION_X 00004000\nEV_ABS ABS_MT_POSITION_Y 00004000\nEV_ABS ABS_MT_TRACKING_ID 00000003\n"

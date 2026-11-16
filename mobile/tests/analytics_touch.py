@@ -1,14 +1,15 @@
 """Fixed host gestures through the run-owned emulator's actual X11 window."""
 from contextlib import contextmanager
 from pathlib import Path
+import os
 import re
 import subprocess
 import tempfile
 import time
 
 
-def touch_facts(text):
-    if not isinstance(text, str) or len(text) > 65536:
+def touch_facts(text, contacts=1):
+    if type(contacts) is not int or contacts not in (1, 2) or not isinstance(text, str) or len(text) > 65536:
         raise ValueError('Bounded input trace required')
     x = len(re.findall(r'\bEV_ABS\s+ABS_MT_POSITION_X\s+[0-9a-f]{8}\b', text))
     y = len(re.findall(r'\bEV_ABS\s+ABS_MT_POSITION_Y\s+[0-9a-f]{8}\b', text))
@@ -16,13 +17,14 @@ def touch_facts(text):
     down = len(re.findall(r'\bEV_KEY\s+BTN_TOUCH\s+(?:DOWN|00000001)\b', text))
     up = len(re.findall(r'\bEV_KEY\s+BTN_TOUCH\s+(?:UP|00000000)\b', text))
     mouse = len(re.findall(r'\bEV_KEY\s+BTN_(?:LEFT|MOUSE)\s+(?:DOWN|00000001)\b', text))
-    return dict(touchscreen=bool(x and y and (down or any(int(value, 16) < 0x80000000 for value in ids))
-                                and (up or 'ffffffff' in ids)),
+    return dict(touchscreen=bool(x >= contacts and y >= contacts
+                                and (down >= contacts or sum(int(value, 16) < 0x80000000 for value in ids) >= contacts)
+                                and (up >= contacts or ids.count('ffffffff') >= contacts)),
                 positions=x + y, releases=up + ids.count('ffffffff'), mouseButtons=mouse)
 
 
 @contextmanager
-def touch_trace(native):
+def touch_trace(native, contacts):
     # getevent disables stdout buffering. The remote timeout terminates this
     # bounded observer on the run-owned device even if the host command fails.
     adb = str(Path(native.ENV['ANDROID_HOME']) / 'platform-tools/adb')
@@ -30,8 +32,16 @@ def touch_trace(native):
         process = subprocess.Popen([adb, '-s', 'emulator-5554', 'shell', 'timeout', '2', 'getevent', '-lt'],
                                    env=native.ENV, stdout=output, stderr=subprocess.DEVNULL)
         try:
-            time.sleep(.2)
-            if process.poll() is not None:
+            deadline = time.monotonic() + 2
+            while time.monotonic() < deadline:
+                # pread leaves the child writer's shared file offset intact.
+                header = os.pread(output.fileno(), 16384, 0)
+                if re.search(rb'add device [0-9]+: /dev/input/event[0-9]+', header):
+                    break
+                if process.poll() is not None:
+                    raise RuntimeError('Emulator touchscreen observer unavailable')
+                time.sleep(.02)
+            else:
                 raise RuntimeError('Emulator touchscreen observer unavailable')
             yield
             process.wait(timeout=4)
@@ -43,7 +53,7 @@ def touch_trace(native):
         raw = output.read(65537)
         if len(raw) > 65536:
             raise RuntimeError('Emulator touchscreen observer unavailable')
-        facts = touch_facts(raw.decode(errors='replace'))
+        facts = touch_facts(raw.decode(errors='replace'), contacts)
     print('Analytics hardware input: touchscreen=' + str(facts['touchscreen']).lower()
           + ' positions=' + str(facts['positions']) + ' releases=' + str(facts['releases'])
           + ' mouseButtons=' + str(facts['mouseButtons']), flush=True)
@@ -86,10 +96,19 @@ def gesture(kind, native):
         command('mousemove', '--sync', '--window', window, str(round(width * fraction)), str(round(height / 2)))
     # QEMU's actual host pointer path chooses the correct touchscreen device.
     # Generic console event-send and UiAutomation injection do not prove that.
-    with touch_trace(native):
+    command('windowfocus', '--sync', window)
+    time.sleep(.15)
+    with touch_trace(native, 2 if kind == 'double-tap' else 1):
         move(.5 if kind == 'double-tap' else .3)
         if kind == 'double-tap':
-            command('click', '--repeat', '2', '--delay', '120', '1')
+            # Distinct nearby host positions avoid Qt folding the second
+            # press into a host double-click. Both remain within Android's
+            # touch double-tap slop. The trace must observe both contacts.
+            move(.5 - 12 / width)
+            command('click', '1')
+            time.sleep(.12)
+            move(.5 + 12 / width)
+            command('click', '1')
         else:
             command('mousedown', '1')
             try:
