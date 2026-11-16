@@ -1291,6 +1291,10 @@ async function analyticsJourneys() {
           // Never retry activation or turn missing speech into a true flag.
           if (attempt === 3) throw error;
           console.log("Installed Android speech refocus: " + target + " attempt=" + (attempt + 1));
+          // A real TalkBack traversal moves away before refocusing the same
+          // unchanged target. Clearing its AX focus alone can be de-duplicated
+          // by the service and leave a subsequent recording silent.
+          await fixture("speech-gesture", { target: "next" });
           await Bun.sleep(1000);
         }
       }

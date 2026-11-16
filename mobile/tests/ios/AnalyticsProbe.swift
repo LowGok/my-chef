@@ -292,10 +292,27 @@ final class AnalyticsProbe: XCTestCase {
         if let current = element.value as? String, !current.isEmpty,
            current != element.placeholderValue {
             element.press(forDuration: 1.1)
-            if app.menuItems["Select All"].waitForExistence(timeout: 2) {
-                app.menuItems["Select All"].tap()
-                element.typeText(XCUIKeyboardKey.delete.rawValue)
+            // UIKit's edit menu may expose actions as buttons rather than
+            // menuItems. Require a real Select All action before deleting;
+            // otherwise typing would append to the existing preference.
+            let deadline = Date().addingTimeInterval(5)
+            var selectAll: XCUIElement?
+            while Date() < deadline {
+                selectAll = [app.menuItems["Select All"].firstMatch, app.buttons["Select All"].firstMatch]
+                    .first { $0.exists && $0.isHittable }
+                if selectAll != nil { break }
+                RunLoop.current.run(until: Date().addingTimeInterval(0.2))
             }
+            guard let selectAll = selectAll else {
+                XCTFail("Native edit menu must offer Select All for an existing value")
+                return
+            }
+            selectAll.tap()
+            element.typeText(XCUIKeyboardKey.delete.rawValue)
+            waitFor({
+                let value = element.value as? String
+                return value == "" || value == element.placeholderValue
+            }, "Native field must clear the previous fixture value")
         }
         element.typeText(text)
         if !secure {

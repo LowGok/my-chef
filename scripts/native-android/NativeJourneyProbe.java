@@ -333,6 +333,7 @@ public final class NativeJourneyProbe extends Instrumentation {
     }
 
     private void speechFocus(String target) throws Exception {
+        speechTouchMode();
         String label = switch (target) {
             case "on", "off" -> "Help improve MyChef";
             case "stale" -> "Your setting changed elsewhere.";

@@ -191,7 +191,8 @@ class Speech:
             # Fixed UI vocabulary only. Never print arbitrary recognized words,
             # the transcript, audio, account fields or provider output.
             vocabulary = ('help', 'improve', 'chef', 'checked', 'unchecked',
-                          'checkbox', 'talkback', 'tutorial', 'keyboard', 'welcome')
+                          'checkbox', 'check', 'box', 'ticked', 'unticked', 'selected', 'unselected',
+                          'not', 'on', 'off', 'talkback', 'tutorial', 'keyboard', 'welcome')
             flags = {word: word in words.split() for word in vocabulary}
             print('Analytics speech vocabulary: ' + json.dumps(flags, sort_keys=True), flush=True)
         path.unlink(missing_ok=True)
