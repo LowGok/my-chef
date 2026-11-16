@@ -353,7 +353,9 @@ func TestCancelledReportOutputReleasesFence(t *testing.T) {
 	if _, err = f.s.Update(off, f.user, analytics.PreferenceUpdate{NoticeVersion: "core-v1", ExpectedRevision: p.Revision}, "web"); err != nil {
 		t.Fatal(err)
 	}
-	if err = f.s.Maintain(off); err != nil {
+	maintenance, stopMaintenance := context.WithTimeout(ctx, 5*time.Second)
+	defer stopMaintenance()
+	if err = f.s.Maintain(maintenance); err != nil {
 		t.Fatal(err)
 	}
 }
