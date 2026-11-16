@@ -440,6 +440,22 @@ def fixture(state, stack, journeys=False, analytics=None, controls=None):
     return ca, events, rejected_tls
 
 
+ANDROID_SPEECH_DISPLAY = (800, 1440, 320)
+
+
+def configure_android_speech_display(config):
+    """Reduce only the fresh fixture's framebuffer; keep a 400-dp normal width."""
+    config = Path(config)
+    if (config.name != 'config.ini' or config.parent.name != 'mychef-ci.avd'
+            or config.is_symlink() or config.parent.is_symlink()
+            or not config.is_file() or config.stat().st_size > 65536):
+        raise ValueError('Owned Android display configuration unavailable')
+    values = dict(zip(('hw.lcd.width', 'hw.lcd.height', 'hw.lcd.density'), map(str, ANDROID_SPEECH_DISPLAY)))
+    lines = [line for line in config.read_text().splitlines()
+             if line.partition('=')[0].strip() not in values]
+    config.write_text('\n'.join(lines + [key + '=' + value for key, value in values.items()]) + '\n')
+
+
 def android(state, stack, ca, apk):
     from native_android_probe import SYSTEM_UI_ANR, dismiss_system_ui_anr, focused_window
 
@@ -463,6 +479,7 @@ def android(state, stack, ca, apk):
         avd.mkdir(mode=0o700)
         ENV["ANDROID_AVD_HOME"] = str(avd)
         command(avdmanager, "create", "avd", "--name", "mychef-ci", "--package", image, "--device", "pixel_6", "--path", str(avd / "mychef-ci.avd"))
+        configure_android_speech_display(avd / 'mychef-ci.avd/config.ini')
     else:
         command(avdmanager, "create", "avd", "--name", "mychef-ci", "--package", image, data="no\n")
     adb_path = str(sdk / "platform-tools/adb")
@@ -474,7 +491,8 @@ def android(state, stack, ca, apk):
                    stdout=boot_output, stderr=boot_output)
     # TalkBack gestures need touchscreen input, rather than an emulated mouse
     # or tablet. Restrict this override to the disposable speech fixture.
-    audio_flags = ["-feature", "-VirtioMouse,-VirtioTablet,-VirtioDualModeMouse"] if ENV.get("NATIVE_ANALYTICS_SPEECH") == "1" else ["-no-window", "-no-audio"]
+    audio_flags = ["-feature", "-VirtioMouse,-VirtioTablet,-VirtioDualModeMouse", '-skin',
+                   str(ANDROID_SPEECH_DISPLAY[0]) + 'x' + str(ANDROID_SPEECH_DISPLAY[1])] if ENV.get("NATIVE_ANALYTICS_SPEECH") == "1" else ["-no-window", "-no-audio"]
     emulator = subprocess.Popen([emu_path, "-avd", "mychef-ci", "-port", "5554", *audio_flags,
                                 "-no-snapshot", "-writable-system", "-gpu", "software", "-no-boot-anim",
                                 "-camera-back", "none", "-memory", "2048", "-partition-size", "2048"], env=ENV,

@@ -511,6 +511,31 @@ class NativeLaunchAcknowledgementTest(unittest.TestCase):
 
 
 class OwnedAndroidTransportTest(unittest.TestCase):
+    def test_owned_speech_display_reduces_pixels_while_preserving_normal_width(self):
+        with tempfile.TemporaryDirectory() as folder:
+            avd = Path(folder) / 'mychef-ci.avd'
+            avd.mkdir()
+            config = avd / 'config.ini'
+            original = 'hw.lcd.width=1080\nhw.lcd.height=2400\nhw.lcd.density=420\nhw.keyboard=yes\n'
+            config.write_text(original)
+            installed.configure_android_speech_display(config)
+            values = dict(line.split('=', 1) for line in config.read_text().splitlines())
+            self.assertEqual(values['hw.keyboard'], 'yes')
+            width, height, density = map(int, (values['hw.lcd.width'], values['hw.lcd.height'], values['hw.lcd.density']))
+            self.assertLess(width * height, 1080 * 1920 * .6)
+            self.assertEqual(width * 160 / density, 400)
+            self.assertGreaterEqual(height * 160 / density, 700)
+            # Idempotent setup must not accumulate conflicting hardware keys.
+            snapshot = config.read_bytes()
+            installed.configure_android_speech_display(config)
+            self.assertEqual(config.read_bytes(), snapshot)
+            other = avd / 'other.ini'
+            other.write_text(original)
+            config.unlink()
+            config.symlink_to(other)
+            with self.assertRaises(ValueError): installed.configure_android_speech_display(config)
+            self.assertEqual(other.read_text(), original)
+
     def test_reboot_wait_requires_real_exact_serial_readiness_after_transient_loss(self):
         process = types.SimpleNamespace(poll=lambda: None)
         responses = [installed.subprocess.TimeoutExpired('fictional adb', 10), 'offline', 'device']

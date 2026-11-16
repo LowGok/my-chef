@@ -104,8 +104,9 @@ def full_journeys(receipt, artifact):
             adb_path = str(Path(native.ENV['ANDROID_HOME']) / 'platform-tools/adb')
             # Establish a measured normal viewport before the 320-CSS-pixel
             # large-text case, independent of the runner's AVD defaults.
-            native.command(adb_path, '-s', 'emulator-5554', 'shell', 'wm', 'size', '1080x1920')
-            native.command(adb_path, '-s', 'emulator-5554', 'shell', 'wm', 'density', '432')
+            width, height, density = native.ANDROID_SPEECH_DISPLAY if speech is not None else (1080, 1920, 432)
+            native.command(adb_path, '-s', 'emulator-5554', 'shell', 'wm', 'size', str(width) + 'x' + str(height))
+            native.command(adb_path, '-s', 'emulator-5554', 'shell', 'wm', 'density', str(density))
             native.command(adb_path, '-s', 'emulator-5554', 'shell', 'settings', 'put', 'system', 'font_scale', '1.5' if speech is not None else '1.0')
         else:
             metadata, launch, stop, diagnostic = native.ios(state, stack, ca, artifact)
