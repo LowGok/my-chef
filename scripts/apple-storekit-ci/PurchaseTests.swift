@@ -13,6 +13,7 @@ final class PurchaseTests: XCTestCase {
         session.disableDialogs = true
         session.storefront = "BEL"
         defer { session.clearTransactions() }
+        NSLog("StoreKit test session ready; Simulator App Attest support: \(DCAppAttestService.shared.isSupported)")
 
         let prefix = "com.gkldevelopment.mychef.preview.premium."
         let terms: [(String, Int, Product.SubscriptionPeriod.Unit)] = [
@@ -34,18 +35,18 @@ final class PurchaseTests: XCTestCase {
             XCTAssertNil(product.subscription?.introductoryOffer)
 
             let account = UUID()
-            let result = try await product.purchase(options: [.appAccountToken(account)])
-            guard case .success(.verified(let purchase)) = result else {
-                XCTFail("StoreKit did not return a verified local purchase.")
-                return
-            }
+            // Exercise Apple's real StoreKit framework without a foreground payment sheet in CI.
+            NSLog("Creating local StoreKit purchase for \(name)")
+            let purchase = try await session.buyProduct(identifier: id, options: [.appAccountToken(account)])
             XCTAssertEqual(purchase.productID, id)
             XCTAssertEqual(purchase.appAccountToken, account)
             XCTAssertEqual(purchase.environment, .xcode)
             await purchase.finish()
 
             // MyChef uses StoreKit sync followed by current entitlements on restore.
+            NSLog("Syncing local StoreKit entitlement for \(name)")
             try await AppStore.sync()
+            NSLog("Reading restored local StoreKit entitlement for \(name)")
             var found = false
             for await result in Transaction.currentEntitlements {
                 guard case .verified(let restored) = result, restored.productID == id else { continue }
@@ -56,6 +57,5 @@ final class PurchaseTests: XCTestCase {
             }
             XCTAssertTrue(found, "Restore did not return the verified local entitlement.")
         }
-        print("Simulator App Attest support: \(DCAppAttestService.shared.isSupported)")
     }
 }

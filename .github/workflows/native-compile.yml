@@ -132,5 +132,7 @@ jobs:
           xcodebuild test -project "$probe/StoreKitProbe.xcodeproj" -scheme StoreKitProbe \
             -destination 'platform=iOS Simulator,OS=27.0,name=iPhone 17' \
             -destination-timeout 90 -parallel-testing-enabled NO \
+            -test-timeouts-enabled YES -default-test-execution-time-allowance 180 \
+            -maximum-test-execution-time-allowance 240 \
             -derivedDataPath "$RUNNER_TEMP/storekit-derived" \
             -only-testing:PurchaseTests/PurchaseTests/testBelgianPurchaseAndRestoreWithStoreKit
