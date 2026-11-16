@@ -74,6 +74,9 @@ class TouchTraceTest(unittest.TestCase):
         contact = "EV_ABS ABS_MT_POSITION_X 00004000\nEV_ABS ABS_MT_POSITION_Y 00004000\nEV_ABS ABS_MT_TRACKING_ID 00000003\nEV_ABS ABS_MT_TRACKING_ID ffffffff\n"
         self.assertFalse(touch_facts(contact, contacts=2)['touchscreen'])
         self.assertTrue(touch_facts(contact + contact, contacts=2)['touchscreen'])
+        # Linux omits unchanged ABS coordinates on a later contact.
+        same_y = contact.replace('EV_ABS ABS_MT_POSITION_Y 00004000\n', '')
+        self.assertTrue(touch_facts(contact + same_y, contacts=2)['touchscreen'])
 
     def test_mouse_or_incomplete_contact_is_not_touchscreen_evidence(self):
         from analytics_touch import touch_facts

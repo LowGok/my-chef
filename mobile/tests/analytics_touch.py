@@ -17,7 +17,7 @@ def touch_facts(text, contacts=1):
     down = len(re.findall(r'\bEV_KEY\s+BTN_TOUCH\s+(?:DOWN|00000001)\b', text))
     up = len(re.findall(r'\bEV_KEY\s+BTN_TOUCH\s+(?:UP|00000000)\b', text))
     mouse = len(re.findall(r'\bEV_KEY\s+BTN_(?:LEFT|MOUSE)\s+(?:DOWN|00000001)\b', text))
-    return dict(touchscreen=bool(x >= contacts and y >= contacts
+    return dict(touchscreen=bool(x and y
                                 and (down >= contacts or sum(int(value, 16) < 0x80000000 for value in ids) >= contacts)
                                 and (up >= contacts or ids.count('ffffffff') >= contacts)),
                 positions=x + y, releases=up + ids.count('ffffffff'), mouseButtons=mouse)
