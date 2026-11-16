@@ -130,20 +130,72 @@ def focus_display(native):
     return window, width, height
 
 
-def select_touch_device(snapshot, *, diagnostics=False):
-    """Select one measured protocol-B direct touchscreen; never guess a node."""
+def reader_touch_devices(snapshot):
+    """Map Android 13's configured touchscreen sources to enabled kernel nodes.
+
+    InputReader IDs are not EventHub IDs. Only its explicit EventHub Devices
+    list establishes that mapping; names and coincidentally equal IDs do not.
+    The raw dump stays in memory because other sections can contain history.
+    """
+    message = 'Expected configured emulator touchscreen'
+    if not isinstance(snapshot, str) or len(snapshot) > 524288:
+        raise ValueError(message)
+    sections = re.split(r'(?m)^(?=\S)', snapshot)
+    hubs = [part for part in sections if part.startswith('Event Hub State:\n')]
+    readers = [part for part in sections if re.match(r'Input Reader State(?: \([^\n]*\))?:\n', part)]
+    if len(hubs) != 1 or len(readers) != 1:
+        raise ValueError(message)
+    paths = {}
+    for block in re.split(r'(?m)(?=^    [0-9]+: )', hubs[0])[1:]:
+        header = re.match(r'    ([0-9]{1,6}): [^\n]*\n', block)
+        if header is None or int(header[1]) in paths or len(paths) >= 128:
+            raise ValueError(message)
+        fields = re.findall(r'^      Path: (/dev/input/event[0-9]{1,3})$', block, re.M)
+        enabled = re.findall(r'^      Enabled: (true|false)$', block, re.M)
+        # Virtual/non-event devices are excluded; duplicate IDs remain refused.
+        paths[int(header[1])] = fields[0] if len(fields) == 1 and enabled == ['true'] else None
+    result, seen = set(), set()
+    for block in re.split(r'(?m)(?=^  Device [0-9]+: )', readers[0])[1:]:
+        header = re.match(r'  Device ([0-9]{1,6}): [^\n]*\n', block)
+        if header is None or int(header[1]) in seen or len(seen) >= 128:
+            raise ValueError(message)
+        seen.add(int(header[1]))
+        sources = re.findall(r'^    Sources: 0x([0-9a-fA-F]{8})$', block, re.M)
+        if len(sources) != 1:
+            raise ValueError(message)
+        if int(sources[0], 16) & 0x00001002 != 0x00001002:
+            continue
+        mappings = re.findall(r'^    EventHub Devices: \[([ 0-9,]+)\] *$', block, re.M)
+        if len(mappings) != 1 or not re.fullmatch(r'\s*[0-9]{1,6}(?:[ ,]+[0-9]{1,6})*\s*', mappings[0]):
+            raise ValueError(message)
+        ids = [int(value) for value in re.findall(r'[0-9]+', mappings[0])]
+        if len(ids) != len(set(ids)) or any(paths.get(value) is None for value in ids):
+            raise ValueError(message)
+        result.update(paths[value] for value in ids)
+    if not 1 <= len(result) <= 16:
+        raise ValueError(message)
+    return result
+
+
+def select_touch_device(snapshot, *, reader_paths=None, diagnostics=False):
+    """Select one measured protocol-B touchscreen; never guess a node."""
     if not isinstance(snapshot, str) or len(snapshot) > 65536:
         raise ValueError('Expected one emulator touch device')
+    if reader_paths is not None and (type(reader_paths) is not set or not 1 <= len(reader_paths) <= 16
+            or any(not isinstance(path, str) or not re.fullmatch(r'/dev/input/event[0-9]{1,3}', path)
+                   for path in reader_paths)):
+        raise ValueError('Expected one emulator touch device')
     devices = []
-    counts = dict(direct=0, axes=0, slots=0, tracking=0)
+    counts = dict(configured=0, axes=0, slots=0, tracking=0)
     for block in re.split(r'(?m)(?=^add device [0-9]+: )', snapshot):
         header = re.match(r'add device [0-9]+: (/dev/input/event[0-9]{1,3})\r?\n', block)
-        if header is None or not re.search(r'\bINPUT_PROP_DIRECT\b', block):
+        if header is None or (header[1] not in reader_paths if reader_paths is not None
+                              else not re.search(r'\bINPUT_PROP_DIRECT\b', block)):
             continue
         def extent(name):
             match = re.search(r'\b' + name + r'\b[^\n]*?\bmin\s+(-?[0-9]+),?\s+max\s+([0-9]+)', block)
             return tuple(map(int, match.groups())) if match else None
-        counts['direct'] += 1
+        counts['configured'] += 1
         x, y = extent('ABS_MT_POSITION_X'), extent('ABS_MT_POSITION_Y')
         slots, tracking = extent('ABS_MT_SLOT'), extent('ABS_MT_TRACKING_ID')
         if any(value is None or not 0 <= value[0] < value[1] <= 65535 or value[1] - value[0] < 64 for value in (x, y)):
@@ -223,7 +275,10 @@ def gesture(kind, native):
     adb = str(Path(native.ENV['ANDROID_HOME']) / 'platform-tools/adb')
     if native.command(adb, '-s', 'emulator-5554', 'shell', 'id', '-u', timeout=10) != '0':
         raise RuntimeError('Emulator touchscreen writer is not rooted')
-    device = select_touch_device(native.command(adb, '-s', 'emulator-5554', 'shell', 'getevent', '-lp', timeout=10), diagnostics=True)
+    reader_paths = reader_touch_devices(native.command(
+        adb, '-s', 'emulator-5554', 'shell', 'dumpsys', '-t', '5', 'input', timeout=10))
+    device = select_touch_device(native.command(adb, '-s', 'emulator-5554', 'shell', 'getevent', '-lp', timeout=10),
+                                 reader_paths=reader_paths, diagnostics=True)
     print('Analytics kernel touchscreen gesture: ' + kind, flush=True)
     def write(target):
         try:

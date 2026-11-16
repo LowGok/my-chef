@@ -14,8 +14,16 @@ PROFILE = ("add device 1: /dev/input/event7\n  name: \"fictional touchscreen\"\n
            "  ABS_MT_PRESSURE: value 0, min 0, max 255\n"
            "  input props: INPUT_PROP_DIRECT\n")
 
+# Android 13 dump format; fictional IDs intentionally differ between layers.
+READER = ('Event Hub State:\n  Devices:\n    12: fictional touchscreen\n'
+          '      Path: /dev/input/event7\n      Enabled: true\n'
+          '\nInput Reader State (Nums of device: 1):\n  Device 27: fictional touchscreen\n'
+          '    EventHub Devices: [ 12 ] \n    Sources: 0x00001002\n'
+          '    Motion Ranges:\n      X: source=0x00001002\n'
+          '\nInput Dispatcher State:\n')
 
-def native_fixture(root='0', profile=PROFILE, foreign=False, fail_write=False):
+
+def native_fixture(root='0', profile=PROFILE, foreign=False, fail_write=False, reader=READER):
     calls = []
     def command(*args, **options):
         calls.append((args, options))
@@ -27,6 +35,7 @@ def native_fixture(root='0', profile=PROFILE, foreign=False, fail_write=False):
             return ''
         if args[-2:] == ('id', '-u'): return root
         if args[-2:] == ('getevent', '-lp'): return profile
+        if args[-4:] == ('dumpsys', '-t', '5', 'input'): return reader
         if options.get('data') and fail_write and sum(bool(v.get('data')) for _, v in calls) == 1:
             raise RuntimeError('Fictional input interruption')
         return ''
@@ -61,6 +70,28 @@ class DisplayFocusTest(unittest.TestCase):
 
 
 class KernelGestureTest(unittest.TestCase):
+    def test_configured_touchscreen_requires_explicit_reader_to_hub_mapping(self):
+        self.assertEqual(touch.reader_touch_devices(READER), {'/dev/input/event7'})
+        no_property = PROFILE.replace('INPUT_PROP_DIRECT', '')
+        self.assertEqual(touch.select_touch_device(no_property, reader_paths=touch.reader_touch_devices(READER))['path'],
+                         '/dev/input/event7')
+        # A raw direct property cannot override the configured reader identity.
+        with self.assertRaises(ValueError):
+            touch.select_touch_device(PROFILE, reader_paths={'/dev/input/event8'})
+
+    def test_missing_ambiguous_or_non_touch_reader_mapping_is_refused(self):
+        for reader in (None, '', 'x' * 524289,
+                       READER.replace('Sources: 0x00001002', 'Sources: 0x00002002'),
+                       READER.replace('    Sources: 0x00001002\n', ''),
+                       READER.replace('EventHub Devices: [ 12 ]', 'EventHub Devices: [ 27 ]'),
+                       READER.replace('/dev/input/event7', '/private/unsafe'),
+                       READER.replace('      Enabled: true', '      Enabled: false'),
+                       READER.replace('    EventHub Devices: [ 12 ] \n', ''),
+                       READER.replace('  Devices:\n', '  Devices:\n    12: duplicate\n      Path: /dev/input/event8\n'),
+                       READER.replace('    Sources: 0x00001002', '    Sources: malformed')):
+            with self.subTest(reader=type(reader).__name__), self.assertRaises(ValueError):
+                touch.reader_touch_devices(reader)
+
     def test_only_one_measured_direct_slot_touchscreen_can_be_selected(self):
         device = touch.select_touch_device(PROFILE)
         self.assertEqual(device['path'], '/dev/input/event7')
@@ -122,7 +153,7 @@ class KernelGestureTest(unittest.TestCase):
             self.assertFalse(any('mousedown' in args for args, _ in calls))
 
     def test_unrooted_foreign_or_unmeasured_device_refuses_before_writing(self):
-        for options in ({'root': '2000'}, {'foreign': True}, {'profile': ''}):
+        for options in ({'root': '2000'}, {'foreign': True}, {'profile': ''}, {'reader': ''}):
             native, calls = native_fixture(**options)
             with patch.object(touch.time, 'sleep'), self.assertRaises((ValueError, RuntimeError)):
                 touch.gesture('next', native)
