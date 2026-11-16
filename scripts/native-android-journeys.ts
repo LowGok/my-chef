@@ -1256,6 +1256,14 @@ async function analyticsJourneys() {
   };
   const toggle = () =>
     page.getByRole("checkbox", { name: "Help improve MyChef", exact: true });
+  async function expectSignedOutView() {
+    // Deletion replaces the document; the previous dialog/JS handles expire.
+    // Reach the actual new heading even when WebView restores a scroll offset.
+    const heading = page.getByRole("heading", { name: "Welcome back.", exact: true });
+    await heading.waitFor({ state: "attached" });
+    await heading.scrollIntoViewIfNeeded();
+    await expect(heading).toBeVisible();
+  }
   const speechEnabled = process.env.NATIVE_ANALYTICS_SPEECH === "1";
   let speechEngineWarmed = false;
   let speechServiceStarted = false;
@@ -1743,9 +1751,7 @@ async function analyticsJourneys() {
       });
       await activate("Permanently delete account");
       try {
-        await expect(
-          page.getByRole("heading", { name: "Welcome back.", exact: true }),
-        ).toBeVisible();
+        await expectSignedOutView();
       } catch (error) {
         // Only fixed booleans from this fictional form; never echo values,
         // arbitrary alerts, page text, cookies or session identifiers.
@@ -1759,15 +1765,17 @@ async function analyticsJourneys() {
         }, account.password).catch(() => ({ unavailable: true }));
         const touch = await activation.jsonValue().catch(() => ({ unavailable: true }));
         console.log("Installed Android deletion state: " + JSON.stringify({ ...facts, touch }));
+        const heading = page.getByRole("heading", { name: "Welcome back.", exact: true });
+        console.log("Installed Android signout view: " + JSON.stringify({ closed: page.isClosed(),
+          headingPresent: (await heading.count().catch(() => 0)) === 1,
+          headingVisible: await heading.isVisible().catch(() => false), owner: focusOwner() }));
         throw error;
       } finally {
         await activation.dispose().catch(() => undefined);
       }
       remember("lifecycle", "accountDeleted");
       await relaunch();
-      await expect(
-        page.getByRole("heading", { name: "Welcome back.", exact: true }),
-      ).toBeVisible();
+      await expectSignedOutView();
       expect(
         await page.evaluate(
           () =>

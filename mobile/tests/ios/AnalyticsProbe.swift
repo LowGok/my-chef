@@ -627,6 +627,7 @@ final class AnalyticsProbe: XCTestCase {
             let expected = words(phrase)
             var seen = Set<String>()
             var candidateFacts = Set<String>()
+            var enteredContainers = Set<String>()
             func matches(_ value: String) -> Bool {
                 let normalized = words(value)
                 for token in ["help improve mychef", "analytics is off", "unavailable", "check box", "checkbox", "checked", "button", "web content", "create an account", "privacy"] {
@@ -669,6 +670,14 @@ final class AnalyticsProbe: XCTestCase {
                     let labelledContainer = !role && (normalized.contains("help improve mychef")
                         || controlRole && normalized.contains(expected))
                     guard normalized.contains("web content") || privacy || labelledContainer else { return nil }
+                    // Re-entering the same group after every backward step
+                    // can cycle through its static label forever. Let actual
+                    // navigation pass it after one entry in this direction.
+                    let kind = normalized.contains("web content") ? "web" : privacy ? "privacy" : "label"
+                    guard enteredContainers.count < 16 && enteredContainers.insert(normalized).inserted else {
+                        print("Analytics iOS spoken container repeat: kind=" + kind)
+                        return nil
+                    }
                     print("Analytics iOS spoken container: privacy=\(privacy) label=\(labelledContainer) depth=\(depth)")
                     guard let entered = observe({ try voice.moveIn().utterance }) else { return nil }
                     current = entered
@@ -678,6 +687,7 @@ final class AnalyticsProbe: XCTestCase {
             if let current = observe({ try voice.currentSpeech().utterance }),
                let found = focusedMatch(current) { return found }
             for reverse in [backward, !backward] {
+                enteredContainers.removeAll()
                 // Reserve time for both directions if the first reaches a
                 // boundary without throwing or changing its announcement.
                 let deadline = Date().addingTimeInterval(45)

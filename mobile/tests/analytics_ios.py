@@ -216,6 +216,9 @@ def run(state, control, account, identifier, container, layout_only=False, voice
             containers = re.findall(r'Analytics iOS spoken container: privacy=(true|false) label=(true|false) depth=([0-3])', text)
             if containers:
                 detail += '; container privacy/label/depth ' + ','.join('/'.join(row) for row in containers[-6:])
+            repeats = re.findall(r'Analytics iOS spoken container repeat: kind=(web|privacy|label)', text)
+            if repeats:
+                detail += '; container repeats ' + ','.join(repeats[-6:])
             voice_errors = re.findall(r'Analytics iOS voice API error: ([0-9]{1,2}|other)', text)
             if voice_errors:
                 detail += '; voice API error codes ' + ','.join(sorted(set(voice_errors)))
