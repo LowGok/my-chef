@@ -51,6 +51,11 @@ class DisplayGestureTest(unittest.TestCase):
             self.assertEqual(gesture('next', native), {'passed': True})
         motion = next(call for call in calls if 'mousedown' in call)
         self.assertGreater(motion.count('mousemove'), 5)
+        points = [(int(motion[i + 3]), int(motion[i + 4]))
+                  for i, value in enumerate(motion) if value == 'mousemove']
+        dx, dy = abs(points[-1][0] - points[0][0]), abs(points[-1][1] - points[0][1])
+        self.assertGreater(dy, 0, 'A fresh trace must observe both absolute axes')
+        self.assertGreater(dx, dy * 2, 'TalkBack navigation remains a horizontal swipe')
         self.assertIn('mouseup', motion)
         self.assertEqual(calls[-1], ('xdotool', 'mouseup', '1'))
 

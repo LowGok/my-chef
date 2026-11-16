@@ -102,8 +102,8 @@ def gesture(kind, native):
     window, width, height = focus_display(native)
     def command(*args):
         return native.command('xdotool', *args, timeout=10)
-    def move(fraction):
-        return ['mousemove', '--window', window, str(round(width * fraction)), str(round(height / 2))]
+    def move(fraction, vertical=.5):
+        return ['mousemove', '--window', window, str(round(width * fraction)), str(round(height * vertical))]
     with touch_trace(native, 2 if kind == 'double-tap' else 1):
         if kind == 'double-tap':
             # One process preserves timing; nearby distinct host positions
@@ -111,9 +111,11 @@ def gesture(kind, native):
             command(*(move(.5 - 12 / width) + ['click', '1', 'sleep', '.12']
                       + move(.5 + 12 / width) + ['click', '1']))
         else:
-            sequence = move(.3) + ['mousedown', '1']
+            # A slight vertical change keeps the gesture horizontally dominant
+            # while making both absolute axes observable in this fresh trace.
+            sequence = move(.3, .48) + ['mousedown', '1']
             for step in range(1, 11):
-                sequence += ['sleep', '.018'] + move(.3 + .04 * step)
+                sequence += ['sleep', '.018'] + move(.3 + .04 * step, .48 + .004 * step)
             sequence += ['mouseup', '1']
             try:
                 command(*sequence)

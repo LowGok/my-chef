@@ -538,7 +538,8 @@ class XcodeUIHostTest(unittest.TestCase):
             legacy = developer / 'Applications/Simulator.app'
             legacy.mkdir(parents=True)
             self.assertEqual(installed.ios_ui_command(developer, 'iPhone 16', 'fictional-device'),
-                             ['/usr/bin/open', '-a', str(legacy), '--args', '-CurrentDeviceUDID', 'fictional-device'])
+                             ['/usr/bin/open', '-a', str(legacy), '--args', '-CurrentDeviceUDID', 'fictional-device',
+                              '-ConnectHardwareKeyboard', 'NO'])
 
 
 if __name__ == "__main__":

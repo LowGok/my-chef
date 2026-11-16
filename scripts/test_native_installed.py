@@ -606,7 +606,10 @@ def ios_ui_command(developer, model, identifier):
         return ['/usr/bin/open', '-a', str(hub)]
     legacy = developer / 'Applications/Simulator.app'
     if legacy.is_dir():
-        return ['/usr/bin/open', '-a', str(legacy), '--args', '-CurrentDeviceUDID', identifier]
+        # Keep the software keyboard available for the actual phone-layout
+        # checks. NSArgumentDomain overrides this launch without host writes.
+        return ['/usr/bin/open', '-a', str(legacy), '--args', '-CurrentDeviceUDID', identifier,
+                '-ConnectHardwareKeyboard', 'NO']
     return None
 
 
