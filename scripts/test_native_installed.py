@@ -569,6 +569,8 @@ def compile_ios_ui_observer(state):
     observer = Path(state) / 'simulator-host-readiness'
     command('xcrun', '--sdk', 'macosx', 'swiftc', '-framework', 'AppKit',
             str(ROOT / 'mobile/tests/ios/SimulatorHost.swift'), '-o', str(observer), timeout=90)
+    if command(str(observer), '--identity-self-test', timeout=15) != 'Simulator host file identity checks passed':
+        raise RuntimeError('Simulator host file identity checks failed')
     return observer
 
 
@@ -595,7 +597,7 @@ def start_ios_ui(state, stack, arguments, observer=None):
                             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=75)
     if result.returncode != 0 or result.stdout.strip() != 'Selected Xcode UI process is running':
         summary = result.stdout.strip()
-        if re.fullmatch(r'Selected Xcode UI readiness: application=(?:true|false) otherExecutable=(?:true|false) sameBundle=(?:true|false)', summary):
+        if re.fullmatch(r'Selected Xcode UI readiness: application=(?:true|false) otherExecutable=(?:true|false) sameBundle=(?:true|false) sameFile=(?:true|false)', summary):
             print(summary, flush=True)
         raise RuntimeError('Selected Xcode UI process did not become ready')
     print('Selected Xcode UI process is running', flush=True)

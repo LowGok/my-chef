@@ -480,6 +480,12 @@ class NativeSystemPickerTest(unittest.TestCase):
 
 
 class XcodeUIHostTest(unittest.TestCase):
+    def test_compiled_observer_must_pass_its_actual_file_identity_checks(self):
+        with tempfile.TemporaryDirectory(prefix='analytics-observer-') as folder:
+            with patch.object(installed, 'command', side_effect=['', 'unverified']):
+                with self.assertRaisesRegex(RuntimeError, 'file identity checks'):
+                    installed.compile_ios_ui_observer(Path(folder))
+
     def test_ui_readiness_requires_the_selected_bundle_process(self):
         with tempfile.TemporaryDirectory(prefix='analytics-ui-process-') as folder, ExitStack() as stack:
             state = Path(folder)
@@ -496,15 +502,16 @@ class XcodeUIHostTest(unittest.TestCase):
             ])
             with patch.object(installed.subprocess, 'Popen', return_value=launcher) as launch, \
                  patch.object(installed.subprocess, 'run', side_effect=lambda *a, **k: next(outputs)), \
-                 patch.object(installed, 'command') as compile_host:
+                 patch.object(installed, 'command', side_effect=lambda *a, **k:
+                              'Simulator host file identity checks passed' if a[1] == '--identity-self-test' else '') as compile_host:
                 with self.assertRaisesRegex(RuntimeError, 'did not become ready'):
                     installed.start_ios_ui(state, stack, ['/usr/bin/open', '-a', str(bundle)])
                 with self.assertRaisesRegex(RuntimeError, 'did not become ready'):
                     installed.start_ios_ui(state, stack, ['/usr/bin/open', '-a', str(bundle)])
                 installed.start_ios_ui(state, stack, ['/usr/bin/open', '-Fn', str(bundle)])
                 self.assertEqual(launch.call_args.args[0], ['/usr/bin/open', '-Fn', str(bundle)])
-                self.assertIn('swiftc', compile_host.call_args.args)
-                self.assertIn(str(installed.ROOT / 'mobile/tests/ios/SimulatorHost.swift'), compile_host.call_args.args)
+                self.assertIn('swiftc', compile_host.call_args_list[0].args)
+                self.assertIn(str(installed.ROOT / 'mobile/tests/ios/SimulatorHost.swift'), compile_host.call_args_list[0].args)
 
     def test_modern_runtime_requires_device_hub_from_the_selected_xcode(self):
         with tempfile.TemporaryDirectory(prefix='analytics-xcode-ui-') as folder:

@@ -255,6 +255,11 @@ final class AnalyticsProbe: XCTestCase {
             }
             RunLoop.current.run(until: Date().addingTimeInterval(0.2))
         }
+        pickerState()
+        XCTFail("System picker control must exist outside WebKit")
+        return nil
+    }
+    func pickerState() {
         screenState()
         for name in ["Cancel", "Close", "Done", "Save", "Browse", "Locations", "On My iPhone", "Downloads"] {
             let p = NSPredicate(format: "label == %@", name)
@@ -263,8 +268,6 @@ final class AnalyticsProbe: XCTestCase {
                 .map { String($0.elementType.rawValue) }.joined(separator: ",")
             print("Analytics iOS picker types: " + name + " all=" + types)
         }
-        XCTFail("System picker control must exist outside WebKit")
-        return nil
     }
     func pickerAction(save: Bool) {
         // The HTML dialog also has Cancel. Require an actual system control
@@ -276,8 +279,12 @@ final class AnalyticsProbe: XCTestCase {
                 button.tap()
                 let end = Date().addingTimeInterval(5)
                 while Date() < end {
-                    if pickerButton("Cancel") == nil && pickerButton("Close") == nil && pickerButton("Save") == nil
-                        && app.webViews.allElementsBoundByIndex.contains(where: { $0.exists && $0.isHittable }) { return }
+                    // Hittability can disappear briefly during a native sheet
+                    // transition. Require the actual delegate result before
+                    // treating that transition as a completed cancellation.
+                    let result = app.descendants(matching: .any).matching(NSPredicate(format:
+                        "label BEGINSWITH %@", "Download cancelled.")).firstMatch
+                    if result.exists && pickerButton("Save") == nil { return }
                     RunLoop.current.run(until: Date().addingTimeInterval(0.2))
                 }
                 // Native rename/search layers can have their own Cancel.
@@ -287,10 +294,8 @@ final class AnalyticsProbe: XCTestCase {
                 guard let next = pickerButton("Cancel") ?? pickerButton("Close") else { break }
                 button = next
             }
-            for name in ["Cancel", "Save", "Browse", "Locations", "On My iPhone", "Downloads"] {
-                let p = NSPredicate(format: "label == %@", name)
-                print("Analytics iOS picker control: " + name + " total=\(app.buttons.matching(p).count) web=\(app.webViews.buttons.matching(p).count)")
-            }
+            pickerState()
+            XCTFail("Native picker cancellation must deliver the actual app result")
             return
         }
         let local = app.staticTexts["On My iPhone"].firstMatch
