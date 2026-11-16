@@ -146,6 +146,21 @@ class VoiceOverHostAttachmentTest(unittest.TestCase):
     def snapshot(self, identifiers):
         return json.dumps({'devices': {'runtime': [{'udid': value, 'state': 'Booted'} for value in identifiers]}})
 
+    def test_settings_warmup_targets_only_the_verified_owned_phone(self):
+        with patch.object(analytics_voiceover.native, 'command',
+                          side_effect=[self.snapshot(['owned-phone']), 'launched']) as command:
+            analytics_voiceover.warm_voice_settings('owned-phone')
+            self.assertEqual(command.call_count, 2)
+            self.assertEqual(command.call_args.args,
+                ('xcrun', 'simctl', 'launch', 'owned-phone', 'com.apple.Preferences'))
+
+    def test_foreign_booted_phone_prevents_any_settings_launch(self):
+        with patch.object(analytics_voiceover.native, 'command',
+                          return_value=self.snapshot(['foreign-phone'])) as command:
+            with self.assertRaisesRegex(RuntimeError, 'owned booted VoiceOver phone'):
+                analytics_voiceover.warm_voice_settings('owned-phone')
+            self.assertEqual(command.call_count, 1)
+
     def test_only_the_exact_owned_booted_phone_can_reach_the_native_warmup(self):
         with patch.object(analytics_voiceover.native, 'command', return_value=self.snapshot(['owned-phone'])):
             analytics_voiceover.require_owned_phone('owned-phone')

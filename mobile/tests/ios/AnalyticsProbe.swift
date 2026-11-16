@@ -635,7 +635,9 @@ final class AnalyticsProbe: XCTestCase {
         if voice.isEnabled { try voice.disable() }
         print("Analytics iOS voice phase: configure flat navigation")
         let settings = XCUIApplication(bundleIdentifier: "com.apple.Preferences")
-        settings.launch()
+        // The coordinator warmed this owned simulator's Settings before the
+        // app bootstrap. Preserve that instance instead of cold-launching it.
+        settings.activate()
         guard settings.wait(for: .runningForeground, timeout: 20) else { throw Failure.missingControl }
         func openSetting(_ name: String) throws {
             let item = settings.staticTexts[name].firstMatch

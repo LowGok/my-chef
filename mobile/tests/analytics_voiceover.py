@@ -64,6 +64,11 @@ def require_owned_phone(identifier):
         raise RuntimeError('Expected one owned booted VoiceOver phone')
 
 
+def warm_voice_settings(identifier):
+    require_owned_phone(identifier)
+    native.command('xcrun', 'simctl', 'launch', identifier, 'com.apple.Preferences', timeout=90)
+
+
 def main():
     os.umask(0o077)
     event = json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text())
@@ -122,6 +127,8 @@ def main():
         identifier = identifiers[0]
         native.command('xcrun', 'simctl', 'ui', identifier, 'content_size', 'accessibility-medium')
         metadata['contentSize'] = 'accessibility-medium'
+        warm_voice_settings(identifier)
+        print('Owned Settings warm launch requested before native bootstrap', flush=True)
         container = Path(native.command('xcrun', 'simctl', 'get_app_container', identifier, native.APP, 'data'))
         def bootstrap():
             # Probe compilation and selected host readiness preceded boot.
