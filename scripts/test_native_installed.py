@@ -449,6 +449,8 @@ def android(state, stack, ca, apk):
                                 "-camera-back", "none", "-memory", "2048", "-partition-size", "2048"], env=ENV,
                                 stdout=boot_output, stderr=boot_output)
     stack.callback(terminate, emulator)
+    if ENV.get("NATIVE_ANALYTICS_SPEECH") == "1":
+        ENV["MYCHEF_ANALYTICS_EMULATOR_PID"] = str(emulator.pid)
     adb = lambda *args: command(adb_path, "-s", "emulator-5554", *args)
     def root_adb():
         def ready():

@@ -232,7 +232,8 @@ class Fixture:
                               'Offline model changed': 'speech-model',
                               'Expected one emulator touch device': 'touch-device',
                               'Emulator console authentication refused': 'touch-console-auth',
-                              'Emulator hardware command refused': 'touch-console-command'}.get(str(error), 'refused')
+                              'Emulator hardware command refused': 'touch-console-command',
+                              'Owned emulator display unavailable': 'touch-display'}.get(str(error), 'refused')
                     print('Analytics fixture refusal: operation=' + operation + ' reason=' + reason, flush=True)
                     status, body = 409, b'{"error":"fixture_operation_refused"}'
                 self.send_response(status)

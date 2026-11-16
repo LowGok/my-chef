@@ -393,7 +393,7 @@ public final class NativeJourneyProbe extends Instrumentation {
         speechTouchMode();
         speechFocus(before);
         // The coordinator now sends the hardware gesture through the
-        // emulator console. UiAutomation injection bypasses InputFilter.
+        // run-owned emulator window. UiAutomation injection bypasses InputFilter.
     }
 
     private void speechOrder() throws Exception {

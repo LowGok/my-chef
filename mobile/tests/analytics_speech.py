@@ -70,7 +70,7 @@ def prepare():
         subprocess.run(args, cwd=root, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=240)
     run('sudo', 'apt-get', 'update', '-qq')
     run('sudo', 'apt-get', 'install', '-y', '-qq', '--no-install-recommends',
-        'ffmpeg', 'cmake', 'g++', 'pulseaudio', 'pulseaudio-utils', 'xvfb')
+        'ffmpeg', 'cmake', 'g++', 'pulseaudio', 'pulseaudio-utils', 'xvfb', 'xdotool')
     source = root / 'recognizer'
     run('git', 'init', str(source))
     run('git', '-C', str(source), 'fetch', '--depth=1', 'https://github.com/ggml-org/whisper.cpp.git', RECOGNIZER_SOURCE)

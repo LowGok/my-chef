@@ -14,9 +14,9 @@ spec.loader.exec_module(lane)
 class AnalyticsLaneTest(unittest.TestCase):
     def setUp(self):
         self.environment = dict(GITHUB_ACTIONS='true', GITHUB_EVENT_NAME='push',
-                                GITHUB_REPOSITORY='LowGok/my-chef', GITHUB_SHA='a' * 40,
-                                NATIVE_PLATFORM='android')
-        self.event = dict(repository=dict(id=1454481532, private=False),
+                                GITHUB_REPOSITORY='LowGok/my-chef', GITHUB_SHA='a' * 40, GITHUB_ACTOR='LowGok',
+                                NATIVE_PLATFORM='android', GITHUB_REF='refs/heads/ci/analytics-installed-b9e9699')
+        self.event = dict(repository=dict(id=1454481532, private=False, full_name='LowGok/my-chef'), deleted=False,
                           sender=dict(login='LowGok'), after='a' * 40,
                           ref='refs/heads/ci/analytics-installed-b9e9699')
 
@@ -33,14 +33,14 @@ class AnalyticsLaneTest(unittest.TestCase):
                 ('sender', dict(login='another-user')),
                 ('repository', dict(id=1454481532, private=True)),
                 ('repository', dict(id=1, private=False)),
-                ('after', 'b' * 40)):
+                ('after', 'b' * 40), ('deleted', True)):
             event = copy.deepcopy(self.event)
             event[key] = value
             self.assertFalse(lane.authorized(event, self.environment))
 
     def test_local_or_other_event_cannot_claim_installed_evidence(self):
         for key, value in (('GITHUB_ACTIONS', 'false'), ('GITHUB_EVENT_NAME', 'pull_request'),
-                           ('GITHUB_REPOSITORY', 'other/my-chef')):
+                           ('GITHUB_REPOSITORY', 'other/my-chef'), ('GITHUB_ACTOR', 'another-user'), ('GITHUB_REF', 'refs/heads/main')):
             environment = dict(self.environment)
             environment[key] = value
             self.assertFalse(lane.authorized(self.event, environment))

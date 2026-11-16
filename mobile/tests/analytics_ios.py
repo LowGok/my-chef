@@ -151,6 +151,9 @@ def run(state, control, account, identifier, container, layout_only=False, voice
             voice_errors = re.findall(r'Analytics iOS voice API error: ([0-9]{1,2}|other)', text)
             if voice_errors:
                 detail += '; voice API error codes ' + ','.join(sorted(set(voice_errors)))
+            voice_categories = re.findall(r'Analytics iOS voice error category: (no-speech|not-running|other)', text)
+            if voice_categories:
+                detail += '; voice error categories ' + ','.join(sorted(set(voice_categories)))
             vocabularies = re.findall(r'Analytics iOS spoken vocabulary: ([a-z ,]{0,200})', text)
             allowed = {'help improve mychef', 'analytics is off', 'unavailable', 'check box', 'checkbox', 'checked', 'button', 'web content', 'create an account', 'privacy'}
             for vocabulary in vocabularies[-2:]:
