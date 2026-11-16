@@ -28,20 +28,22 @@ class DisplayGestureTest(unittest.TestCase):
         native, calls = self.native()
         self.assertEqual(gesture('double-tap', native), {'passed': True})
         self.assertIn(('xdotool', 'search', '--onlyvisible', '--name', '^Android Emulator - mychef-ci(:5554)?$'), calls)
-        self.assertIn(('xdotool', 'mousemove', '--sync', '--window', '42', '210', '390'), calls)
-        self.assertEqual(calls.count(('xdotool', 'click', '1')), 2)
         self.assertIn(('xdotool', 'windowfocus', '--sync', '42'), calls)
-        self.assertIn(('xdotool', 'mousemove', '--sync', '--window', '42', '198', '390'), calls)
-        self.assertIn(('xdotool', 'mousemove', '--sync', '--window', '42', '222', '390'), calls)
+        motion = calls[-1]
+        self.assertEqual(motion.count('click'), 2)
+        self.assertEqual(motion.count('mousemove'), 2)
+        self.assertIn('198', motion); self.assertIn('222', motion)
+        self.assertIn('sleep', motion)
         self.assertFalse(any('adb' in str(call) or 'auth' in str(call) for call in calls))
 
     def test_swipe_releases_button_and_uses_only_the_owned_display(self):
         native, calls = self.native()
         with patch('analytics_touch.time.sleep'):
             self.assertEqual(gesture('next', native), {'passed': True})
-        self.assertIn(('xdotool', 'mousedown', '1'), calls)
+        motion = next(call for call in calls if 'mousedown' in call)
+        self.assertGreater(motion.count('mousemove'), 5)
+        self.assertIn('mouseup', motion)
         self.assertEqual(calls[-1], ('xdotool', 'mouseup', '1'))
-        self.assertGreater(len([call for call in calls if call[1] == 'mousemove']), 5)
 
     def test_missing_foreign_ambiguous_or_unbounded_windows_are_refused(self):
         for options in ({'windows': ''}, {'owner': '999'},
@@ -59,7 +61,7 @@ class DisplayGestureTest(unittest.TestCase):
         original = native.command
         def command(*args, **kwargs):
             result = original(*args, **kwargs)
-            if args[1] == 'mousemove' and any(call[1] == 'mousedown' for call in calls):
+            if args[1] == 'mousemove' and 'mousedown' in args:
                 raise RuntimeError('Fictional display interruption')
             return result
         native.command = command

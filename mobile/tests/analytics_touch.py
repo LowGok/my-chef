@@ -93,28 +93,22 @@ def gesture(kind, native):
         raise RuntimeError('Owned emulator display unavailable')
     _, window, width, height = candidates[0]
     def move(fraction):
-        command('mousemove', '--sync', '--window', window, str(round(width * fraction)), str(round(height / 2)))
-    # QEMU's actual host pointer path chooses the correct touchscreen device.
-    # Generic console event-send and UiAutomation injection do not prove that.
+        return ['mousemove', '--window', window, str(round(width * fraction)), str(round(height / 2))]
     command('windowfocus', '--sync', window)
     time.sleep(.15)
     with touch_trace(native, 2 if kind == 'double-tap' else 1):
-        move(.5 if kind == 'double-tap' else .3)
         if kind == 'double-tap':
-            # Distinct nearby host positions avoid Qt folding the second
-            # press into a host double-click. Both remain within Android's
-            # touch double-tap slop. The trace must observe both contacts.
-            move(.5 - 12 / width)
-            command('click', '1')
-            time.sleep(.12)
-            move(.5 + 12 / width)
-            command('click', '1')
+            # One process preserves timing; nearby distinct host positions
+            # avoid Qt folding the second press into a host double-click.
+            command(*(move(.5 - 12 / width) + ['click', '1', 'sleep', '.12']
+                      + move(.5 + 12 / width) + ['click', '1']))
         else:
-            command('mousedown', '1')
+            sequence = move(.3) + ['mousedown', '1']
+            for step in range(1, 11):
+                sequence += ['sleep', '.018'] + move(.3 + .04 * step)
+            sequence += ['mouseup', '1']
             try:
-                for step in range(1, 11):
-                    time.sleep(.018)
-                    move(.3 + .04 * step)
+                command(*sequence)
             finally:
                 command('mouseup', '1')
     print('Analytics hardware gesture: owned emulator X11 pointer', flush=True)
