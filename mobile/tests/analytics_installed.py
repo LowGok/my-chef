@@ -131,7 +131,7 @@ def full_journeys(receipt, artifact):
                 if speech.passed != set(TARGETS):
                     raise RuntimeError('Incomplete actual TalkBack speech evidence')
                 checks['accessibility'].update(platformScreenReader=True, spokenStatesAndErrors=True, focusOrder=True)
-                metadata['speech'] = dict(method='stock TalkBack speaker output, emulator hardware gestures and pinned offline recognition',
+                metadata['speech'] = dict(method='stock TalkBack speaker output, measured kernel touchscreen events and pinned offline recognition',
                                          targets=sorted(speech.passed), attempts=speech.attempts,
                                          rawAudioRetained=False, externalRecognition=False)
         else:

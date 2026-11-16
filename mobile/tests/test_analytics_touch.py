@@ -1,121 +1,132 @@
-"""Closed gestures through this run's X11 emulator, without a real display."""
+"""Closed emulator input contracts; these fakes never claim native evidence."""
 import unittest
 from contextlib import contextmanager, nullcontext
 from types import SimpleNamespace
 from unittest.mock import patch
-from analytics_touch import gesture
+import analytics_touch as touch
+
+PROFILE = ("add device 1: /dev/input/event7\n  name: \"fictional touchscreen\"\n"
+           "  EV_KEY: BTN_TOUCH\n"
+           "  ABS_MT_SLOT: value 0, min 0, max 9\n"
+           "  ABS_MT_POSITION_X: value 0, min 0, max 32767\n"
+           "  ABS_MT_POSITION_Y: value 0, min 0, max 32767\n"
+           "  ABS_MT_TRACKING_ID: value -1, min 0, max 65535\n"
+           "  ABS_MT_PRESSURE: value 0, min 0, max 255\n"
+           "  input props: INPUT_PROP_DIRECT\n")
 
 
-class DisplayGestureTest(unittest.TestCase):
-    def setUp(self):
-        trace = patch('analytics_touch.touch_trace', return_value=nullcontext())
-        trace.start()
-        self.addCleanup(trace.stop)
-    def native(self, windows='42\n43\n', geometries=None, owner='101'):
-        calls = []
-        geometries = geometries or {'42': 'X=0\nY=0\nWIDTH=420\nHEIGHT=780\n',
-                                   '43': 'X=420\nY=0\nWIDTH=50\nHEIGHT=500\n'}
-        def command(*args, **kwargs):
-            calls.append(args)
-            if args[0] == 'ps': return '1'
-            if args[1] == 'search': return windows
-            if args[1] == 'getwindowpid': return owner
-            if args[1] == 'getwindowgeometry': return geometries[args[-1]]
+def native_fixture(root='0', profile=PROFILE, foreign=False, fail_write=False):
+    calls = []
+    def command(*args, **options):
+        calls.append((args, options))
+        if args[0] == 'ps': return '1'
+        if args[0] == 'xdotool':
+            if args[1] == 'search': return '42'
+            if args[1] == 'getwindowpid': return '999' if foreign else '101'
+            if args[1] == 'getwindowgeometry': return 'WIDTH=288\nHEIGHT=640\n'
             return ''
-        return SimpleNamespace(ENV={'DISPLAY': ':91', 'MYCHEF_ANALYTICS_EMULATOR_PID': '101'}, command=command), calls
+        if args[-2:] == ('id', '-u'): return root
+        if args[-2:] == ('getevent', '-lp'): return profile
+        if options.get('data') and fail_write and sum(bool(v.get('data')) for _, v in calls) == 1:
+            raise RuntimeError('Fictional input interruption')
+        return ''
+    return SimpleNamespace(ENV={'DISPLAY': ':91', 'MYCHEF_ANALYTICS_EMULATOR_PID': '101',
+                                'ANDROID_HOME': '/fictional-sdk'}, command=command), calls
 
-    def test_startup_focus_uses_the_owned_window_without_input(self):
-        from analytics_touch import focus_display
-        native, calls = self.native()
-        self.assertEqual(focus_display(native), ('42', 420, 780))
-        self.assertEqual(calls[-1], ('xdotool', 'windowfocus', '--sync', '42'))
-        self.assertFalse(any('click' in call or 'mousedown' in call for call in calls))
-        native, _ = self.native(owner='999')
-        with self.assertRaises(RuntimeError): focus_display(native)
 
-    def test_pointer_settles_without_press_before_touch_observer_is_released(self):
-        for kind in ('double-tap', 'next'):
-            native, calls = self.native()
+class DisplayFocusTest(unittest.TestCase):
+    def test_startup_focus_uses_only_the_owned_window_without_input(self):
+        native, calls = native_fixture()
+        with patch.object(touch.time, 'sleep'):
+            self.assertEqual(touch.focus_display(native), ('42', 288, 640))
+        self.assertFalse(any('mousedown' in args or options.get('data') for args, options in calls))
+        native, _ = native_fixture(foreign=True)
+        with self.assertRaises(RuntimeError): touch.focus_display(native)
+        native, _ = native_fixture(); native.ENV['DISPLAY'] = ':0'
+        with self.assertRaises(RuntimeError): touch.focus_display(native)
+
+
+    def test_missing_ambiguous_or_unbounded_owned_display_stays_refused(self):
+        for search, geometry in (('', 'WIDTH=288\nHEIGHT=640\n'),
+                                 ('42 43', 'WIDTH=288\nHEIGHT=640\n'),
+                                 ('42', 'WIDTH=1\nHEIGHT=2\n'), ('42;unsafe', 'WIDTH=288\nHEIGHT=640\n')):
+            native, _ = native_fixture()
+            original = native.command
+            def command(*args, **options):
+                if args[0] == 'xdotool' and args[1] == 'search': return search
+                if args[0] == 'xdotool' and args[1] == 'getwindowgeometry': return geometry
+                return original(*args, **options)
+            native.command = command
+            with self.subTest(search=search), self.assertRaises(RuntimeError): touch.focus_display(native)
+
+
+class KernelGestureTest(unittest.TestCase):
+    def test_only_one_measured_direct_slot_touchscreen_can_be_selected(self):
+        device = touch.select_touch_device(PROFILE)
+        self.assertEqual(device['path'], '/dev/input/event7')
+        self.assertEqual(device['x'], (0, 32767))
+        self.assertTrue(device['button'])
+        for profile in (None, '', 'x' * 65537, PROFILE.replace('INPUT_PROP_DIRECT', ''),
+                        PROFILE.replace('ABS_MT_SLOT', 'ABS_OTHER'),
+                        PROFILE.replace('/dev/input/event7', '/private/not-input'),
+                        PROFILE + PROFILE.replace('/dev/input/event7', '/dev/input/event8'),
+                        PROFILE.replace('max 32767', 'max 0')):
+            with self.subTest(profile=type(profile).__name__), self.assertRaises(ValueError):
+                touch.select_touch_device(profile)
+
+    def test_closed_plans_stay_in_the_measured_axes_and_release_every_contact(self):
+        device = touch.select_touch_device(PROFILE)
+        for kind, contacts in (('double-tap', 2), ('next', 1)):
+            frames = touch.kernel_frames(kind, device)
+            events = [event for _, frame in frames for event in frame]
+            self.assertEqual(sum(t == 3 and c == 57 and v >= 0 for t, c, v in events), contacts)
+            self.assertEqual(events.count((3, 57, -1)), contacts)
+            self.assertTrue(all(frame[-1] == (0, 0, 0) for _, frame in frames))
+            self.assertTrue(all(0 <= v <= 32767 for t, c, v in events if t == 3 and c in (53, 54)))
+            self.assertTrue(all(0 <= delay <= .2 for delay, _ in frames))
+        release = [event for _, frame in touch.kernel_frames('release', device) for event in frame]
+        self.assertFalse(any(t == 3 and c == 57 and v >= 0 for t, c, v in release))
+        for kind in ('click:1:2', '', None):
+            with self.assertRaises(ValueError): touch.kernel_frames(kind, device)
+        with self.assertRaises(ValueError):
+            touch.kernel_frames('next', {**device, 'path': '/dev/input/event7;unsafe'})
+
+    def test_writer_is_scoped_observed_and_never_retries_activation(self):
+        for failed in (False, True):
+            native, calls = native_fixture(fail_write=failed)
+            observing = [False]
+            original = native.command
+            def command(*args, **options):
+                if options.get('data'):
+                    self.assertTrue(observing[0])
+                    self.assertEqual(args[:3], ('/fictional-sdk/platform-tools/adb', '-s', 'emulator-5554'))
+                return original(*args, **options)
+            native.command = command
             @contextmanager
-            def trace(*_):
-                moves = [call for call in calls if 'mousemove' in call]
-                self.assertTrue(moves, 'The host pointer must settle before starting input observation')
-                self.assertIn('sleep', moves[-1])
-                self.assertFalse(any('mousedown' in call for call in calls), 'A press cannot precede the touch observer')
-                yield
-            with self.subTest(kind=kind), patch('analytics_touch.touch_trace', side_effect=trace), \
-                 patch('analytics_touch.time.sleep'):
-                gesture(kind, native)
+            def observer(_, contacts, device=None):
+                self.assertEqual(contacts, 2)
+                self.assertEqual(device, '/dev/input/event7')
+                observing[0] = True
+                try: yield
+                finally: observing[0] = False
+            with self.subTest(failed=failed), patch.object(touch, 'touch_trace', side_effect=observer), \
+                 patch.object(touch.time, 'sleep'):
+                if failed:
+                    with self.assertRaisesRegex(RuntimeError, 'touchscreen injection'):
+                        touch.gesture('double-tap', native)
+                else:
+                    self.assertEqual(touch.gesture('double-tap', native), {'passed': True})
+            writes = [options['data'] for _, options in calls if options.get('data')]
+            self.assertEqual(len(writes), 2, 'One gesture plus release cleanup only')
+            self.assertNotIn(' 3 57 0', writes[-1]); self.assertNotIn(' 3 57 1', writes[-1])
+            self.assertFalse(any('mousedown' in args for args, _ in calls))
 
-    def test_double_tap_targets_largest_visible_window_owned_by_this_emulator(self):
-        native, calls = self.native()
-        self.assertEqual(gesture('double-tap', native), {'passed': True})
-        self.assertIn(('xdotool', 'search', '--onlyvisible', '--name', '^Android Emulator - mychef-ci(:5554)?$'), calls)
-        self.assertIn(('xdotool', 'windowfocus', '--sync', '42'), calls)
-        motion = next(call for call in calls if call.count('mousedown') == 2)
-        self.assertEqual(motion.count('mouseup'), 2)
-        self.assertEqual(motion.count('.05'), 2)
-        self.assertEqual(motion.count('mousemove'), 2)
-        self.assertIn('198', motion); self.assertIn('222', motion)
-        self.assertIn('384', motion); self.assertIn('396', motion)
-        self.assertIn('sleep', motion)
-        self.assertEqual(calls[-1], ('xdotool', 'mouseup', '1'))
-        self.assertFalse(any('adb' in str(call) or 'auth' in str(call) for call in calls))
-
-    def test_swipe_releases_button_and_uses_only_the_owned_display(self):
-        native, calls = self.native()
-        with patch('analytics_touch.time.sleep'):
-            self.assertEqual(gesture('next', native), {'passed': True})
-        motion = next(call for call in calls if 'mousedown' in call)
-        self.assertGreater(motion.count('mousemove'), 5)
-        points = [(int(motion[i + 3]), int(motion[i + 4]))
-                  for i, value in enumerate(motion) if value == 'mousemove']
-        dx, dy = abs(points[-1][0] - points[0][0]), abs(points[-1][1] - points[0][1])
-        self.assertGreater(dy, 0, 'A fresh trace must observe both absolute axes')
-        self.assertGreater(dx, dy * 2, 'TalkBack navigation remains a horizontal swipe')
-        self.assertIn('mouseup', motion)
-        self.assertEqual(calls[-1], ('xdotool', 'mouseup', '1'))
-
-    def test_swipe_starts_inside_the_phone_on_a_wide_emulator_canvas(self):
-        # A centred portrait phone can occupy only the middle of a wide Qt
-        # window. Pressing its host margins never creates a guest contact.
-        native, calls = self.native(geometries={
-            '42': 'WIDTH=1280\nHEIGHT=800\n', '43': 'WIDTH=50\nHEIGHT=500\n'})
-        with patch('analytics_touch.time.sleep'):
-            gesture('next', native)
-        motion = next(call for call in calls if 'mousedown' in call)
-        points = [(int(motion[i + 3]), int(motion[i + 4]))
-                  for i, value in enumerate(motion) if value == 'mousemove']
-        self.assertTrue(all(450 < x < 830 and 300 < y < 500 for x, y in points),
-                        'The complete pressed swipe must stay in the centred phone surface')
-        self.assertGreater(points[-1][0] - points[0][0], 120,
-                           'A bounded swipe still needs meaningful physical travel')
-
-    def test_missing_foreign_ambiguous_or_unbounded_windows_are_refused(self):
-        for options in ({'windows': ''}, {'owner': '999'},
-                        {'geometries': {'42': 'WIDTH=1\nHEIGHT=2\n', '43': 'WIDTH=1\nHEIGHT=2\n'}},
-                        {'geometries': {'42': 'WIDTH=420\nHEIGHT=780\n', '43': 'WIDTH=420\nHEIGHT=780\n'}}):
-            with self.subTest(options=options), self.assertRaises(RuntimeError):
-                gesture('double-tap', self.native(**options)[0])
-        native, _ = self.native(); native.ENV['DISPLAY'] = ':0'
-        with self.assertRaises(RuntimeError): gesture('next', native)
-        for target in ('click:1:2', '', None):
-            with self.assertRaises(ValueError): gesture(target, self.native()[0])
-
-    def test_failed_gesture_still_releases_the_host_button(self):
-        for kind in ('double-tap', 'next'):
-            with self.subTest(kind=kind):
-                native, calls = self.native()
-                original = native.command
-                def command(*args, **kwargs):
-                    result = original(*args, **kwargs)
-                    if args[1] == 'mousemove' and 'mousedown' in args:
-                        raise RuntimeError('Fictional display interruption')
-                    return result
-                native.command = command
-                with patch('analytics_touch.time.sleep'), self.assertRaises(RuntimeError):
-                    gesture(kind, native)
-                self.assertEqual(calls[-1], ('xdotool', 'mouseup', '1'))
+    def test_unrooted_foreign_or_unmeasured_device_refuses_before_writing(self):
+        for options in ({'root': '2000'}, {'foreign': True}, {'profile': ''}):
+            native, calls = native_fixture(**options)
+            with patch.object(touch.time, 'sleep'), self.assertRaises((ValueError, RuntimeError)):
+                touch.gesture('next', native)
+            self.assertFalse(any(fields.get('data') for _, fields in calls))
 
 
 class TouchTraceTest(unittest.TestCase):
@@ -127,6 +138,14 @@ class TouchTraceTest(unittest.TestCase):
         # Linux omits unchanged ABS coordinates on a later contact.
         same_y = contact.replace('EV_ABS ABS_MT_POSITION_Y 00004000\n', '')
         self.assertTrue(touch_facts(contact + same_y, contacts=2)['touchscreen'])
+
+    def test_foreign_touch_device_cannot_supply_the_selected_writers_contacts(self):
+        contact = "EV_ABS ABS_MT_POSITION_X 00004000\nEV_ABS ABS_MT_POSITION_Y 00004000\nEV_ABS ABS_MT_TRACKING_ID 00000003\nEV_ABS ABS_MT_TRACKING_ID ffffffff\n"
+        own = ''.join('[ 1.000000] /dev/input/event7: ' + line + '\n' for line in contact.splitlines())
+        foreign = own.replace('/dev/input/event7:', '/dev/input/event8:')
+        self.assertTrue(touch.touch_facts(own, device='/dev/input/event7')['touchscreen'])
+        self.assertFalse(touch.touch_facts(foreign, device='/dev/input/event7')['touchscreen'])
+        with self.assertRaises(ValueError): touch.touch_facts(own, device='/private/not-input')
 
     def test_mouse_or_incomplete_contact_is_not_touchscreen_evidence(self):
         from analytics_touch import touch_facts
@@ -169,6 +188,13 @@ class TouchObserverReadyTest(unittest.TestCase):
         self.exercise([b'add device 1: /dev/input/event0\n',
                        b'add device 1: /dev/input/event0\nadd device 2: /dev/input/event7\n',
                        (self.contact * 2).encode()])
+
+    def test_writer_path_must_be_in_the_second_measured_snapshot(self):
+        native = SimpleNamespace(ENV={'ANDROID_HOME': '/fictional-sdk'}, command=lambda *a, **k: self.profile)
+        with patch.object(touch.subprocess, 'Popen') as process:
+            with self.assertRaisesRegex(RuntimeError, 'observer unavailable'):
+                with touch.touch_trace(native, 1, device='/dev/input/event8'): pass
+            process.assert_not_called()
 
     def test_ended_observer_without_touch_device_prevents_the_gesture(self):
         with self.assertRaisesRegex(RuntimeError, 'observer unavailable'):

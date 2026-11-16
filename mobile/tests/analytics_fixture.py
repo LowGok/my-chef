@@ -257,6 +257,8 @@ class Fixture:
                               'Emulator hardware command refused': 'touch-console-command',
                               'Owned emulator display unavailable': 'touch-display',
                               'Emulator touchscreen observer unavailable': 'touch-observer',
+                              'Emulator touchscreen writer is not rooted': 'touch-permission',
+                              'Emulator touchscreen injection failed': 'touch-kernel',
                               'Emulator touchscreen input was not observed': 'touch-input'}.get(str(error), 'refused')
                     print('Analytics fixture refusal: operation=' + operation + ' reason=' + reason, flush=True)
                     status, body = 409, b'{"error":"fixture_operation_refused"}'
