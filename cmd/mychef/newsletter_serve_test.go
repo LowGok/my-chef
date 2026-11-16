@@ -112,6 +112,7 @@ func TestNewsletterRoleReadinessAndWorkerFailure(t *testing.T) {
 
 func TestNewsletterRoleServesWithoutRecipeCredentialsAndReleasesLocks(t *testing.T) {
 	path := newsletterServeFixture(t)
+	prepareNewsletterMinimisationRole(t, path, false)
 	// Reserve an available address for the actual HTTP runtime; retry-free local fixture.
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

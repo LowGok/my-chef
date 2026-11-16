@@ -109,9 +109,11 @@ func (j *LifecycleJournal) DeleteAccount(ctx context.Context, actor AccountActor
 	if confirmation != "DELETE" || !opaqueLifecycleID(operation) {
 		return AccountDeletion{}, ErrAccountConfirmation
 	}
-	return j.deleteAccount(ctx, actor.UserID, operation, now, opts, func(tx *gorm.DB) error {
-		return accountAuthority(tx, actor, now)
-	})
+	result, err := j.deleteAccount(ctx, actor.UserID, operation, now, opts, func(tx *gorm.DB) error { return accountAuthority(tx, actor, now) })
+	if err == nil && j.app.newsletterJournalRequired.Load() {
+		err = j.CleanupNewsletterFiles(ctx)
+	}
+	return result, err
 }
 
 func (j *LifecycleJournal) deleteAccount(ctx context.Context, userID int64, operation string, now time.Time, opts AccountDeletionOptions, authorize func(*gorm.DB) error) (AccountDeletion, error) {
@@ -145,7 +147,11 @@ func (j *LifecycleJournal) deleteAccount(ctx context.Context, userID int64, oper
 	return j.deleteAccountLocked(ctx, userID, operation, now, opts, authorize)
 }
 func (j *LifecycleJournal) deleteAccountLocked(ctx context.Context, userID int64, operation string, now time.Time, opts AccountDeletionOptions, authorize func(*gorm.DB) error) (AccountDeletion, error) {
+	if j.app.newsletterJournalRequired.Load() {
+		ctx = j.app.newsletterTransactionContext(ctx)
+	}
 	tx := j.app.DB.WithContext(ctx).Begin()
+	TrackNewsletterIdentity(tx, userID)
 	if tx.Error != nil {
 		return AccountDeletion{}, ErrAccountDeletion
 	}
@@ -174,12 +180,15 @@ func (j *LifecycleJournal) deleteAccountLocked(ctx context.Context, userID int64
 	}
 	// Cancellation must run after rollback and survive an HTTP client disconnect.
 	committed := false
+	commitAttempted := false
+	var identityIntents []NewsletterIdentityIntent
 	defer func() {
-		if !committed {
+		if !committed && !commitAttempted {
 			_ = tx.Rollback().Error
 			repair, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			_ = j.CancelDeletion(repair, operation)
+			_ = j.cancelNewsletterTransaction(repair, identityIntents)
 		}
 	}()
 	if err := deletionFault(opts, "prepared"); err != nil {
@@ -221,6 +230,12 @@ func (j *LifecycleJournal) deleteAccountLocked(ctx context.Context, userID int64
 	if err := deletionFault(opts, "proof"); err != nil {
 		return AccountDeletion{}, ErrAccountDeletion
 	}
+	var identityErr error
+	identityIntents, identityErr = j.prepareNewsletterTransaction(ctx, tx, operation)
+	if identityErr != nil {
+		return AccountDeletion{}, identityErr
+	}
+	commitAttempted = true
 	if err := tx.Commit().Error; err != nil {
 		return AccountDeletion{}, ErrLifecycleUncertain
 	}
@@ -232,6 +247,9 @@ func (j *LifecycleJournal) deleteAccountLocked(ctx context.Context, userID int64
 	repair, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := j.CommitDeletion(repair, operation); err != nil {
+		return AccountDeletion{}, ErrLifecycleUncertain
+	}
+	if err := j.finishNewsletterTransaction(repair, identityIntents); err != nil {
 		return AccountDeletion{}, ErrLifecycleUncertain
 	}
 	if err := deletionFault(opts, "marker"); err != nil {

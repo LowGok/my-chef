@@ -79,3 +79,6 @@ var WeeklyReminders string
 
 //go:embed 026_reminder_dispatch_expiry.sql
 var ReminderDispatchExpiry string
+
+//go:embed 027_newsletter_identity_minimisation.sql
+var NewsletterIdentityMinimisation string

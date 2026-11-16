@@ -19,7 +19,7 @@ type NewsletterContactAuthority struct {
 	RequestReference string `json:"requestReference"`
 }
 
-func newsletterContactAuthority(tx *gorm.DB, actor NewsletterContactAuthority) error {
+func (s *Store) newsletterContactAuthority(tx *gorm.DB, actor NewsletterContactAuthority) error {
 	if actor.UserID <= 0 || !opaqueLifecycleID(actor.Incarnation) || actor.RequestReference == "" || len(actor.RequestReference) > 128 || strings.ContainsAny(actor.RequestReference, "\r\n") {
 		return ErrAccountAccess
 	}
@@ -27,8 +27,15 @@ func newsletterContactAuthority(tx *gorm.DB, actor NewsletterContactAuthority) e
 	if err != nil || key != actor.EmailKey {
 		return ErrAccountAccess
 	}
+	owner, found, err := s.ResolveEmailOwnerTx(tx.Statement.Context, tx, actor.EmailKey)
+	if err != nil {
+		return err
+	}
+	if !found || owner.ID != actor.UserID || !owner.IsNewsletterOnly {
+		return ErrAccountAccess
+	}
 	var count int64
-	if err := tx.Raw(`SELECT count(*) FROM users u JOIN account_incarnations a ON a.user_id=u.user_id WHERE u.user_id=? AND u.email_key=? AND u.isNewsletterOnly=1 AND a.incarnation=?`, actor.UserID, actor.EmailKey, actor.Incarnation).Scan(&count).Error; err != nil {
+	if err := tx.Raw(`SELECT count(*) FROM account_incarnations WHERE user_id=? AND incarnation=?`, actor.UserID, actor.Incarnation).Scan(&count).Error; err != nil {
 		return err
 	}
 	if count != 1 {
@@ -42,7 +49,7 @@ func (s *Store) ExportNewsletterContact(ctx context.Context, actor NewsletterCon
 	defer s.AccountWork.RUnlock()
 	var output []byte
 	err := s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := newsletterContactAuthority(tx, actor); err != nil {
+		if err := s.newsletterContactAuthority(tx, actor); err != nil {
 			return err
 		}
 		var user User
@@ -50,15 +57,16 @@ func (s *Store) ExportNewsletterContact(ctx context.Context, actor NewsletterCon
 			return err
 		}
 		var consent []struct {
-			Status         string `json:"status"`
-			Locale         string `json:"locale"`
-			ConsentVersion string `json:"consentVersion"`
-			Source         string `json:"source"`
-			RequestedUnix  int64  `json:"requestedUnix"`
-			ConfirmedUnix  *int64 `json:"confirmedUnix"`
-			WithdrawnUnix  *int64 `json:"withdrawnUnix"`
+			Status         string  `json:"status"`
+			Locale         *string `json:"locale"`
+			ConsentVersion string  `json:"consentVersion"`
+			Source         *string `json:"source"`
+			RequestedUnix  *int64  `json:"requestedUnix"`
+			ConfirmedUnix  *int64  `json:"confirmedUnix"`
+			WithdrawnUnix  *int64  `json:"withdrawnUnix"`
+			DecisionUnix   *int64  `json:"decisionUnix"`
 		}
-		if err := tx.Table("newsletter_subscriptions").Select("status,locale,consent_version,source,requested_unix,confirmed_unix,withdrawn_unix").Where("user_id=?", actor.UserID).Find(&consent).Error; err != nil {
+		if err := tx.Table("newsletter_subscriptions").Select("status,locale,consent_version,source,requested_unix,confirmed_unix,withdrawn_unix,decision_unix").Where("user_id=?", actor.UserID).Find(&consent).Error; err != nil {
 			return err
 		}
 		var proofs []struct {
@@ -70,8 +78,12 @@ func (s *Store) ExportNewsletterContact(ctx context.Context, actor NewsletterCon
 		if err := tx.Table("newsletter_proofs").Select("purpose,created_unix,expires_unix,consumed_unix").Where("user_id=?", actor.UserID).Order("created_unix,purpose").Find(&proofs).Error; err != nil {
 			return err
 		}
+		var storedEmail *string
+		if user.Email != "" {
+			storedEmail = Ptr(user.Email)
+		}
 		var err error
-		output, err = json.MarshalIndent(map[string]any{"userID": strconv.FormatInt(user.ID, 10), "email": user.Email, "isNewsletterOnly": true, "subscriptions": consent, "proofHistory": proofs}, "", "  ")
+		output, err = json.MarshalIndent(map[string]any{"userID": strconv.FormatInt(user.ID, 10), "email": storedEmail, "isNewsletterOnly": true, "newsletterMinimised": user.NewsletterMinimised, "verification": map[string]string{"suppliedEmail": actor.EmailKey, "requestReference": actor.RequestReference}, "subscriptions": consent, "proofHistory": proofs}, "", "  ")
 		return err
 	})
 	return output, err
@@ -87,7 +99,7 @@ func (j *LifecycleJournal) EraseNewsletterContact(ctx context.Context, actor New
 	}
 	cleanup := opts.Cleanup
 	opts.Cleanup = func(tx *gorm.DB, user User) error {
-		if err := RecordNewsletterErasure(ctx, tx, rateKey, user.EmailKey); err != nil {
+		if err := RecordNewsletterErasure(ctx, tx, rateKey, actor.EmailKey); err != nil {
 			return err
 		}
 		if cleanup != nil {
@@ -95,7 +107,11 @@ func (j *LifecycleJournal) EraseNewsletterContact(ctx context.Context, actor New
 		}
 		return nil
 	}
-	return j.deleteAccount(ctx, actor.UserID, operation, now, opts, func(tx *gorm.DB) error { return newsletterContactAuthority(tx, actor) })
+	result, err := j.deleteAccount(ctx, actor.UserID, operation, now, opts, func(tx *gorm.DB) error { return j.app.newsletterContactAuthority(tx, actor) })
+	if err == nil && j.app.newsletterJournalRequired.Load() {
+		err = j.CleanupNewsletterFiles(ctx)
+	}
+	return result, err
 }
 
 // ExpireNewsletterContact adds consent-state authority to the normal guarded
@@ -110,7 +126,7 @@ func (j *LifecycleJournal) ExpireNewsletterContact(ctx context.Context, actor Ne
 	}
 	cleanup := opts.Cleanup
 	opts.Cleanup = func(tx *gorm.DB, user User) error {
-		if err := RecordNewsletterErasure(ctx, tx, rateKey, user.EmailKey); err != nil {
+		if err := RecordNewsletterErasure(ctx, tx, rateKey, actor.EmailKey); err != nil {
 			return err
 		}
 		if cleanup != nil {
@@ -119,7 +135,7 @@ func (j *LifecycleJournal) ExpireNewsletterContact(ctx context.Context, actor Ne
 		return nil
 	}
 	return j.deleteAccount(ctx, actor.UserID, operation, now, opts, func(tx *gorm.DB) error {
-		if err := newsletterContactAuthority(tx, actor); err != nil {
+		if err := j.app.newsletterContactAuthority(tx, actor); err != nil {
 			return err
 		}
 		var count int64

@@ -28,12 +28,20 @@ func EmailIdentity(address string) (display, key string, err error) {
 }
 
 // BeforeCreate also covers callers that write users through the shared store.
-func (u *User) BeforeCreate(_ *gorm.DB) error {
+func (u *User) BeforeCreate(tx *gorm.DB) error {
 	display, key, err := EmailIdentity(u.Email)
 	if err != nil {
 		return err
 	}
 	u.Email, u.EmailKey = display, key
+	if err := guardNewsletterIdentityCreate(tx, display); err != nil {
+		return err
+	}
+	if value, ok := tx.Get("mychef:newsletter-store"); ok {
+		if s, ok := value.(*Store); ok {
+			return s.reserveNewsletterCreate(tx, u)
+		}
+	}
 	return nil
 }
 

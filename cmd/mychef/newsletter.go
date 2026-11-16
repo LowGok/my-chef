@@ -75,6 +75,14 @@ func runNewsletter(args []string, input io.Reader, output, diagnostics io.Writer
 	if err := db.CheckSchema(ctx); err != nil {
 		return fail()
 	}
+	identityKey, err := store.DeriveNewsletterIdentityKey(keys.RateKey)
+	if err != nil {
+		return fail()
+	}
+	bound, err := db.ConfigureNewsletterIdentityIfBound(ctx, identityKey)
+	if err != nil {
+		return fail()
+	}
 	journal, err := db.OpenLifecycleJournal(ctx, *journalPath)
 	if err != nil {
 		return fail()
@@ -92,6 +100,17 @@ func runNewsletter(args []string, input io.Reader, output, diagnostics io.Writer
 	}}
 	if err := journal.ReconcileAccountDeletions(ctx, opts); err != nil {
 		return fail()
+	}
+	if err := journal.ReconcileNewsletterIdentityIntents(ctx); err != nil {
+		return fail()
+	}
+	if err := journal.ValidateNewsletterIdentities(ctx); err != nil {
+		return fail()
+	}
+	if bound {
+		if err := journal.CleanupNewsletterFiles(ctx); err != nil {
+			return fail()
+		}
 	}
 	result := map[string]string{"userID": strconv.FormatInt(*userID, 10)}
 	if args[0] == "export" {
