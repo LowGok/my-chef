@@ -253,6 +253,7 @@ class Fixture:
                               'Speech capture timeline mismatch': 'speech-timeline',
                               'Offline model changed': 'speech-model',
                               'Expected one emulator touch device': 'touch-device',
+                              'Expected configured emulator touchscreen': 'touch-reader',
                               'Emulator console authentication refused': 'touch-console-auth',
                               'Emulator hardware command refused': 'touch-console-command',
                               'Owned emulator display unavailable': 'touch-display',

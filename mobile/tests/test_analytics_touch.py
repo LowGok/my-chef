@@ -1,5 +1,7 @@
 """Closed emulator input contracts; these fakes never claim native evidence."""
 import unittest
+import io
+from contextlib import redirect_stdout
 from contextlib import contextmanager
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -70,6 +72,14 @@ class DisplayFocusTest(unittest.TestCase):
 
 
 class KernelGestureTest(unittest.TestCase):
+    def test_reader_failure_diagnostics_never_expose_raw_input_history(self):
+        raw = 'private fixture history must never be printed'
+        output = io.StringIO()
+        with redirect_stdout(output), self.assertRaises(ValueError):
+            touch.reader_touch_devices(raw, diagnostics=True)
+        self.assertNotIn(raw, output.getvalue())
+        self.assertRegex(output.getvalue(), r'^Analytics input reader: bytes=[0-9]+ hubHeaders=0 readerHeaders=0 stage=[0-9]+ hubs=0 readers=0 enabled=0 touch=0 mapped=0\n$')
+
     def test_configured_touchscreen_requires_explicit_reader_to_hub_mapping(self):
         self.assertEqual(touch.reader_touch_devices(READER), {'/dev/input/event7'})
         no_property = PROFILE.replace('INPUT_PROP_DIRECT', '')

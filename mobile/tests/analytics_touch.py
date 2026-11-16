@@ -130,7 +130,20 @@ def focus_display(native):
     return window, width, height
 
 
-def reader_touch_devices(snapshot):
+def reader_touch_devices(snapshot, *, diagnostics=False):
+    bounded = isinstance(snapshot, str) and len(snapshot) <= 524288
+    counts = dict(bytes=len(snapshot) if bounded else 0,
+                  hubHeaders=snapshot.count('Event Hub State:') if bounded else 0,
+                  readerHeaders=snapshot.count('Input Reader State') if bounded else 0,
+                  stage=0, hubs=0, readers=0, enabled=0, touch=0, mapped=0)
+    try:
+        return _reader_touch_devices(snapshot, counts)
+    finally:
+        if diagnostics:
+            print('Analytics input reader: ' + ' '.join(key + '=' + str(value) for key, value in counts.items()), flush=True)
+
+
+def _reader_touch_devices(snapshot, counts):
     """Map Android 13's configured touchscreen sources to enabled kernel nodes.
 
     InputReader IDs are not EventHub IDs. Only its explicit EventHub Devices
@@ -140,11 +153,13 @@ def reader_touch_devices(snapshot):
     message = 'Expected configured emulator touchscreen'
     if not isinstance(snapshot, str) or len(snapshot) > 524288:
         raise ValueError(message)
+    counts['stage'] = 1
     sections = re.split(r'(?m)^(?=\S)', snapshot)
     hubs = [part for part in sections if part.startswith('Event Hub State:\n')]
     readers = [part for part in sections if re.match(r'Input Reader State(?: \([^\n]*\))?:\n', part)]
     if len(hubs) != 1 or len(readers) != 1:
         raise ValueError(message)
+    counts['stage'] = 2
     paths = {}
     for block in re.split(r'(?m)(?=^    [0-9]+: )', hubs[0])[1:]:
         header = re.match(r'    ([0-9]{1,6}): [^\n]*\n', block)
@@ -154,26 +169,37 @@ def reader_touch_devices(snapshot):
         enabled = re.findall(r'^      Enabled: (true|false)$', block, re.M)
         # Virtual/non-event devices are excluded; duplicate IDs remain refused.
         paths[int(header[1])] = fields[0] if len(fields) == 1 and enabled == ['true'] else None
+        counts['hubs'] += 1
+        counts['enabled'] += int(paths[int(header[1])] is not None)
+    counts['stage'] = 3
     result, seen = set(), set()
     for block in re.split(r'(?m)(?=^  Device [0-9]+: )', readers[0])[1:]:
         header = re.match(r'  Device ([0-9]{1,6}): [^\n]*\n', block)
         if header is None or int(header[1]) in seen or len(seen) >= 128:
             raise ValueError(message)
         seen.add(int(header[1]))
+        counts['readers'] += 1
         sources = re.findall(r'^    Sources: 0x([0-9a-fA-F]{8})$', block, re.M)
         if len(sources) != 1:
             raise ValueError(message)
         if int(sources[0], 16) & 0x00001002 != 0x00001002:
             continue
+        counts['touch'] += 1
+        counts['stage'] = 4
         mappings = re.findall(r'^    EventHub Devices: \[([ 0-9,]+)\] *$', block, re.M)
         if len(mappings) != 1 or not re.fullmatch(r'\s*[0-9]{1,6}(?:[ ,]+[0-9]{1,6})*\s*', mappings[0]):
             raise ValueError(message)
         ids = [int(value) for value in re.findall(r'[0-9]+', mappings[0])]
+        counts['stage'] = 5
         if len(ids) != len(set(ids)) or any(paths.get(value) is None for value in ids):
             raise ValueError(message)
         result.update(paths[value] for value in ids)
+        counts['mapped'] = len(result)
+        counts['stage'] = 3
+    counts['stage'] = 6
     if not 1 <= len(result) <= 16:
         raise ValueError(message)
+    counts['stage'] = 7
     return result
 
 
@@ -276,7 +302,7 @@ def gesture(kind, native):
     if native.command(adb, '-s', 'emulator-5554', 'shell', 'id', '-u', timeout=10) != '0':
         raise RuntimeError('Emulator touchscreen writer is not rooted')
     reader_paths = reader_touch_devices(native.command(
-        adb, '-s', 'emulator-5554', 'shell', 'dumpsys', '-t', '5', 'input', timeout=10))
+        adb, '-s', 'emulator-5554', 'shell', 'dumpsys', '-t', '5', 'input', timeout=10), diagnostics=True)
     device = select_touch_device(native.command(adb, '-s', 'emulator-5554', 'shell', 'getevent', '-lp', timeout=10),
                                  reader_paths=reader_paths, diagnostics=True)
     print('Analytics kernel touchscreen gesture: ' + kind, flush=True)
