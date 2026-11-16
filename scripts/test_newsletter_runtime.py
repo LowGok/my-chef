@@ -130,6 +130,14 @@ def main():
         seed_env = dict(env, MYCHEF_NEWSLETTER_REHEARSAL_DIR=directory)
         run("go", "test", "./cmd/mychef", "-run", "^TestNewsletterRehearsalSeed$", "-count=1", settings=seed_env)
         authority = json.loads((state / "authority.json").read_text())
+        original_keys = keys.read_bytes()
+        changed_keys = json.loads(original_keys)
+        changed_keys["rate_key"] = key()
+        replaced = state / "changed-keys.json"
+        replaced.write_text(json.dumps(changed_keys))
+        run(binary, "newsletter", "serve", settings=dict(env, MYCHEF_EMAIL_PROOF_KEYS_FILE=str(replaced)), ok=False)
+        checks.append("changed stable key refuses startup without rebinding")
+
         with server() as settings:
             report = call("/internal/newsletter/readiness")
             assert report["role"] == "newsletter" and report["mode"] == "fixture" and not report["ready"]
@@ -141,8 +149,16 @@ def main():
             for path in ("/app/", "/api/v1/login", "/api/native/v1/login", "/fixture/inbox", "/api/v1/webhooks/email"):
                 call(path, expected=404)
         checks.append("paused vector, protected operator route, proof confirmation and process locks")
+        # Preserve genuinely issued-but-expired account work in the old copy.
+        # The restore command itself must remove it before any server can sweep.
+        expired_canary = "expired-signup-runtime-canary@example.test"
+        sql("INSERT INTO signup_proofs VALUES('restore-expired','restore-expired-hash','restore-expired-tag',2,NULL,?)", (expired_canary,))
+        sql("INSERT INTO email_outbox(key,recipient,template,data,state,next_at,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)",
+            ("signup/restore-expired", expired_canary, "signup-proof/v1", '{"expires":2}', "accepted", 1, 1, 1))
         snapshot = state / "before-erasure.db"
         run(migrate, "backup", "--db", db, "--lifecycle-db", journal, "--file", snapshot)
+        assert expired_canary.encode() in snapshot.read_bytes()
+        snapshot_digest = hashlib.sha256(snapshot.read_bytes()).digest()
         with server(collect="1"):
             assert call("/internal/newsletter/readiness")["ready"]
             assert call("/api/v1/newsletter/subscribe", {"email": "captured@runtime.example.test", "locale": "nl-BE",
@@ -159,6 +175,23 @@ def main():
             assert sql("SELECT user_id FROM users WHERE email_key='captured@runtime.example.test'")[0][0] == captured
             assert sql("SELECT attempts FROM email_outbox WHERE recipient='captured@runtime.example.test'") == [(1,)]
             call("/api/v1/newsletter/unsubscribe", {"proof": authority["pending"]["unsubscribe"]})
+            # Prove the actual one-minute scheduler, rather than a direct sweep
+            # helper. The still-authorized captured contact is the control.
+            deadline = time.monotonic() + 80
+            while time.monotonic() < deadline:
+                reduced = sql("SELECT newsletter_minimised,email,email_key,username FROM users WHERE user_id=?",
+                              (authority["pending"]["userID"],))
+                flags = sql("SELECT physical_cleanup_pending,legacy_vacuum_pending FROM newsletter_identity_namespace")
+                if reduced == [(1, None, None, None)] and flags == [(0, 0)]:
+                    break
+                time.sleep(.25)
+            else:
+                raise AssertionError("one-minute inactive cleanup did not complete")
+            for suffix in ("", "-wal", "-shm"):
+                active = Path(str(db) + suffix)
+                assert not active.exists() or b"pending@runtime.example.test" not in active.read_bytes(), "obsolete plaintext in active files"
+            assert sql("SELECT user_id FROM users WHERE email_key='captured@runtime.example.test'") == [(captured,)]
+        checks.append("actual one-minute cleanup, active-file removal and authorized control")
         checks.append("backend-only activation, fake dispatch, stable ID/restart, pause and withdrawal")
         target = authority["erased"]
         actor = json.dumps(target["authority"]).encode()
@@ -169,25 +202,32 @@ def main():
         run(binary, "newsletter", "erase", *flags, data=actor)
         restored = state / "restored.db"
         run(migrate, "restore", "--db", restored, "--lifecycle-db", journal, "--file", snapshot)
+        assert hashlib.sha256(snapshot.read_bytes()).digest() == snapshot_digest, "retained source changed"
+        assert sql("SELECT count(*) FROM signup_proofs WHERE id='restore-expired'", database=restored) == [(0,)]
+        assert sql("SELECT count(*) FROM email_outbox WHERE key='signup/restore-expired'", database=restored) == [(0,)]
+        for suffix in ("", "-wal", "-shm"):
+            active = Path(str(restored) + suffix)
+            assert not active.exists() or expired_canary.encode() not in active.read_bytes(), "restore published expired account plaintext"
+        checks.append("restore expires issued account proof/mail before publication; source unchanged")
         with server(restored):
             assert sql("SELECT count(*) FROM users WHERE user_id=?", (target["userID"],), restored) == [(0,)]
             for name in ("pending", "withdrawn"):
                 item = authority[name]
-                assert sql("SELECT status FROM newsletter_subscriptions WHERE user_id=?", (item["userID"],), restored) == [("pending",)]
+                assert sql("SELECT status FROM newsletter_subscriptions WHERE user_id=?", (item["userID"],), restored) == [("unsubscribed",)]
                 for action in ("confirm", "unsubscribe"):
                     # Consumed withdrawal is an idempotent acknowledgement; it
                     # must have no authority to mutate the restored subscription.
                     call("/api/v1/newsletter/" + action, {"proof": item[action]},
                          expected=400 if action == "confirm" else 200)
                     assert sql("SELECT status FROM newsletter_subscriptions WHERE user_id=?",
-                               (item["userID"],), restored) == [("pending",)]
+                               (item["userID"],), restored) == [("unsubscribed",)]
             assert sql("SELECT count(*) FROM email_outbox WHERE state IN ('queued','sending')", database=restored) == [(0,)]
         checks.append("protected export/erase, authoritative restore replay and old-link suppression")
         # A wrong-purpose queue row stops the actual role worker and capture.
-        with server():
+        with server(restored):
             now = int(time.time())
             sql("INSERT INTO email_outbox(key,recipient,template,data,state,next_at,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)",
-                ("wrong-purpose", "synthetic@runtime.example.test", "provider-smoke-test/v1", "{}", "queued", now, now, now))
+                ("wrong-purpose", "synthetic@runtime.example.test", "provider-smoke-test/v1", "{}", "queued", now, now, now), database=restored)
             for _ in range(200):
                 report = call("/internal/newsletter/readiness")
                 if not report["checks"]["worker"]:
@@ -196,8 +236,8 @@ def main():
             else:
                 raise AssertionError("wrong-purpose dispatch did not fail readiness")
             call("/api/v1/newsletter/subscribe", {}, expected=503)
-            assert sql("SELECT state,reason,attempts FROM email_outbox WHERE key='wrong-purpose'") == [("failed", "newsletter_role_template", 0)]
-        with server():
+            assert sql("SELECT state,reason,attempts FROM email_outbox WHERE key='wrong-purpose'", database=restored) == [("failed", "newsletter_role_template", 0)]
+        with server(restored):
             assert not call("/internal/newsletter/readiness")["ready"]
         checks.append("failed worker fences capture and compatible paused restart recovers")
         assert token.encode() not in (state / "process.log").read_bytes(), "credential in diagnostics"

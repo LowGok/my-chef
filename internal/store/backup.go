@@ -143,10 +143,11 @@ func (s *Store) writeSnapshot(ctx context.Context, temp string, upgrade bool, pr
 // An older supported snapshot is upgraded on a temporary copy before publication.
 // Hold the application lock so a concurrently starting server cannot use it.
 type AccountRestoreOptions struct {
-	Analytics   *analytics.OpenOptions
-	JournalPath string
-	TraceRoot   string
-	Cleanup     func(context.Context, *gorm.DB, User) error
+	NewsletterIdentityKey *NewsletterIdentityKey
+	Analytics             *analytics.OpenOptions
+	JournalPath           string
+	TraceRoot             string
+	Cleanup               func(context.Context, *gorm.DB, User) error
 }
 
 func Restore(ctx context.Context, backup, destination string, options ...AccountRestoreOptions) error {
@@ -207,6 +208,11 @@ func Restore(ctx context.Context, backup, destination string, options ...Account
 	if err != nil {
 		return err
 	}
+	newsletterBound, bindErr := journal.newsletterRestoreBinding(ctx, opts.NewsletterIdentityKey)
+	if bindErr != nil {
+		_ = journal.Close()
+		return bindErr
+	}
 	if err = journal.ReconcileIntents(ctx); err != nil {
 		_ = journal.Close()
 		return err
@@ -224,6 +230,15 @@ func Restore(ctx context.Context, backup, destination string, options ...Account
 		if opts.Cleanup != nil {
 			deletion.Cleanup = func(tx *gorm.DB, u User) error { return opts.Cleanup(ctx, tx, u) }
 		}
+		if newsletterBound {
+			if err := copy.ConfigureNewsletterIdentity(ctx, opts.NewsletterIdentityKey); err != nil {
+				// An older unbound SQL snapshot is installed only from the already
+				// authenticated current journal, never from replacement key material.
+				if err := paired.InitializeNewsletterIdentity(ctx, opts.NewsletterIdentityKey); err != nil {
+					return err
+				}
+			}
+		}
 		if err := paired.ReconcileAccountDeletions(ctx, deletion); err != nil {
 			return err
 		}
@@ -239,6 +254,11 @@ func Restore(ctx context.Context, backup, destination string, options ...Account
 				return e
 			}
 		}
+		if newsletterBound {
+			if err := paired.RestoreNewsletterIdentities(ctx, opts.NewsletterIdentityKey); err != nil {
+				return err
+			}
+		}
 		var billingActivity bool
 		if err := paired.store.SQL.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM billing_attempts)`).Scan(&billingActivity); err != nil {
 			return ErrLifecycleJournal
@@ -246,8 +266,10 @@ func Restore(ctx context.Context, backup, destination string, options ...Account
 		// Old snapshots must never resurrect consumed refresh credentials.
 		// The trigger also removes native access actors and their anchors.
 		if err := copy.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-			if err := resetRestoredNewsletter(ctx, tx, time.Now().UTC()); err != nil {
-				return err
+			if !newsletterBound {
+				if err := resetRestoredNewsletter(ctx, tx, time.Now().UTC()); err != nil {
+					return err
+				}
 			}
 			if err := tx.Exec("DELETE FROM native_families").Error; err != nil {
 				return err

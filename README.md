@@ -207,12 +207,57 @@ mail. Expired queued requests and confirmation proposals/mail are invalidated
 without deleting the contact. Current withdrawal links remain available until
 invalidated by a later consent/identity decision or erasure.
 
-The worker checks expiry hourly in batches of at most 100 contacts. With a finite policy, pending and
+Generic finite-policy deployments check expiry hourly in batches of at most 100
+contacts. The explicitly bound MyChef namespace drains bounded batches at startup
+and on a one-minute schedule. With a finite policy, pending and
 withdrawn contact erasure rechecks the exact email, incarnation, account type,
 consent status, revision and cutoff inside the lifecycle deletion transaction.
 Confirmed contacts and promoted app users remain governed by their own request
 process. Explicit verified erasure remains available under every policy.
 Expired queued requests are removed. Routine tests use fake delivery.
+
+### Minimized inactive identities
+
+Schema 27 is additive and preserves published migrations and account IDs. With
+the selected `none`/`none` policy, an inactive newsletter-only row keeps its ID,
+incarnation and non-consenting choice. Its unnecessary `email`, `email_key` and
+opaque placeholder `username` become SQL NULL. No address is fabricated. Current
+confirmation, signup, verification, email-change or recovery authority defers
+removal of fields it still needs; confirmed subscribers and full app accounts
+retain their required addresses and account data.
+
+| Stored data | Purpose and lifetime |
+| --- | --- |
+| User ID, incarnation, classification and minimized flag | Stable identity, admission and erasure; no automatic age deletion under the selected policy |
+| `newsletter_identity_matches` version and purpose-keyed address tag | Resolve a newly supplied canonical mailbox to the same reduced contact; remove the active match on promotion, verified address change/retirement or erasure |
+| Subscription status, revision/order, current notice and decision evidence | Prevent consent replay and preserve the latest choice; remove redundant clear address, locale/source and obsolete request/confirmation history when authority ends |
+| Withdrawal hash, ID/incarnation, key version/tag and revision | Keep still-valid withdrawal usable without an age limit; consumed retry metadata may be removed after 24 hours |
+| Protected request/proposal and purpose-owned mail work | Request queue30 minutes, confirmation/signup authority24 hours and mail retry23 hours; ended payload, recipient/fingerprint and provider references are removed in bounded maintenance |
+| Independent journal version3 | Immutable key binding, complete current identity registry, opaque app ownership epochs, ID high-water, current consent evidence and prepared/checkpoint state; no clear email, profile, message or proof body |
+
+The matching tag remains personal data. It uses a separate HMAC-SHA256 domain
+derived from the existing stable rate root, not an unkeyed email hash. Only the
+immutable v1 key is supported. A missing, changed or unsupported key refuses
+matching, creation and readiness; restore the approved existing key rather than
+silently replacing it. An ordinary full account with no newsletter-only origin
+does not gain an invented historical address or ownership record.
+
+Use the same protected key file and role environment (`none`/`none`, exact origin
+and notice version) for explicit `mychef-migrate up`. It initializes/resumes the
+journal binding and current-contact backfill. A completed registry refuses late
+adoption of an unknown old placeholder. Runtime startup only validates an
+existing binding; it never initializes or rotates one. Generic finite-policy
+stores keep their existing behavior; the minimized newsletter-only role refuses
+an incompatible policy change.
+
+Every writable connection reads back `secure_delete=ON`. Initial legacy cleanup
+and restored working copies use bounded VACUUM and a checked truncating WAL
+checkpoint; later cleanup uses secure deletion and truncation. Logical changes
+persist a physical-pending marker. A busy reader, storage failure or interrupted
+attempt retains it, pauses capture and retries; healthy withdrawal authority
+remains available. Each physical attempt has a five-second bound. Completion
+covers the managed active DB/WAL/SHM files, not discarded storage blocks, RAM,
+historical backups or the provider's separately assessed retention.
 
 ### Production readiness and sender setup
 
@@ -288,27 +333,45 @@ the mail worker has stopped, restart the service after reconciliation.
 An older backup's missing receipt is not evidence that an intent was rolled back.
 Restore refuses unresolved intents rather than publishing an uncertain database.
 
-Every database restore resets surviving newsletter subscriptions to pending
-before publishing the restored copy. It invalidates previous newsletter proofs,
-queued capture requests and newsletter email links, while preserving app userIDs,
-credentials, account classification and data. Ordinary app email is unaffected.
-Historical consent timestamps remain historical; recovery records no new opt-in
-or subscriber-initiated withdrawal. Contact retention keeps the original request
-age, so restore does not extend the approved retention period.
+A restore uses the current independent journal and existing protected key. In a
+bound namespace, its latest withdrawal and allocated ID high-water override an
+older SQL copy. Missing reduced contacts are reconstructed with the same ID and
+incarnation, without guessing an address. Confirmed subscriptions require a
+fresh request and confirmation. A known app account cannot be downgraded to a
+placeholder or an older mailbox epoch; an unsuitable snapshot is refused without
+discarding credentials/profile or publishing the destination. Generic unbound
+stores retain their existing conservative pending reset.
 
-Restore sends no automatic emails. A reader must submit a fresh newsletter
-request and confirm the new link before becoming eligible again. Signing into
-the app does not restore newsletter consent. Take a verified database/journal
-backup before an approved migration, retain schema-compatible code for rollback,
-and do not downgrade to pre-newsletter code with live contact records. Recovery
-verification uses disposable SQL, fake delivery and crash/failure injection.
+Restore prepares and sanitizes an unpublished working copy. The retained source
+snapshot stays byte-identical. Before publication, the same bounded account-work
+expiry used by maintenance removes expired issued signup, verification,
+email-change and recovery proofs/jobs and their purpose-owned mail/provider
+references, then completes active-file cleanup. Current account work and ordinary
+mail remain. Old confirmation/capture work and unissued signup requests cannot
+replay; no mail is sent automatically. Recognizable current
+withdrawal hashes for an unchanged mailbox remain usable. Superseded revisions
+are acknowledgments with no authority to change later consent, and stale mailbox
+bindings are discarded. A proof absent from the retained snapshot cannot be
+recreated. Signing into the app does not grant newsletter consent.
+
+Keep a verified SQL snapshot, the current authoritative journal and protected
+keys under their approved access/expiry rules. Restore into a separate target
+and use the current journal, never an older journal copied alongside the SQL
+snapshot. For a rehearsal, use a verified current journal copy while preserving
+the production authority. Do not replace the namespace with an old raw SQL file
+or downgrade to code that cannot read schema27/journal3. A direct stale copy
+refuses validation; use explicit recovery and forward repair. No forensic or
+provider-deletion guarantee follows from these active-file checks.
 
 ### Contact export and erasure
 
 Verify mailbox ownership through the operator's established request procedure.
 Record its opaque request reference. In a maintenance window with the app
 stopped, use the protected SQL connection to select the exact allocated ID,
-normalized email key and `account_incarnations.incarnation`. Place that
+canonical address supplied by the verified requester and
+`account_incarnations.incarnation`. A reduced row has no clear stored mailbox;
+resolve that supplied address with the protected identity resolver and validate
+the exact current ID/incarnation. Place that
 verified authority in a permission-0600 file outside source control.
 
 ```json
@@ -328,7 +391,9 @@ mychef newsletter erase --db /data/mychef.db --lifecycle-db /journal/mychef.life
 ```
 
 Export creates a new permission-0600 file and refuses an existing destination.
-Its contents include the contact's email, userID and consent/proof-time history.
+Its contents identify the actual stored fields and current consent/proof evidence.
+A reduced contact's stored email and removed optional fields are NULL; the newly
+supplied verification address is explicitly separate.
 Erasure records the independent lifecycle receipt and prevents older queued
 capture from recreating the identity. Changed email/incarnation and promoted
 app accounts fail contact authority. Console results contain opaque IDs and

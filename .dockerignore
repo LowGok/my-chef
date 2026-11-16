@@ -364,3 +364,15 @@ internal/billing/**
 !internal/billing/apple_attest_enrollment.go
 !internal/billing/apple_attest_registry.go
 !internal/billing/apple_app_attestation_root.pem
+
+!migrations/027_newsletter_identity_minimisation.sql
+!internal/store/account_restore.go
+!internal/store/newsletter_minimisation_schema.go
+!internal/store/newsletter_identity.go
+!internal/store/newsletter_identity_journal.go
+!internal/store/newsletter_identity_transaction.go
+!internal/store/newsletter_identity_backfill.go
+!internal/store/newsletter_file_cleanup.go
+!internal/newsletter/minimisation.go
+!internal/newsletter/maintenance.go
+!internal/email/mailqueue/account_expiry.go

@@ -185,7 +185,7 @@ func TestPersonalPhotoJournalUpgradeIsExplicitAndPreservesRegistry(t *testing.T)
 	}
 	defer func() { _ = j.Close() }()
 	var version int
-	if err := j.store.SQL.QueryRow("SELECT version FROM lifecycle_journal_meta").Scan(&version); err != nil || version != 2 {
+	if err := j.store.SQL.QueryRow("SELECT version FROM lifecycle_journal_meta").Scan(&version); err != nil || version != 3 {
 		t.Fatal("journal type extension not versioned", err)
 	}
 	work, err := j.WorkFor(ctx, incarnation)

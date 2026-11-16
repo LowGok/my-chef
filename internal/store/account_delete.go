@@ -109,9 +109,11 @@ func (j *LifecycleJournal) DeleteAccount(ctx context.Context, actor AccountActor
 	if confirmation != "DELETE" || !opaqueLifecycleID(operation) {
 		return AccountDeletion{}, ErrAccountConfirmation
 	}
-	return j.deleteAccount(ctx, actor.UserID, operation, now, opts, func(tx *gorm.DB) error {
-		return accountAuthority(tx, actor, now)
-	})
+	result, err := j.deleteAccount(ctx, actor.UserID, operation, now, opts, func(tx *gorm.DB) error { return accountAuthority(tx, actor, now) })
+	if err == nil && j.app.newsletterJournalRequired.Load() {
+		err = j.CleanupNewsletterFiles(ctx)
+	}
+	return result, err
 }
 
 func (j *LifecycleJournal) deleteAccount(ctx context.Context, userID int64, operation string, now time.Time, opts AccountDeletionOptions, authorize func(*gorm.DB) error) (AccountDeletion, error) {
@@ -145,6 +147,9 @@ func (j *LifecycleJournal) deleteAccount(ctx context.Context, userID int64, oper
 	return j.deleteAccountLocked(ctx, userID, operation, now, opts, authorize)
 }
 func (j *LifecycleJournal) deleteAccountLocked(ctx context.Context, userID int64, operation string, now time.Time, opts AccountDeletionOptions, authorize func(*gorm.DB) error) (AccountDeletion, error) {
+	if j.app.newsletterJournalRequired.Load() {
+		ctx = j.app.newsletterTransactionContext(ctx)
+	}
 	var progress accountDeletionProgress
 	err := j.app.DB.WithContext(ctx).Connection(func(conn *gorm.DB) error {
 		return j.purgeAccountOnConnection(ctx, conn, userID, operation, now, opts, authorize, &progress)
@@ -154,6 +159,7 @@ func (j *LifecycleJournal) deleteAccountLocked(ctx context.Context, userID int64
 			repair, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			_ = j.cancelRolledBackDeletion(repair, operation)
+			_ = j.cancelNewsletterTransaction(repair, progress.identityIntents)
 		}
 		return AccountDeletion{}, err
 	}
@@ -166,6 +172,9 @@ func (j *LifecycleJournal) deleteAccountLocked(ctx context.Context, userID int64
 	if err := j.CommitDeletion(repair, operation); err != nil {
 		return AccountDeletion{}, ErrLifecycleUncertain
 	}
+	if err := j.finishNewsletterTransaction(repair, progress.identityIntents); err != nil {
+		return AccountDeletion{}, ErrLifecycleUncertain
+	}
 	if err := deletionFault(opts, "marker"); err != nil {
 		return AccountDeletion{}, ErrLifecycleUncertain
 	}
@@ -175,6 +184,7 @@ func (j *LifecycleJournal) deleteAccountLocked(ctx context.Context, userID int64
 type accountDeletionProgress struct {
 	incarnation          string
 	prepared, rolledBack bool
+	identityIntents      []NewsletterIdentityIntent
 }
 
 func (j *LifecycleJournal) purgeAccountOnConnection(ctx context.Context, conn *gorm.DB, userID int64, operation string, now time.Time, opts AccountDeletionOptions, authorize func(*gorm.DB) error, progress *accountDeletionProgress) error {
@@ -194,6 +204,7 @@ func (j *LifecycleJournal) purgeAccountOnConnection(ctx context.Context, conn *g
 	if tx.Error != nil {
 		return ErrAccountDeletion
 	}
+	TrackNewsletterIdentity(tx, userID)
 	commitAttempted := false
 	defer func() {
 		if !commitAttempted {
@@ -261,6 +272,10 @@ func (j *LifecycleJournal) purgeAccountOnConnection(ctx context.Context, conn *g
 	}
 	if err := deletionFault(opts, "proof"); err != nil {
 		return ErrAccountDeletion
+	}
+	progress.identityIntents, err = j.prepareNewsletterTransaction(ctx, tx, operation)
+	if err != nil {
+		return err
 	}
 	commitAttempted = true
 	if err := tx.Commit().Error; err != nil {

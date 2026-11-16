@@ -58,6 +58,10 @@ func (s *Service) expireTransient(ctx context.Context, now time.Time) error {
 	if s.Lifecycle != nil && s.Lifecycle.CheckReady(ctx) != nil {
 		return ErrUnavailable
 	}
+	return s.expireTransientOwned(ctx, now)
+}
+
+func (s *Service) expireTransientOwned(ctx context.Context, now time.Time) error {
 	return s.Store.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Exec("DELETE FROM newsletter_requests WHERE expires_unix<=?", now.Unix()).Error; err != nil {
 			return err
@@ -79,10 +83,22 @@ func (s *Service) expireTransient(ctx context.Context, now time.Time) error {
 }
 
 func (s *Service) RunSweep(ctx context.Context, journal *store.LifecycleJournal, pendingDays, withdrawnDays config.NewsletterRetention, opts store.AccountDeletionOptions) error {
-	ticker := time.NewTicker(time.Hour)
+	interval := time.Hour
+	key, err := store.DeriveNewsletterIdentityKey(s.RateKey)
+	if err != nil {
+		return err
+	}
+	bound, err := s.Store.ConfigureNewsletterIdentityIfBound(ctx, key)
+	if err != nil {
+		return err
+	}
+	if bound {
+		interval = time.Minute
+	}
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
-		if err := s.Sweep(ctx, journal, pendingDays, withdrawnDays, opts); err != nil {
+		if err := s.Maintain(ctx, journal, pendingDays, withdrawnDays, opts); err != nil && !errors.Is(err, ErrPhysicalCleanupPending) {
 			return err
 		}
 		select {

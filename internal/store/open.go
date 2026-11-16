@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 
 	"github.com/LowGok/my-chef/internal/analytics"
 	"github.com/ncruces/go-sqlite3/gormlite"
@@ -15,12 +16,15 @@ import (
 )
 
 type Store struct {
-	Analytics   *analytics.Service
-	AccountWork sync.RWMutex
-	DB          *gorm.DB
-	SQL         *sql.DB
-	Path        string
-	identity    os.FileInfo
+	Analytics                 *analytics.Service
+	AccountWork               sync.RWMutex
+	newsletterIdentity        atomic.Pointer[NewsletterIdentityKey]
+	newsletterJournalRequired atomic.Bool
+	newsletterJournal         atomic.Pointer[LifecycleJournal]
+	DB                        *gorm.DB
+	SQL                       *sql.DB
+	Path                      string
+	identity                  os.FileInfo
 }
 
 func Open(path string, create bool) (*Store, error) {
@@ -52,7 +56,7 @@ func open(path string, create, readOnly bool) (*Store, error) {
 		}
 	}
 	u := url.URL{Scheme: "file", Path: absolute}
-	q := url.Values{"_pragma": {"busy_timeout(5000)", "foreign_keys(1)", "journal_mode(WAL)", "synchronous(FULL)"}, "_txlock": {"immediate"}}
+	q := url.Values{"_pragma": {"busy_timeout(5000)", "foreign_keys(1)", "journal_mode(WAL)", "synchronous(FULL)", "secure_delete(ON)"}, "_txlock": {"immediate"}}
 	if !create {
 		q.Set("mode", "rw")
 	}
@@ -75,12 +79,29 @@ func open(path string, create, readOnly bool) (*Store, error) {
 		_ = pool.Close()
 		return nil, fmt.Errorf("database foreign keys unavailable")
 	}
+	if !readOnly {
+		var secure int
+		if err := pool.QueryRow("PRAGMA secure_delete").Scan(&secure); err != nil || secure != 1 {
+			_ = pool.Close()
+			return nil, fmt.Errorf("database secure deletion unavailable")
+		}
+	}
 	identity, err := os.Stat(absolute)
 	if err != nil {
 		_ = pool.Close()
 		return nil, err
 	}
-	return &Store{DB: db, SQL: pool, Path: absolute, identity: identity}, nil
+	s := &Store{DB: db, SQL: pool, Path: absolute, identity: identity}
+	if err := db.Callback().Create().Before("gorm:before_create").Register("mychef:newsletter-identity-key", func(tx *gorm.DB) {
+		if tx.Statement.Table == "users" {
+			tx.Statement.Settings.Store(newsletterIdentitySetting, &s.newsletterIdentity)
+			tx.Statement.Settings.Store("mychef:newsletter-store", s)
+		}
+	}); err != nil {
+		_ = pool.Close()
+		return nil, err
+	}
+	return s, nil
 }
 
 func (s *Store) Close() error { return s.SQL.Close() }

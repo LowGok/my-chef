@@ -240,12 +240,11 @@ func (s *SignUp) Step(ctx context.Context) (bool, error) {
 		if erased {
 			return tx.Delete(&job).Error
 		}
-		var owner store.User
-		err = tx.Where("email_key=?", draft.EmailKey).Take(&owner).Error
-		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		owner, found, err := s.Store.ResolveEmailOwnerTx(ctx, tx, draft.Email)
+		if err != nil {
 			return err
 		}
-		if errors.Is(err, gorm.ErrRecordNotFound) || owner.IsNewsletterOnly {
+		if !found || owner.IsNewsletterOnly {
 			if !draft.NewsletterBound {
 				draft.NewsletterBound = true
 				if err := tx.Raw("SELECT value FROM newsletter_sequence WHERE singleton=1").Scan(&draft.NewsletterOrder).Error; err != nil {
@@ -260,6 +259,18 @@ func (s *SignUp) Step(ctx context.Context) (bool, error) {
 			}
 			if err := s.issue(ctx, tx, now, job.ID, draft); err != nil {
 				return err
+			}
+			if draft.ContactID != 0 {
+				if err := tx.Exec("INSERT INTO account_signup_owners(proof_id,incarnation) VALUES(?,?) ON CONFLICT(proof_id) DO NOTHING", job.ID, draft.ContactIncarnation).Error; err != nil {
+					return err
+				}
+				var outboxID int64
+				if err := tx.Raw("SELECT id FROM email_outbox WHERE key=?", "signup/"+job.ID).Row().Scan(&outboxID); err != nil {
+					return err
+				}
+				if err := store.LinkAccountMail(tx, draft.ContactID, outboxID); err != nil {
+					return err
+				}
 			}
 		}
 		return tx.Delete(&job).Error
@@ -380,13 +391,13 @@ func (s *SignUp) Complete(ctx context.Context, anonymousToken string, input Sign
 	if err != nil {
 		return ErrSignUpUnavailable
 	}
-	s.Store.AccountWork.RLock()
-	defer s.Store.AccountWork.RUnlock()
+	s.Store.AccountWork.Lock()
+	defer s.Store.AccountWork.Unlock()
 	if s.Lifecycle != nil && s.Lifecycle.CheckReady(ctx) != nil {
 		return ErrSignUpUnavailable
 	}
 	run := func() error {
-		return s.Store.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		return s.Store.NewsletterTransaction(ctx, s.Lifecycle, func(tx *gorm.DB) error {
 			now := s.now()
 			var session store.Session
 			err := tx.Where("hash = ? AND user_id IS NULL AND expires_unix > ?", Hash(anonymousToken), now.Unix()).Take(&session).Error
@@ -410,10 +421,9 @@ func (s *SignUp) Complete(ctx context.Context, anonymousToken string, input Sign
 			prefs, _ := json.Marshal(domain.EmptyPreferences())
 			user := store.User{Email: draft.Email, EmailVerifiedAt: store.Ptr(now.Unix()), Password: credential,
 				Username: input.Username, FirstName: input.FirstName, LastName: input.LastName, PreferencesJSON: store.Ptr(string(prefs))}
-			var owner store.User
-			lookup := tx.Where("email_key=?", draft.EmailKey).Take(&owner).Error
+			owner, found, lookup := s.Store.ResolveEmailOwnerTx(ctx, tx, draft.Email)
 			switch {
-			case lookup == nil:
+			case lookup == nil && found:
 				if !owner.IsNewsletterOnly || !draft.NewsletterBound || draft.ContactID != 0 && draft.ContactID != owner.ID {
 					return ErrSignUpProof
 				}
@@ -424,11 +434,12 @@ func (s *SignUp) Complete(ctx context.Context, anonymousToken string, input Sign
 					}
 				}
 				user.ID = owner.ID
-				err = tx.Model(&owner).Where("isNewsletterOnly=1 AND email_key=?", draft.EmailKey).Updates(map[string]any{
-					"isNewsletterOnly": false, "email": draft.Email, "email_verified_at": now.Unix(), "password": credential,
+				store.TrackNewsletterIdentity(tx, owner.ID)
+				err = tx.Model(&owner).Where("isNewsletterOnly=1").Updates(map[string]any{
+					"isNewsletterOnly": false, "newsletter_minimised": false, "email_key": draft.EmailKey, "email": draft.Email, "email_verified_at": now.Unix(), "password": credential,
 					"username": input.Username, "firstname": input.FirstName, "lastname": input.LastName, "preferences_json": string(prefs),
 				}).Error
-			case errors.Is(lookup, gorm.ErrRecordNotFound):
+			case lookup == nil && !found:
 				if draft.ContactID != 0 {
 					return ErrSignUpProof
 				}
