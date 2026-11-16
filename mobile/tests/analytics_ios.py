@@ -213,6 +213,9 @@ def run(state, control, account, identifier, container, layout_only=False, voice
             candidates = re.findall(r'Analytics iOS spoken candidate without role: on=(true|false) off=(true|false)', text)
             if candidates:
                 detail += '; spoken candidate without role on/off ' + ', '.join('/'.join(row) for row in candidates[-4:])
+            containers = re.findall(r'Analytics iOS spoken container: privacy=(true|false) label=(true|false) depth=([0-3])', text)
+            if containers:
+                detail += '; container privacy/label/depth ' + ','.join('/'.join(row) for row in containers[-6:])
             voice_errors = re.findall(r'Analytics iOS voice API error: ([0-9]{1,2}|other)', text)
             if voice_errors:
                 detail += '; voice API error codes ' + ','.join(sorted(set(voice_errors)))

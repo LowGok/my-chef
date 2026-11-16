@@ -161,10 +161,12 @@ def _reader_touch_devices(snapshot, counts, *, diagnostics=False):
         raise ValueError(message)
     counts['stage'] = 2
     paths, disabled, aliases = {}, set(), set()
-    for block in re.split(r'(?m)(?=^    [0-9]+: )', hubs[0])[1:]:
-        header = re.match(r'    ([0-9]{1,6}): [^\n]*\n', block)
+    for block in re.split(r'(?m)(?=^    -?[0-9]+: )', hubs[0])[1:]:
+        header = re.match(r'    (-?[0-9]{1,6}): [^\n]*\n', block)
         if header is None or int(header[1]) in paths or len(paths) >= 128:
             raise ValueError(message)
+        if int(header[1]) < 0:
+            continue  # Reserved virtual records have no writable kernel node.
         fields = re.findall(r'^      Path: (/dev/input/event[0-9]{1,3})$', block, re.M)
         enabled = re.findall(r'^      Enabled: (true|false)$', block, re.M)
         if header[0].endswith(' (aka device 0 - built-in keyboard)\n'):
@@ -189,10 +191,12 @@ def _reader_touch_devices(snapshot, counts, *, diagnostics=False):
             disabled.add(0)
     counts['stage'] = 3
     result, seen = set(), set()
-    for block in re.split(r'(?m)(?=^  Device [0-9]+: )', readers[0])[1:]:
-        header = re.match(r'  Device ([0-9]{1,6}): [^\n]*\n', block)
+    for block in re.split(r'(?m)(?=^  Device -?[0-9]+: )', readers[0])[1:]:
+        header = re.match(r'  Device (-?[0-9]{1,6}): [^\n]*\n', block)
         if header is None or int(header[1]) in seen or len(seen) >= 128:
             raise ValueError(message)
+        if int(header[1]) < 0:
+            continue
         seen.add(int(header[1]))
         counts['readers'] += 1
         sources = re.findall(r'^    Sources: ([^\n]{1,256})$', block, re.M)
@@ -217,6 +221,16 @@ def _reader_touch_devices(snapshot, counts, *, diagnostics=False):
         if not touchscreen:
             continue
         counts['touch'] += 1
+        mappers = [part for part in re.split(r'(?m)(?=^    \S)', block)
+                   if part.startswith('    Touch Input Mapper (mode - DIRECT):\n')]
+        viewports = re.findall(r'^      Viewport (INTERNAL|EXTERNAL|VIRTUAL): displayId=(-?[0-9]{1,6}), '
+                               r'[^\n]{0,4096}isActive=\[([01])\]$', mappers[0], re.M) if len(mappers) == 1 else []
+        primary = viewports == [('INTERNAL', '0', '1')]
+        if diagnostics:
+            print('Analytics reader display: direct=' + str(int(len(mappers) == 1))
+                  + ' primary=' + str(int(primary)), flush=True)
+        if not primary:
+            continue
         counts['stage'] = 4
         mappings = re.findall(r'^    EventHub Devices: \[([ 0-9,]+)\] *$', block, re.M)
         if len(mappings) != 1 or not re.fullmatch(r'\s*[0-9]{1,6}(?:[ ,]+[0-9]{1,6})*\s*', mappings[0]):

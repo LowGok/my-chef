@@ -16,12 +16,16 @@ PROFILE = ("add device 1: /dev/input/event7\n  name: \"fictional touchscreen\"\n
            "  ABS_MT_PRESSURE: value 0, min 0, max 255\n"
            "  input props: INPUT_PROP_DIRECT\n")
 
+PRIMARY_MAPPER = ('    Touch Input Mapper (mode - DIRECT):\n'
+                  '      Viewport INTERNAL: displayId=0, uniqueId=fictional, isActive=[1]\n')
 # Android 13 dump format; fictional IDs intentionally differ between layers.
 READER = ('Event Hub State:\n  Devices:\n    12: fictional touchscreen\n'
           '      Path: /dev/input/event7\n      Enabled: true\n'
           '\nInput Reader State (Nums of device: 1):\n  Device 27: fictional touchscreen\n'
           '    EventHub Devices: [ 12 ] \n    Sources: 0x00001002\n'
           '    Motion Ranges:\n      X: source=0x00001002\n'
+          '    Touch Input Mapper (mode - DIRECT):\n'
+          '      Viewport INTERNAL: displayId=0, uniqueId=fictional, isActive=[1]\n'
           '\nInput Dispatcher State:\n')
 
 
@@ -72,6 +76,21 @@ class DisplayFocusTest(unittest.TestCase):
 
 
 class KernelGestureTest(unittest.TestCase):
+    def test_reserved_virtual_records_do_not_contaminate_real_device_blocks(self):
+        hub = '    -1: virtual keyboard\n      Path: <virtual>\n      Enabled: true\n'
+        reader = '  Device -1: virtual keyboard\n    EventHub Devices: [ -1 ]\n    Sources: KEYBOARD\n'
+        value = READER.replace('\nInput Reader State', hub + '\nInput Reader State').replace(
+            '\nInput Dispatcher State:', reader + '\nInput Dispatcher State:')
+        self.assertEqual(touch.reader_touch_devices(value), {'/dev/input/event7'})
+
+    def test_only_direct_touch_on_the_active_primary_display_is_eligible(self):
+        for fragment in ('displayId=1', 'displayId=-1'):
+            with self.subTest(fragment=fragment), self.assertRaises(ValueError):
+                touch.reader_touch_devices(READER.replace('displayId=0', fragment))
+        for before, after in (('isActive=[1]', 'isActive=[0]'), ('mode - DIRECT', 'mode - DISABLED'),
+                              ('mode - DIRECT', 'mode - POINTER')):
+            with self.subTest(after=after), self.assertRaises(ValueError):
+                touch.reader_touch_devices(READER.replace(before, after))
     def test_reader_failure_diagnostics_never_expose_raw_input_history(self):
         raw = 'private fixture history must never be printed'
         output = io.StringIO()
@@ -114,14 +133,14 @@ class KernelGestureTest(unittest.TestCase):
         disabled = READER.replace('    12: fictional touchscreen', '    13: disabled touchscreen\n'
             '      Path: /dev/input/event8\n      Enabled: false\n    12: fictional touchscreen')
         disabled = disabled.replace('  Device 27:', '  Device 26: disabled touchscreen\n'
-            '    EventHub Devices: [ 13 ]\n    Sources: TOUCHSCREEN\n  Device 27:')
+            '    EventHub Devices: [ 13 ]\n    Sources: TOUCHSCREEN\n' + PRIMARY_MAPPER + '  Device 27:')
         self.assertEqual(touch.reader_touch_devices(disabled), {'/dev/input/event7'})
 
     def test_unmappable_reader_never_supplies_a_kernel_candidate(self):
         for hub in ('', '    99: virtual source\n      Path: <virtual>\n      Enabled: true\n'):
             reader = READER.replace('  Devices:\n', '  Devices:\n' + hub).replace(
                 '  Device 27:', '  Device 26: unmappable source\n'
-                '    EventHub Devices: [ 99 ]\n    Sources: TOUCHSCREEN\n  Device 27:')
+                '    EventHub Devices: [ 99 ]\n    Sources: TOUCHSCREEN\n' + PRIMARY_MAPPER + '  Device 27:')
             self.assertEqual(touch.reader_touch_devices(reader), {'/dev/input/event7'})
             with self.assertRaises(ValueError):
                 touch.reader_touch_devices(reader.replace('Sources: 0x00001002', 'Sources: KEYBOARD'))

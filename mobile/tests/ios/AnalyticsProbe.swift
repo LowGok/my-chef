@@ -84,10 +84,11 @@ final class AnalyticsProbe: XCTestCase {
         let frame = element.frame
         guard !frame.isNull, !frame.isInfinite, frame.width > 1, frame.height > 1,
               [frame.minX, frame.minY, frame.maxX, frame.maxY].allSatisfy({ $0.isFinite }) else { return false }
-        let center = CGPoint(x: frame.midX, y: frame.midY)
-        guard app.frame.insetBy(dx: 1, dy: 1).contains(center) else { return false }
+        // A visible centre can still leave the control under the keyboard
+        // or outside the window, where XCTest has no valid activation point.
+        guard app.frame.insetBy(dx: 1, dy: 1).contains(frame) else { return false }
         let keyboard = app.keyboards.firstMatch
-        return !keyboard.exists || !keyboard.frame.contains(center)
+        return !keyboard.exists || !keyboard.frame.intersects(frame)
     }
     func reveal(_ element: XCUIElement) {
         // WebKit can omit offscreen controls from the OS accessibility tree.
@@ -639,20 +640,23 @@ final class AnalyticsProbe: XCTestCase {
                 }
             }
             func focusedMatch(_ output: String) -> String? {
-                if matches(output) { return output }
-                let normalized = words(output)
-                let role = output.range(of: "switch|check.?box|tick.?box|button|link", options: [.regularExpression, .caseInsensitive]) != nil
-                let privacy = normalized == "privacy" || normalized.contains("privacy")
-                    && normalized.range(of: "\\b(group|landmark)\\b", options: .regularExpression) != nil
-                let labelledContainer = controlRole && normalized.contains(expected) && !role
-                // A fieldset or label container may be spoken without its
-                // child control. Enter through VoiceOver itself, retaining
-                // the same label/role requirement for the returned speech.
-                if normalized.contains("web content") || privacy || labelledContainer {
-                    print("Analytics iOS spoken container: privacy=\(privacy) label=\(labelledContainer)")
-                    if let entered = observe({ try voice.moveIn().utterance }), matches(entered) { return entered }
+                var current = output
+                // Web content, fieldset and label containers can nest. Follow
+                // only these known VoiceOver containers through the real API.
+                for depth in 0..<4 {
+                    if matches(current) { return current }
+                    let normalized = words(current)
+                    let role = current.range(of: "switch|check.?box|tick.?box|button|link", options: [.regularExpression, .caseInsensitive]) != nil
+                    let privacy = normalized == "privacy" || normalized.contains("privacy")
+                        && normalized.range(of: "\\b(group|landmark)\\b", options: .regularExpression) != nil
+                    let labelledContainer = !role && (normalized.contains("help improve mychef")
+                        || controlRole && normalized.contains(expected))
+                    guard normalized.contains("web content") || privacy || labelledContainer else { return nil }
+                    print("Analytics iOS spoken container: privacy=\(privacy) label=\(labelledContainer) depth=\(depth)")
+                    guard let entered = observe({ try voice.moveIn().utterance }) else { return nil }
+                    current = entered
                 }
-                return nil
+                return matches(current) ? current : nil
             }
             if let current = observe({ try voice.currentSpeech().utterance }),
                let found = focusedMatch(current) { return found }
