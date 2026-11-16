@@ -244,14 +244,24 @@ final class AnalyticsProbe: XCTestCase {
     }
     func waitPickerButton(_ label: String) -> XCUIElement? {
         let end = Date().addingTimeInterval(30)
+        var openedBrowse = false
         while Date() < end {
             if let element = pickerButton(label) { return element }
+            if label == "Cancel" {
+                if let close = pickerButton("Close") { return close }
+                if !openedBrowse && end.timeIntervalSinceNow < 25, let browse = pickerButton("Browse") {
+                    openedBrowse = true; browse.tap()
+                }
+            }
             RunLoop.current.run(until: Date().addingTimeInterval(0.2))
         }
         screenState()
-        for name in ["Cancel", "Save", "Browse", "Locations", "On My iPhone", "Downloads"] {
+        for name in ["Cancel", "Close", "Done", "Save", "Browse", "Locations", "On My iPhone", "Downloads"] {
             let p = NSPredicate(format: "label == %@", name)
             print("Analytics iOS picker control: " + name + " total=\(app.buttons.matching(p).count) web=\(app.webViews.buttons.matching(p).count)")
+            let types = app.descendants(matching: .any).matching(p).allElementsBoundByIndex.prefix(8)
+                .map { String($0.elementType.rawValue) }.joined(separator: ",")
+            print("Analytics iOS picker types: " + name + " all=" + types)
         }
         XCTFail("System picker control must exist outside WebKit")
         return nil
@@ -259,21 +269,22 @@ final class AnalyticsProbe: XCTestCase {
     func pickerAction(save: Bool) {
         // The HTML dialog also has Cancel. Require an actual system control
         // outside every WebView, including remote file-provider presentations.
-        guard let cancel = waitPickerButton("Cancel") else { return }
         if !save {
+            guard let cancel = waitPickerButton("Cancel") else { return }
             var button = cancel
             for attempt in 0..<3 {
                 button.tap()
                 let end = Date().addingTimeInterval(5)
                 while Date() < end {
-                    if pickerButton("Cancel") == nil && app.webViews.allElementsBoundByIndex.contains(where: { $0.exists && $0.isHittable }) { return }
+                    if pickerButton("Cancel") == nil && pickerButton("Close") == nil && pickerButton("Save") == nil
+                        && app.webViews.allElementsBoundByIndex.contains(where: { $0.exists && $0.isHittable }) { return }
                     RunLoop.current.run(until: Date().addingTimeInterval(0.2))
                 }
                 // Native rename/search layers can have their own Cancel.
                 // Continue only with another native control; actual app result
                 // and callback are still required by the caller.
                 print("Analytics iOS picker cancel step: \(attempt + 1)")
-                guard let next = pickerButton("Cancel") else { break }
+                guard let next = pickerButton("Cancel") ?? pickerButton("Close") else { break }
                 button = next
             }
             for name in ["Cancel", "Save", "Browse", "Locations", "On My iPhone", "Downloads"] {
@@ -414,16 +425,18 @@ final class AnalyticsProbe: XCTestCase {
         }
         if configuration["layoutOnly"] == "true" {
             tap("Create an account")
-            let box = checkbox(); reveal(box)
             XCTAssertGreaterThanOrEqual(app.frame.width, 370, "Small supported iPhone width")
             XCTAssertLessThanOrEqual(app.frame.width, 380, "Small supported iPhone width")
-            XCTAssertGreaterThanOrEqual(box.frame.minX, app.frame.minX)
-            XCTAssertLessThanOrEqual(box.frame.maxX, app.frame.maxX)
             fill("Email", "layout@example.test")
             let email = app.textFields["Email"].firstMatch
             let keyboard = app.keyboards.firstMatch
             XCTAssertTrue(keyboard.waitForExistence(timeout: 5))
             XCTAssertLessThanOrEqual(email.frame.maxY, keyboard.frame.minY + 1)
+            let done = app.buttons["Done"].firstMatch
+            if done.exists && done.isHittable { done.tap() }
+            let box = checkbox(); reveal(box)
+            XCTAssertGreaterThanOrEqual(box.frame.minX, app.frame.minX)
+            XCTAssertLessThanOrEqual(box.frame.maxX, app.frame.maxX)
             mark("accessibility", "phoneWidths", "keyboardUnobstructed")
             guard let output = configuration["output"] else { throw Failure.invalidFixture }
             try JSONSerialization.data(withJSONObject: ["checks": observations]).write(to: URL(fileURLWithPath: output), options: .atomic)
@@ -546,16 +559,28 @@ final class AnalyticsProbe: XCTestCase {
             func words(_ value: String) -> String {
                 value.lowercased().components(separatedBy: CharacterSet.alphanumerics.inverted)
                     .filter { !$0.isEmpty }.joined(separator: " ")
+                    .replacingOccurrences(of: "\\bmy chef\\b", with: "mychef", options: .regularExpression)
             }
             let expected = words(phrase)
             var seen = Set<String>()
+            var candidateFacts = Set<String>()
             func matches(_ value: String) -> Bool {
                 let normalized = words(value)
                 for token in ["help improve mychef", "analytics is off", "unavailable", "check box", "checkbox", "checked", "button", "web content", "create an account", "privacy"] {
                     if normalized.contains(token) { seen.insert(token) }
                 }
                 guard normalized.contains(expected) else { return false }
-                return !controlRole || value.range(of: "switch|check.?box|button|link", options: [.regularExpression, .caseInsensitive]) != nil
+                let role = value.range(of: "switch|check.?box|tick.?box|button|link", options: [.regularExpression, .caseInsensitive]) != nil
+                if controlRole && !role && candidateFacts.count < 8 {
+                    let prefix = String(normalized.prefix(100))
+                    let on = prefix.range(of: "\\b(on|checked|selected)\\b", options: .regularExpression) != nil
+                    let off = prefix.range(of: "\\b(off|unchecked|not checked|not selected)\\b", options: .regularExpression) != nil
+                    let facts = "on=\(on) off=\(off)"
+                    if candidateFacts.insert(facts).inserted {
+                        print("Analytics iOS spoken candidate without role: " + facts)
+                    }
+                }
+                return !controlRole || role
             }
             func observe(_ operation: () throws -> String) -> String? {
                 do { return try operation() }
@@ -584,7 +609,13 @@ final class AnalyticsProbe: XCTestCase {
                         continue
                     }
                     if matches(output) { return output }
-                    if words(output).contains("web content"),
+                    let normalizedOutput = words(output)
+                    // A fieldset may be a spoken Privacy group. Enter that
+                    // real container to reach its checkbox rather than
+                    // moving past all of the group's children.
+                    let privacyGroup = normalizedOutput.contains("privacy")
+                        && normalizedOutput.range(of: "\\bgroup\\b", options: .regularExpression) != nil
+                    if (normalizedOutput.contains("web content") || privacyGroup),
                        let entered = observe({ try voice.moveIn().utterance }), matches(entered) { return entered }
                 }
             }
@@ -608,7 +639,7 @@ final class AnalyticsProbe: XCTestCase {
             let prefix = String(utterance.prefix(100)).lowercased()
             if prefix.range(of: "\\b(off|unchecked|not checked|not selected)\\b", options: .regularExpression) != nil { return "off" }
             if prefix.range(of: "\\b(on|checked|selected)\\b", options: .regularExpression) != nil { return "on" }
-            let role = utterance.range(of: "switch|check.?box|button", options: [.regularExpression, .caseInsensitive]) != nil
+            let role = utterance.range(of: "switch|check.?box|tick.?box|button", options: [.regularExpression, .caseInsensitive]) != nil
             let disabled = utterance.range(of: "dimmed|disabled|unavailable", options: [.regularExpression, .caseInsensitive]) != nil
             print("Analytics iOS spoken control: role=\(role) disabled=\(disabled) state=unknown")
             return "unknown"
@@ -653,7 +684,7 @@ final class AnalyticsProbe: XCTestCase {
         var checkboxIndex: Int?, statusIndex: Int?, refreshIndex: Int?
         for index in 0..<24 {
             let utterance = try voice.moveForward().utterance
-            let role = utterance.range(of: "switch|check.?box|button", options: [.regularExpression, .caseInsensitive]) != nil
+            let role = utterance.range(of: "switch|check.?box|tick.?box|button", options: [.regularExpression, .caseInsensitive]) != nil
             if utterance.localizedCaseInsensitiveContains("Help improve MyChef"), role, checkboxIndex == nil { checkboxIndex = index }
             if let controlIndex = checkboxIndex, index > controlIndex,
                utterance.lowercased().trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("off"), statusIndex == nil { statusIndex = index }

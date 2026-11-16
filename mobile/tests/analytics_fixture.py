@@ -148,7 +148,19 @@ class Fixture:
                 raise RuntimeError('Fixture profile content unavailable')
             profile = json.loads(raw)
             preferences = profile.get('preferences') if isinstance(profile, dict) else None
-            return {'passed': isinstance(preferences, dict) and preferences.get('diet') == expected[value['target']]}
+            diet = preferences.get('diet') if isinstance(preferences, dict) else None
+            passed = diet == expected[value['target']]
+            if not passed:
+                items = [item for item in diet if isinstance(item, str)] if isinstance(diet, list) else []
+                facts = dict(target=value['target'],
+                             profileSaves=sum(method == 'PUT' and kind == 'profile'
+                                              for method, kind, _ in (getattr(self, 'native_events', None) or [])),
+                             initialPresent=any('Vegetarian meals' in item for item in items),
+                             updatedPresent=any('Mediterranean' in item for item in items), empty=diet == [])
+                if facts != getattr(self, 'last_profile_input_diagnostic', None):
+                    print('Native profile input: ' + json.dumps(facts, sort_keys=True), flush=True)
+                    self.last_profile_input_diagnostic = facts
+            return {'passed': passed}
         if op == 'preference':
             status, raw, _ = self.call('GET', 'analytics/preferences')
             if status != 200:

@@ -136,9 +136,12 @@ def run(state, control, account, identifier, container, layout_only=False, voice
                 detail += '; app state/webview/alert ' + '/'.join(app_state[-1])
             if states:
                 detail += '; screens ' + ', '.join(name + '=' + value for name, value in states[-11:])
-            picker = re.findall(r'Analytics iOS picker control: (Cancel|Save|Browse|Locations|On My iPhone|Downloads) total=([0-9]{1,2}) web=([0-9]{1,2})', text)
+            picker = re.findall(r'Analytics iOS picker control: (Cancel|Close|Done|Save|Browse|Locations|On My iPhone|Downloads) total=([0-9]{1,2}) web=([0-9]{1,2})', text)
             if picker:
                 detail += '; picker total/web ' + ','.join(name + '=' + total + '/' + web for name, total, web in picker[-6:])
+            picker_types = re.findall(r'Analytics iOS picker types: (Cancel|Close|Done|Save|Browse|Locations|On My iPhone|Downloads) all=([0-9,]{0,30})', text)
+            if picker_types:
+                detail += '; picker types ' + ','.join(name + '=' + types for name, types in picker_types[-8:])
             taps = re.findall(r'Analytics iOS tap state: type=([0-9]{1,3}) exists=(true|false) hittable=(true|false) stable=([0-9]{1,3})', text)
             if taps:
                 detail += '; tap type/exists/hittable/stable ' + ', '.join('/'.join(row) for row in taps[-3:])
@@ -148,6 +151,9 @@ def run(state, control, account, identifier, container, layout_only=False, voice
             speech = re.findall(r'Analytics iOS spoken control: role=(true|false) disabled=(true|false) state=(on|off|unknown)', text)
             if speech:
                 detail += '; spoken role/disabled/state ' + ', '.join('/'.join(row) for row in speech[-4:])
+            candidates = re.findall(r'Analytics iOS spoken candidate without role: on=(true|false) off=(true|false)', text)
+            if candidates:
+                detail += '; spoken candidate without role on/off ' + ', '.join('/'.join(row) for row in candidates[-4:])
             voice_errors = re.findall(r'Analytics iOS voice API error: ([0-9]{1,2}|other)', text)
             if voice_errors:
                 detail += '; voice API error codes ' + ','.join(sorted(set(voice_errors)))

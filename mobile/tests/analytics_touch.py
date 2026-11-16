@@ -110,8 +110,14 @@ def gesture(kind, native):
             # avoid Qt folding the second press into a host double-click.
             # Change both axes: the kernel omits unchanged absolute values,
             # including across separate gestures in a new observer window.
-            command(*(move(.5 - 12 / width, .5 - 6 / height) + ['click', '1', 'sleep', '.12']
-                      + move(.5 + 12 / width, .5 + 6 / height) + ['click', '1']))
+            # Hold each contact across emulator input polling; xdotool's
+            # click primitive has no useful finger-down duration here.
+            press = ['mousedown', '1', 'sleep', '.05', 'mouseup', '1']
+            try:
+                command(*(move(.5 - 12 / width, .5 - 6 / height) + press + ['sleep', '.12']
+                          + move(.5 + 12 / width, .5 + 6 / height) + press))
+            finally:
+                command('mouseup', '1')
         else:
             # A slight vertical change keeps the gesture horizontally dominant
             # while making both absolute axes observable in this fresh trace.

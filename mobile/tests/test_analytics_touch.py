@@ -38,12 +38,14 @@ class DisplayGestureTest(unittest.TestCase):
         self.assertEqual(gesture('double-tap', native), {'passed': True})
         self.assertIn(('xdotool', 'search', '--onlyvisible', '--name', '^Android Emulator - mychef-ci(:5554)?$'), calls)
         self.assertIn(('xdotool', 'windowfocus', '--sync', '42'), calls)
-        motion = calls[-1]
-        self.assertEqual(motion.count('click'), 2)
+        motion = next(call for call in calls if call.count('mousedown') == 2)
+        self.assertEqual(motion.count('mouseup'), 2)
+        self.assertEqual(motion.count('.05'), 2)
         self.assertEqual(motion.count('mousemove'), 2)
         self.assertIn('198', motion); self.assertIn('222', motion)
         self.assertIn('384', motion); self.assertIn('396', motion)
         self.assertIn('sleep', motion)
+        self.assertEqual(calls[-1], ('xdotool', 'mouseup', '1'))
         self.assertFalse(any('adb' in str(call) or 'auth' in str(call) for call in calls))
 
     def test_swipe_releases_button_and_uses_only_the_owned_display(self):
@@ -71,18 +73,20 @@ class DisplayGestureTest(unittest.TestCase):
         for target in ('click:1:2', '', None):
             with self.assertRaises(ValueError): gesture(target, self.native()[0])
 
-    def test_failed_swipe_still_releases_the_host_button(self):
-        native, calls = self.native()
-        original = native.command
-        def command(*args, **kwargs):
-            result = original(*args, **kwargs)
-            if args[1] == 'mousemove' and 'mousedown' in args:
-                raise RuntimeError('Fictional display interruption')
-            return result
-        native.command = command
-        with patch('analytics_touch.time.sleep'), self.assertRaises(RuntimeError):
-            gesture('next', native)
-        self.assertEqual(calls[-1], ('xdotool', 'mouseup', '1'))
+    def test_failed_gesture_still_releases_the_host_button(self):
+        for kind in ('double-tap', 'next'):
+            with self.subTest(kind=kind):
+                native, calls = self.native()
+                original = native.command
+                def command(*args, **kwargs):
+                    result = original(*args, **kwargs)
+                    if args[1] == 'mousemove' and 'mousedown' in args:
+                        raise RuntimeError('Fictional display interruption')
+                    return result
+                native.command = command
+                with patch('analytics_touch.time.sleep'), self.assertRaises(RuntimeError):
+                    gesture(kind, native)
+                self.assertEqual(calls[-1], ('xdotool', 'mouseup', '1'))
 
 
 class TouchTraceTest(unittest.TestCase):

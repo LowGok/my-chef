@@ -7,12 +7,31 @@ import plistlib
 import tempfile
 import unittest
 import zipfile
+from contextlib import redirect_stdout
 
 from analytics_fixture import Fixture, own_export
 import analytics_ios
 
 
 class FixtureBoundaryTest(unittest.TestCase):
+    def test_profile_failure_diagnostics_keep_only_closed_facts(self):
+        fixture = object.__new__(Fixture)
+        fixture.native_events = [('PUT', 'profile', 200), ('PUT', 'profile', 200)]
+        private = 'private-canary@example.test'
+        fixture.call = lambda method, route: (200, json.dumps({
+            'preferences': {'diet': ['Vegetarian mealsMediterranean ' + private]}}).encode(), None)
+        output = io.StringIO()
+        with redirect_stdout(output):
+            for _ in range(2):
+                self.assertEqual(fixture.operate({'operation': 'profile-input', 'target': 'updated'}), {'passed': False})
+        lines = output.getvalue().splitlines()
+        self.assertEqual(len(lines), 1)
+        facts = json.loads(lines[0].split(': ', 1)[1])
+        self.assertEqual(facts, dict(target='updated', profileSaves=2,
+                                     initialPresent=True, updatedPresent=True, empty=False))
+        for content in (private, 'Vegetarian', 'Mediterranean', 'preferences'):
+            self.assertNotIn(content, output.getvalue())
+
     def test_xcode_failure_keeps_the_reason_without_private_input(self):
         value = analytics_ios.safe_diagnostic(
             'ignored secret stdout\nxcodebuild: error: Unable to load /private/project/Probe.xcodeproj user@example.test Bearer ' + 'x' * 43 + ' synthetic-password\nReason: missing target',
