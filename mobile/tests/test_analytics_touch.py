@@ -1,6 +1,6 @@
 """Closed emulator input contracts; these fakes never claim native evidence."""
 import unittest
-from contextlib import contextmanager, nullcontext
+from contextlib import contextmanager
 from types import SimpleNamespace
 from unittest.mock import patch
 import analytics_touch as touch

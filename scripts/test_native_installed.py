@@ -726,7 +726,7 @@ def ios(state, stack, ca, package, model="iPhone 16", fixture_name="MyChef fixtu
             raise
 
     runtimes = json.loads(sim("list", "devices", "available", "-j"))["devices"]
-    required_runtime = "iOS-27-2" if model == "iPhone 17" else "iOS-18-6"
+    required_runtime = "iOS-27-0" if model == "iPhone 17" else "iOS-18-6"
     runtime, device = next((runtime, device) for runtime, devices in runtimes.items()
                            if runtime.endswith(required_runtime) for device in devices if device["name"] == model)
     identifier = sim("create", fixture_name, device["deviceTypeIdentifier"], runtime)

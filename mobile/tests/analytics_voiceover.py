@@ -73,10 +73,10 @@ def main():
         raise SystemExit('Analytics VoiceOver verification authorization refused')
     if native.command('git', 'rev-parse', 'HEAD') != os.environ['GITHUB_SHA'] or native.command('git', 'status', '--porcelain', '--untracked-files=all'):
         raise SystemExit('VoiceOver source is not the exact clean candidate')
-    native.ENV['DEVELOPER_DIR'] = '/Applications/Xcode_27.2.app/Contents/Developer'
+    native.ENV['DEVELOPER_DIR'] = '/Applications/Xcode_27.app/Contents/Developer'
     version = native.command('xcodebuild', '-version')
-    if not version.startswith('Xcode 27.2\n'):
-        raise SystemExit('Expected the selected Xcode 27.2 test driver')
+    if not version.startswith('Xcode 27.0\n'):
+        raise SystemExit('Expected the selected Xcode 27.0 test driver')
     inputs = ROOT / 'mobile/.generated/voiceover-input'
     receipt_path = inputs / 'artifacts/analytics-compilation.json'
     if receipt_path.stat().st_size > 64 * 1024:
