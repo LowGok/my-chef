@@ -153,9 +153,7 @@ def full_journeys(receipt, artifact):
                 print('Native iOS API results: ' + ', '.join(method + '/' + kind + '/' + str(status)
                     for method, kind, status in events[-16:]), flush=True)
                 raise
-            scale = json.loads((container / 'tmp/analytics-text-result.json').read_text())
-            if set(scale) != {'root', 'label', 'notice', 'fits', 'osTextEnlarged'} or not all(value is True for value in scale.values()):
-                raise RuntimeError('Installed iOS text scale did not propagate')
+            container, _ = analytics_ios.text_observation(identifier)
             checks['accessibility'].update(enlargedOSText=True, textScalePropagated=True, noClipping=True)
             if (container / 'Library/Application Support/MyChefNative/shopping.v1').exists():
                 raise RuntimeError('Deleted account retained native shopping snapshot')
@@ -190,10 +188,8 @@ def full_journeys(receipt, artifact):
             small_container = Path(native.command('xcrun', 'simctl', 'get_app_container', small_id, native.APP, 'data'))
             small_checks = analytics_ios.run(small, control, account, small_id, small_container, layout_only=True,
                 before_test=lambda: analytics_ios.bootstrap(small_id, events, rejected, small_diagnostic))
-            small_scale = json.loads((small_container / 'tmp/analytics-text-result.json').read_text())
-            if (set(small_scale) != {'root', 'label', 'notice', 'fits', 'osTextEnlarged'}
-                    or not all(value is True for value in small_scale.values())
-                    or small_checks['accessibility']['phoneWidths'] is not True
+            analytics_ios.text_observation(small_id)
+            if (small_checks['accessibility']['phoneWidths'] is not True
                     or small_checks['accessibility']['keyboardUnobstructed'] is not True):
                 raise RuntimeError('Small supported iPhone layout did not pass')
             checks['accessibility']['phoneWidths'] = True

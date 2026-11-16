@@ -11,6 +11,43 @@ import analytics_ios
 import analytics_voiceover
 
 
+class IOSTextObservationTest(unittest.TestCase):
+    def test_observations_use_the_current_installed_container(self):
+        with tempfile.TemporaryDirectory(prefix='analytics-text-') as folder:
+            old, current = Path(folder) / 'old', Path(folder) / 'current'
+            for container in (old, current):
+                (container / 'tmp').mkdir(parents=True)
+            flags = dict.fromkeys(('root', 'label', 'notice', 'fits', 'osTextEnlarged'), True)
+            (old / 'tmp/analytics-text-result.json').write_text('{}')
+            (current / 'tmp/analytics-text-result.json').write_text(json.dumps(flags))
+            with patch.object(analytics_ios.native, 'command', return_value=str(current)) as command:
+                self.assertEqual(analytics_ios.text_observation('owned-phone'), (current, flags))
+                command.assert_called_once_with('xcrun', 'simctl', 'get_app_container',
+                                                'owned-phone', analytics_ios.native.APP, 'data')
+
+    def test_missing_untrusted_and_incomplete_measurements_fail_closed(self):
+        with tempfile.TemporaryDirectory(prefix='analytics-text-') as folder:
+            container = Path(folder)
+            (container / 'tmp').mkdir()
+            path = container / 'tmp/analytics-text-result.json'
+            flags = dict.fromkeys(('root', 'label', 'notice', 'fits', 'osTextEnlarged'), True)
+            with patch.object(analytics_ios.native, 'command', return_value=str(container)):
+                for value in (None, '{}', 'x' * 4097, json.dumps({**flags, 'fits': False}),
+                              json.dumps({**flags, 'label': 1}), json.dumps({**flags, 'extra': True})):
+                    with self.subTest(value=value):
+                        path.unlink(missing_ok=True)
+                        if value is not None:
+                            path.write_text(value)
+                        with self.assertRaisesRegex(RuntimeError, 'Installed iOS text observation unavailable or invalid'):
+                            analytics_ios.text_observation('owned-phone')
+                        path.unlink(missing_ok=True)
+                other = container / 'other.json'
+                other.write_text(json.dumps(flags))
+                path.symlink_to(other)
+                with self.assertRaisesRegex(RuntimeError, 'Installed iOS text observation unavailable or invalid'):
+                    analytics_ios.text_observation('owned-phone')
+
+
 class IOSProbeOrderTest(unittest.TestCase):
     def exercise(self, fail_warmup=False, precompile=False):
         with tempfile.TemporaryDirectory(prefix='analytics-probe-order-') as folder:

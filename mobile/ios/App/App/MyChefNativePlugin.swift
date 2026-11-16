@@ -328,7 +328,8 @@ final class MyChefBridgeViewController: CAPBridgeViewController {
         #if targetEnvironment(simulator)
         if ProcessInfo.processInfo.arguments.contains("--mychef-analytics-native-fixture"),
            nativePlugin.getConfig().getString("apiOrigin") == "https://localhost:8977" {
-            checkAnalyticsText(60)
+            // Probe compilation and XCTest attachment can outlast the warm launch.
+            checkAnalyticsText(180)
         }
         if ProcessInfo.processInfo.arguments.contains("--mychef-analytics-fixture-link"),
            nativePlugin.getConfig().getString("apiOrigin") == "https://localhost:8977" {

@@ -134,10 +134,7 @@ def main():
                                    before_test=bootstrap, prepared_plan=prepared[0])
         if not all(('GET', kind, 200) in events for kind in ('analytics-notice-disabled', 'analytics-notice-assessed')):
             raise RuntimeError('VoiceOver requires both actual signup notice responses')
-        text_scale = json.loads((container / 'tmp/analytics-text-result.json').read_text())
-        if (set(text_scale) != {'root', 'label', 'notice', 'fits', 'osTextEnlarged'}
-                or not all(value is True for value in text_scale.values())):
-            raise RuntimeError('VoiceOver enlarged OS text did not propagate or fit')
+        analytics_ios.text_observation(identifier)
         expected_supplement = dict(artifact_binding, fixtureConfigSha256=hashlib.sha256(json.dumps({
             'configuration': hashlib.sha256((state / 'analytics-config.json').read_bytes()).hexdigest(),
             'driver': hashlib.sha256((ROOT / 'mobile/tests/ios/AnalyticsProbe.swift').read_bytes()).hexdigest(),

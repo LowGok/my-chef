@@ -138,7 +138,11 @@ async function connect() {
   stage = "discover instrumented WebView";
   const webview = await device.webView({ pkg: app }, { timeout: 30_000 });
   stage = "attach Android WebView";
-  page = await webview.page();
+  await attachEmbeddedPage(await webview.page());
+}
+
+async function attachEmbeddedPage(current: Page) {
+  page = current;
   page.on("pageerror", (error) => {
     browserErrors.push(
       safeJourneyError(error, "browser exception", privateValues),
@@ -1270,12 +1274,32 @@ async function analyticsJourneys() {
   const toggle = () =>
     page.getByRole("checkbox", { name: "Help improve MyChef", exact: true });
   async function expectSignedOutView() {
-    // Deletion replaces the document; the previous dialog/JS handles expire.
-    // Reach the actual new heading even when WebView restores a scroll offset.
-    const heading = page.getByRole("heading", { name: "Welcome back.", exact: true });
-    await heading.waitFor({ state: "attached" });
-    await heading.scrollIntoViewIfNeeded();
-    await expect(heading).toBeVisible();
+    // Deletion may replace the WebView target as well as its document.
+    // Observe its replacement without relaunching or repeating deletion.
+    const context = page.context();
+    await expect.poll(async () => {
+      if (page.isClosed()) {
+        const candidates = context.pages().filter(candidate => !candidate.isClosed());
+        if (candidates.length > 1) throw Error("Ambiguous owned WebView replacement");
+        let replacement = candidates[0];
+        if (!replacement) {
+          const views = device?.webViews().filter(view => view.pkg() === app) ?? [];
+          if (views.length > 1) throw Error("Ambiguous owned WebView replacement");
+          if (views[0]) replacement = await views[0].page();
+        }
+        if (!replacement || replacement.isClosed()) return false;
+        await attachEmbeddedPage(replacement);
+      }
+      try {
+        const heading = page.getByRole("heading", { name: "Welcome back.", exact: true });
+        if (!await heading.count()) return false;
+        await heading.scrollIntoViewIfNeeded();
+        return await heading.isVisible();
+      } catch (error) {
+        if (page.isClosed()) return false;
+        throw error;
+      }
+    }, { timeout: 30_000 }).toBe(true);
   }
   const speechEnabled = process.env.NATIVE_ANALYTICS_SPEECH === "1";
   let speechEngineWarmed = false;

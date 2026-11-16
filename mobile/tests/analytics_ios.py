@@ -1,5 +1,7 @@
 """Build a separate XCTest probe; never rebuild or replace the tested app."""
 import json
+import os
+import stat
 from pathlib import Path
 import plistlib
 import re
@@ -10,6 +12,32 @@ import sys
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'scripts'))
 import test_native_installed as native
+
+
+def text_observation(identifier):
+    """Read actual measurements from the app's current, owned data container."""
+    try:
+        container = Path(native.command('xcrun', 'simctl', 'get_app_container',
+                                        identifier, native.APP, 'data'))
+        if not container.is_absolute():
+            raise ValueError('Invalid container')
+        path = container / 'tmp/analytics-text-result.json'
+        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        with os.fdopen(descriptor, 'rb') as stream:
+            metadata = os.fstat(stream.fileno())
+            if not stat.S_ISREG(metadata.st_mode) or metadata.st_size > 4096:
+                raise ValueError('Invalid measurement file')
+            raw = stream.read(4097)
+        if len(raw) > 4096:
+            raise ValueError('Oversized measurement')
+        scale = json.loads(raw)
+        if (not isinstance(scale, dict)
+                or set(scale) != {'root', 'label', 'notice', 'fits', 'osTextEnlarged'}
+                or not all(value is True for value in scale.values())):
+            raise ValueError('Incomplete actual measurements')
+        return container, scale
+    except (OSError, ValueError, TypeError):
+        raise RuntimeError('Installed iOS text observation unavailable or invalid') from None
 
 
 def safe_diagnostic(text, secrets):
