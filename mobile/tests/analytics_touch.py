@@ -179,10 +179,26 @@ def _reader_touch_devices(snapshot, counts):
             raise ValueError(message)
         seen.add(int(header[1]))
         counts['readers'] += 1
-        sources = re.findall(r'^    Sources: 0x([0-9a-fA-F]{8})$', block, re.M)
+        sources = re.findall(r'^    Sources: ([^\n]{1,256})$', block, re.M)
         if len(sources) != 1:
             raise ValueError(message)
-        if int(sources[0], 16) & 0x00001002 != 0x00001002:
+        source = sources[0]
+        if re.fullmatch(r'0x[0-9a-fA-F]{8}', source):
+            mask = int(source, 16)
+            touchscreen = mask != 0xffffffff and mask & 0x00001002 == 0x00001002
+        elif source in ('UNKNOWN', 'ANY'):
+            touchscreen = False
+        else:
+            # Patched Android 13 prints inputEventSourceToString's closed
+            # source names. They are metadata, not arbitrary device names.
+            labels = source.split(' | ')
+            known = {'KEYBOARD', 'DPAD', 'GAMEPAD', 'TOUCHSCREEN', 'MOUSE', 'STYLUS',
+                     'BLUETOOTH_STYLUS', 'TRACKBALL', 'MOUSE_RELATIVE', 'TOUCHPAD',
+                     'TOUCH_NAVIGATION', 'JOYSTICK', 'HDMI', 'SENSOR', 'ROTARY_ENCODER'}
+            if len(labels) != len(set(labels)) or not set(labels) <= known:
+                raise ValueError(message)
+            touchscreen = 'TOUCHSCREEN' in labels
+        if not touchscreen:
             continue
         counts['touch'] += 1
         counts['stage'] = 4

@@ -89,6 +89,18 @@ class KernelGestureTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             touch.select_touch_device(PROFILE, reader_paths={'/dev/input/event8'})
 
+    def test_patched_android_source_names_keep_the_same_touchscreen_identity_gate(self):
+        keyboard = '  Device 1: fictional keyboard\n    Sources: KEYBOARD | DPAD\n'
+        for source in ('TOUCHSCREEN', 'TOUCHSCREEN | STYLUS', 'KEYBOARD | TOUCHSCREEN'):
+            reader = READER.replace('  Device 27:', keyboard + '  Device 27:').replace(
+                'Sources: 0x00001002', 'Sources: ' + source)
+            self.assertEqual(touch.reader_touch_devices(reader), {'/dev/input/event7'})
+        for source in ('MOUSE', 'TOUCHPAD', 'UNKNOWN', 'ANY', '0xffffffff',
+                       'UNKNOWN | TOUCHSCREEN', 'TOUCHSCREEN | invented', 'TOUCHSCREEN | TOUCHSCREEN'):
+            reader = READER.replace('Sources: 0x00001002', 'Sources: ' + source)
+            with self.subTest(source=source), self.assertRaises(ValueError):
+                touch.reader_touch_devices(reader)
+
     def test_missing_ambiguous_or_non_touch_reader_mapping_is_refused(self):
         for reader in (None, '', 'x' * 524289,
                        READER.replace('Sources: 0x00001002', 'Sources: 0x00002002'),
