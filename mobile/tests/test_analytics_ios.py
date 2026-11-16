@@ -93,30 +93,15 @@ class VoiceOverHostAttachmentTest(unittest.TestCase):
     def snapshot(self, identifiers):
         return json.dumps({'devices': {'runtime': [{'udid': value, 'state': 'Booted'} for value in identifiers]}})
 
-    def test_desktop_host_attaches_only_after_the_exact_owned_phone_is_booted(self):
-        stages = []
-        def inspect(*args, **options):
-            stages.append('inspect')
-            return self.snapshot(['owned-phone'])
-        with patch.object(analytics_voiceover.native, 'command', side_effect=inspect), \
-             patch.object(analytics_voiceover.native, 'ios_ui_command', return_value=['owned-host']), \
-             patch.object(analytics_voiceover.native, 'start_ios_ui', side_effect=lambda *a, **k: stages.append('host')):
-            analytics_voiceover.attach_host('state', 'stack', 'observer', 'owned-phone')
-        self.assertEqual(stages, ['inspect', 'host', 'inspect'])
-
-    def test_missing_foreign_or_additional_booted_phone_cannot_supply_host_readiness(self):
+    def test_only_the_exact_owned_booted_phone_can_reach_the_native_warmup(self):
+        with patch.object(analytics_voiceover.native, 'command', return_value=self.snapshot(['owned-phone'])):
+            analytics_voiceover.require_owned_phone('owned-phone')
         for identifiers in ([], ['foreign-phone'], ['owned-phone', 'foreign-phone'], ['owned-phone', 'owned-phone']):
             with self.subTest(identifiers=identifiers), \
-                 patch.object(analytics_voiceover.native, 'command', return_value=self.snapshot(identifiers)), \
-                 patch.object(analytics_voiceover.native, 'start_ios_ui') as launch:
+                 patch.object(analytics_voiceover.native, 'command', return_value=self.snapshot(identifiers)):
                 with self.assertRaisesRegex(RuntimeError, 'owned booted VoiceOver phone'):
-                    analytics_voiceover.attach_host('state', 'stack', 'observer', 'owned-phone')
-                launch.assert_not_called()
-        with patch.object(analytics_voiceover.native, 'command', side_effect=[self.snapshot(['owned-phone']), self.snapshot(['owned-phone', 'foreign-phone'])]), \
-             patch.object(analytics_voiceover.native, 'ios_ui_command', return_value=['owned-host']), \
-             patch.object(analytics_voiceover.native, 'start_ios_ui'):
-            with self.assertRaisesRegex(RuntimeError, 'owned booted VoiceOver phone'):
-                analytics_voiceover.attach_host('state', 'stack', 'observer', 'owned-phone')
+                    analytics_voiceover.require_owned_phone('owned-phone')
+
 
 if __name__ == '__main__':
     unittest.main()

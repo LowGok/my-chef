@@ -688,7 +688,7 @@ def ios_ui_command(developer, model, identifier, *, headless=False):
 
 
 def ios(state, stack, ca, package, model="iPhone 16", fixture_name="MyChef fixture", *, headless=False, before_boot=None):
-    if before_boot is not None and not headless:
+    if before_boot is not None and (model, fixture_name) != ("iPhone 17", "MyChef analytics voice fixture"):
         raise ValueError("Preboot compilation is limited to the VoiceOver fixture")
     if headless and (model, fixture_name) != ("iPhone 17", "MyChef analytics voice fixture"):
         raise ValueError("Command-line UI testing is limited to the VoiceOver fixture")

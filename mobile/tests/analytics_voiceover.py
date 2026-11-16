@@ -53,23 +53,15 @@ def combine(primary, supplement, expected_primary, expected_supplement):
     return merged
 
 
-def attach_host(state, stack, observer, identifier):
-    # Boot and compile before adding the desktop UI workload. Real speech
-    # still needs the selected host and actual phone UI; no TTS substitute.
-    def owned_phone():
-        raw = native.command('xcrun', 'simctl', 'list', 'devices', 'booted', '-j', timeout=30)
-        if len(raw) > 65536:
-            raise RuntimeError('Expected one owned booted VoiceOver phone')
-        devices = json.loads(raw)['devices']
-        booted = [device.get('udid') for group in devices.values() for device in group
-                  if device.get('state') == 'Booted']
-        if booted != [identifier]:
-            raise RuntimeError('Expected one owned booted VoiceOver phone')
-    owned_phone()
-    arguments = native.ios_ui_command(native.ENV['DEVELOPER_DIR'], 'iPhone 17', identifier)
-    native.start_ios_ui(state, stack, arguments, observer=observer)
-    owned_phone()
-    print('Selected VoiceOver host opened after owned-phone boot and probe compilation', flush=True)
+def require_owned_phone(identifier):
+    raw = native.command('xcrun', 'simctl', 'list', 'devices', 'booted', '-j', timeout=90)
+    if len(raw) > 65536:
+        raise RuntimeError('Expected one owned booted VoiceOver phone')
+    devices = json.loads(raw)['devices']
+    booted = [device.get('udid') for group in devices.values() for device in group
+              if device.get('state') == 'Booted']
+    if booted != [identifier]:
+        raise RuntimeError('Expected one owned booted VoiceOver phone')
 
 
 def main():
@@ -117,13 +109,12 @@ def main():
         fixture.native_events = events
         account = fixture.operate({'operation': 'seed'})
         control = fixture.serve(stack)
-        observer = native.compile_ios_ui_observer(state)
         prepared = []
         def prepare_probe(identifier):
             prepared.append(analytics_ios.prepare(state, identifier))
             print('Separate VoiceOver probe compiled before phone boot', flush=True)
         metadata, launch, _, diagnostic = native.ios(state, stack, ca, artifact,
-            model='iPhone 17', fixture_name='MyChef analytics voice fixture', headless=True, before_boot=prepare_probe)
+            model='iPhone 17', fixture_name='MyChef analytics voice fixture', before_boot=prepare_probe)
         devices = json.loads(native.command('xcrun', 'simctl', 'list', 'devices', 'booted', '-j'))['devices']
         identifiers = [d['udid'] for group in devices.values() for d in group if d.get('name') == 'MyChef analytics voice fixture']
         if len(identifiers) != 1:
@@ -133,9 +124,9 @@ def main():
         metadata['contentSize'] = 'accessibility-medium'
         container = Path(native.command('xcrun', 'simctl', 'get_app_container', identifier, native.APP, 'data'))
         def bootstrap():
-            # The separate probe and owned phone are ready before opening the
-            # desktop host, then the actual app supplies fresh session proof.
-            attach_host(state, stack, observer, identifier)
+            # Probe compilation and selected host readiness preceded boot.
+            # Require only the owned phone before actual native session proof.
+            require_owned_phone(identifier)
             analytics_ios.bootstrap(identifier, events, rejected, diagnostic)
         # XCTest activates the already bootstrapped fixture instance. Later
         # relaunch tests still terminate/restart it with these same arguments.
