@@ -10,7 +10,9 @@ import (
 	"testing"
 	"time"
 
+	"fmt"
 	"github.com/LowGok/my-chef/internal/auth"
+	"github.com/LowGok/my-chef/internal/config"
 	"github.com/LowGok/my-chef/internal/email/mailqueue"
 	"github.com/LowGok/my-chef/internal/newsletter"
 	"github.com/LowGok/my-chef/internal/store"
@@ -499,5 +501,141 @@ func TestMinimisationRestorePreservesKnownOutstandingWithdrawal(t *testing.T) {
 				t.Fatal("surviving withdrawal had no effect", err)
 			}
 		})
+	}
+}
+
+func TestRestoreExpiresIssuedSignupBeforePublishing(t *testing.T) {
+	n, j, key, now := minimisationRestoreFixture(t)
+	address := "expired-restored-signup-canary@example.test"
+	restoreCapture(t, n, address)
+	signup := &auth.SignUp{Store: n.Store, Keys: n.Keys, RateKey: n.RateKey, Origin: n.Origin, Now: n.Now, Lifecycle: j, Newsletter: n}
+	details := auth.SignUpDetails{FirstName: "Synthetic", LastName: "Review", Username: "independent-review"}
+	if _, err := signup.Request(t.Context(), "192.0.2.210", auth.SignUpRequest{Email: address, SignUpDetails: details}); err != nil {
+		t.Fatal(err)
+	}
+	if worked, err := signup.Step(t.Context()); err != nil || !worked {
+		t.Fatal(err)
+	}
+	snapshot := minimisationSnapshot(t, n.Store)
+	*now = now.Add(48 * time.Hour)
+	none := config.NewsletterRetention{NoExpiry: true}
+	if err := n.Maintain(t.Context(), j, none, none, store.AccountDeletionOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	var beforeProofs int64
+	if err := n.Store.SQL.QueryRowContext(t.Context(), "SELECT count(*) FROM signup_proofs").Scan(&beforeProofs); err != nil || beforeProofs != 0 {
+		t.Fatal("current namespace was not cleaned", err, beforeProofs)
+	}
+	if err := j.CleanupNewsletterFiles(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	restored, _ := restoreMinimised(t, snapshot, j, key)
+	var count int64
+	if err := restored.SQL.QueryRowContext(t.Context(), "SELECT count(*) FROM email_outbox WHERE recipient=?", address).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	var proofs int64
+	if err := restored.SQL.QueryRowContext(t.Context(), "SELECT count(*) FROM signup_proofs").Scan(&proofs); err != nil {
+		t.Fatal(err)
+	}
+	var raw bool
+	for _, suffix := range []string{"", "-wal", "-shm"} {
+		data, err := os.ReadFile(restored.Path + suffix)
+		if err != nil && !os.IsNotExist(err) {
+			t.Fatal(err)
+		}
+		raw = raw || bytes.Contains(data, []byte(address))
+	}
+	t.Logf("after explicit restore and certified cleanup: expired signup outbox=%d signup_proofs=%d plaintext_canary_present=%v", count, proofs, raw)
+	if count != 0 || proofs != 0 || raw {
+		t.Fatal("expired signup payload resurrected into active reduced namespace")
+	}
+}
+
+func TestRestoreExpiresAccountWorkAndKeepsCurrentControls(t *testing.T) {
+	n, j, key, _ := minimisationRestoreFixture(t)
+	restoreCapture(t, n, "expired-contact-restore@example.test")
+	var contact store.User
+	if err := n.Store.DB.First(&contact).Error; err != nil {
+		t.Fatal(err)
+	}
+	stamp := time.Now().Unix()
+	full := store.User{Email: "live-account@example.test", Username: "restore-live-control", FirstName: "Live", LastName: "Control", Password: "keep-credential", EmailVerifiedAt: &stamp}
+	if err := n.Store.DB.Create(&full).Error; err != nil {
+		t.Fatal(err)
+	}
+	future := time.Now().Add(time.Hour)
+	queries := []string{
+		"INSERT INTO signup_proofs VALUES('expired-proof','old-hash','old-tag',2,NULL,'expired-signup-draft-canary')",
+		"INSERT INTO email_verification_proofs VALUES('expired-verify'," + fmt.Sprint(contact.ID) + ",'expired-vhash','tag',2,NULL)",
+		"INSERT INTO pending_email_changes(id,user_id,original_email,original_key,proposed_email,proposed_key,expires) VALUES('expired-change'," + fmt.Sprint(contact.ID) + ",'expired-change-restore-canary@example.test','expired-change-restore-canary@example.test','expired-proposed@example.test','expired-proposed@example.test',2)",
+		"INSERT INTO recovery_jobs VALUES(1,'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',2,'expired-recovery-draft-canary')",
+		"INSERT INTO recovery_proofs VALUES('bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',1," + fmt.Sprint(contact.ID) + ",'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',0,1,2,NULL)",
+		fmt.Sprintf("INSERT INTO signup_proofs VALUES('live-proof','live-hash','live-tag',%d,NULL,'live-signup-control')", future.Unix()),
+		fmt.Sprintf("INSERT INTO email_verification_proofs VALUES('live-verify',%d,'live-vhash','live-tag',%d,NULL)", full.ID, future.Unix()),
+		fmt.Sprintf("INSERT INTO pending_email_changes(id,user_id,original_email,original_key,proposed_email,proposed_key,expires) VALUES('live-change',%d,'live-account@example.test','live-account@example.test','live-next@example.test','live-next@example.test',%d)", full.ID, future.Unix()),
+		fmt.Sprintf("INSERT INTO recovery_jobs VALUES(2,'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc',%d,'live-recovery-control')", future.UnixNano()),
+		fmt.Sprintf("INSERT INTO recovery_proofs VALUES('dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd',2,%d,'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc',0,%d,%d,NULL)", full.ID, stamp*int64(time.Second), future.UnixNano()),
+	}
+	for _, q := range queries {
+		if err := n.Store.DB.Exec(q).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	expired := []struct{ key, template string }{
+		{"signup/expired-proof", mailqueue.SignUpProofTemplate},
+		{"verify-email/expired-verify", mailqueue.EmailVerificationTemplate},
+		{"email-change/expired-change/current", mailqueue.EmailChangeCurrentTemplate},
+		{"email-change/expired-change/proposed", mailqueue.EmailChangeProposedTemplate},
+		{"password-recovery/1", mailqueue.RecoveryProofTemplate},
+	}
+	for i, item := range expired {
+		row := mailqueue.Record{Key: item.key, Recipient: fmt.Sprintf("expired-mail-%d-restore-canary@example.test", i), Template: item.template, Data: `{"expires":2}`, State: "sent", Fingerprint: "expired-fingerprint-canary", CreatedAt: 1, UpdatedAt: 1}
+		if err := n.Store.DB.Create(&row).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, item := range []struct{ key, template string }{
+		{"signup/live-proof", mailqueue.SignUpProofTemplate}, {"verify-email/live-verify", mailqueue.EmailVerificationTemplate},
+		{"email-change/live-change/current", mailqueue.EmailChangeCurrentTemplate}, {"email-change/live-change/proposed", mailqueue.EmailChangeProposedTemplate},
+		{"password-recovery/2", mailqueue.RecoveryProofTemplate},
+	} {
+		row := mailqueue.Record{Key: item.key, Recipient: full.Email, Template: item.template, Data: fmt.Sprintf(`{"expires":%d}`, future.Unix()), State: "queued", CreatedAt: stamp, UpdatedAt: stamp}
+		if err := n.Store.DB.Create(&row).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := mailqueue.Enqueue(t.Context(), n.Store, nil, time.Now(), mailqueue.Request{Key: "ordinary-restore-control", Recipient: full.Email, Template: "provider-smoke-test/v1", Fields: map[string]string{"testID": "keep", "timestamp": time.Now().Format(time.RFC3339)}}); err != nil {
+		t.Fatal(err)
+	}
+	snapshot := minimisationSnapshot(t, n.Store)
+	restored, paired := restoreMinimised(t, snapshot, j, key)
+	if err := paired.NewsletterFilesReady(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	for _, table := range []string{"signup_proofs", "email_verification_proofs", "pending_email_changes", "recovery_jobs", "recovery_proofs"} {
+		var count int
+		if err := restored.SQL.QueryRowContext(t.Context(), "SELECT count(*) FROM "+table).Scan(&count); err != nil || count != 1 {
+			t.Errorf("%s has %d rows, expected only live control: %v", table, count, err)
+		}
+	}
+	var mail int
+	if err := restored.SQL.QueryRowContext(t.Context(), "SELECT count(*) FROM email_outbox").Scan(&mail); err != nil || mail != 6 {
+		t.Errorf("expected five live purpose mails and ordinary control, got %d: %v", mail, err)
+	}
+	var actual store.User
+	if err := restored.DB.First(&actual, "user_id=?", full.ID).Error; err != nil || actual.Email != full.Email || actual.Password != full.Password || actual.FirstName != full.FirstName || actual.EmailVerifiedAt == nil {
+		t.Fatal("full account changed", err)
+	}
+	for _, suffix := range []string{"", "-wal", "-shm"} {
+		body, err := os.ReadFile(restored.Path + suffix)
+		if err != nil && !os.IsNotExist(err) {
+			t.Fatal(err)
+		}
+		for _, canary := range []string{"expired-signup-draft-canary", "expired-change-restore-canary@example.test", "expired-recovery-draft-canary", "expired-fingerprint-canary", "-restore-canary@example.test"} {
+			if bytes.Contains(body, []byte(canary)) {
+				t.Errorf("expired canary %q remains in active%s", canary, suffix)
+			}
+		}
 	}
 }
