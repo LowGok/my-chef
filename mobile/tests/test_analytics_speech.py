@@ -1,5 +1,8 @@
 """Reject silent or ambiguous speech evidence without starting an emulator."""
 import array
+from contextlib import ExitStack
+from types import SimpleNamespace
+from unittest.mock import patch
 from pathlib import Path
 import tempfile
 import unittest
@@ -47,6 +50,23 @@ class SpeechEvidenceTest(unittest.TestCase):
         self.assertEqual(speech.passed, set())
         self.assertIsNone(speech.active)
         self.assertEqual(speech.attempts, {'on': 3})
+
+    def test_capture_is_not_ready_when_only_the_wave_header_exists(self):
+        with tempfile.TemporaryDirectory(prefix='analytics-capture-') as directory, ExitStack() as stack:
+            speech = Speech.__new__(Speech)
+            speech.state, speech.active, speech.passed, speech.attempts = Path(directory), None, set(), {}
+            speech.env, speech.log, speech.sink = {}, None, 'fictional-sink'
+            capture = SimpleNamespace(poll=lambda: None)
+            def wait_for(check, description, seconds):
+                path = speech.path
+                path.write_bytes(b'R' * 44)
+                self.assertFalse(check(), 'A file/header is not a running audio capture')
+                path.write_bytes(b'R' * 8192)
+                self.assertTrue(check(), 'Captured payload must release the focus operation')
+            speech.native = SimpleNamespace(wait_for=wait_for)
+            with patch('analytics_speech.subprocess.Popen', return_value=capture):
+                self.assertEqual(speech.operate('speech-start', 'on'), {'passed': True})
+            self.assertEqual(speech.active, 'on')
 
     def test_silence_wrong_format_and_unbounded_audio_are_not_evidence(self):
         with tempfile.TemporaryDirectory(prefix='analytics-speech-') as directory:

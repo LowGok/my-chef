@@ -154,7 +154,11 @@ class Speech:
             self.capture = subprocess.Popen(['ffmpeg', '-nostdin', '-v', 'error', '-f', 'pulse', '-i',
                 self.sink + '.monitor', '-t', '40', '-vn', '-ac', '1', '-ar', '16000', '-c:a', 'pcm_s16le', str(path)],
                 env=self.env, stdout=self.log, stderr=self.log)
-            self.native.wait_for(lambda: path.exists() or self.capture.poll() is not None, 'private speech capture', 12)
+            # ffmpeg creates the file before opening/priming the Pulse source.
+            # Wait for captured payload before the native focus announcement,
+            # which may begin with the checkbox's state.
+            self.native.wait_for(lambda: (path.is_file() and path.stat().st_size >= 4096)
+                                 or self.capture.poll() is not None, 'private speech capture', 12)
             if self.capture.poll() is not None:
                 raise RuntimeError('Speaker capture failed')
             return {'passed': True}

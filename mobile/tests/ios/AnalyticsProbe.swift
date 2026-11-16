@@ -52,7 +52,7 @@ final class AnalyticsProbe: XCTestCase {
     }
     func screenState() {
         print("Analytics iOS app state: \(app.state.rawValue) webview=\(app.webViews.count) alert=\(app.alerts.count)")
-        for (name, phrase) in [("signed out", "Welcome back."), ("profile", "Your profile."), ("shopping", "Shopping list."), ("startup", "Loading MyChef"), ("inbox", "Check your inbox"), ("secure failure", "MyChef couldn’t open securely"), ("configuration failure", "Reference: MYC-01"), ("storage failure", "Reference: MYC-02"), ("shopping failure", "Reference: MYC-03"), ("device failure", "Reference: MYC-04")] {
+        for (name, phrase) in [("signed out", "Welcome back."), ("profile", "Your profile."), ("shopping", "Shopping list."), ("startup", "Loading MyChef"), ("inbox", "Check your inbox"), ("signup", "Let’s get started."), ("secure failure", "MyChef couldn’t open securely"), ("configuration failure", "Reference: MYC-01"), ("storage failure", "Reference: MYC-02"), ("shopping failure", "Reference: MYC-03"), ("device failure", "Reference: MYC-04")] {
             let present = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", phrase)).firstMatch.exists
             print("Analytics iOS screen state: " + name + " present=\(present)")
         }
@@ -298,6 +298,10 @@ final class AnalyticsProbe: XCTestCase {
             }
         }
         element.typeText(text)
+        if !secure {
+            XCTAssertTrue((element.value as? String) == text,
+                          "Native field must retain the typed fixture input")
+        }
         // Do not log field values, passwords or fixture proofs on failure.
     }
     func checkbox() -> XCUIElement {
@@ -343,6 +347,7 @@ final class AnalyticsProbe: XCTestCase {
         fill("First name", "Analytics"); fill("Last name", "Fixture")
         fill("Username", recipient.components(separatedBy: "@")[0]); fill("Email", recipient)
         tap("Create my account")
+        waitFor({ self.text("Check your inbox") }, "Signup submission must reach the inbox screen before proof retrieval")
         let proof = try control("proof", ["recipient": recipient])
         guard let url = proof["url"] as? String, let container = configuration["appContainer"],
               url.range(of: "^https://localhost:8977/app/signup#[A-Za-z0-9_-]{43}$", options: .regularExpression) != nil else { throw Failure.invalidFixture }

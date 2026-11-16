@@ -130,12 +130,12 @@ def run(state, control, account, identifier, container, layout_only=False, voice
             known = re.findall(r'Analytics iOS known control: ([A-Za-z ]{1,30}) types: ([0-9,]{0,30})', text)
             if known:
                 detail += '; known roles ' + ', '.join(name + '=' + types for name, types in known[-5:])
-            states = re.findall(r'Analytics iOS screen state: (signed out|profile|shopping|startup|inbox|secure failure|configuration failure|storage failure|shopping failure|device failure) present=(true|false)', text)
+            states = re.findall(r'Analytics iOS screen state: (signed out|profile|shopping|startup|inbox|signup|secure failure|configuration failure|storage failure|shopping failure|device failure) present=(true|false)', text)
             app_state = re.findall(r'Analytics iOS app state: ([0-9]) webview=([0-9]{1,2}) alert=([0-9]{1,2})', text)
             if app_state:
                 detail += '; app state/webview/alert ' + '/'.join(app_state[-1])
             if states:
-                detail += '; screens ' + ', '.join(name + '=' + value for name, value in states[-10:])
+                detail += '; screens ' + ', '.join(name + '=' + value for name, value in states[-11:])
             picker = re.findall(r'Analytics iOS picker control: (Cancel|Save|Browse|Locations|On My iPhone|Downloads) total=([0-9]{1,2}) web=([0-9]{1,2})', text)
             if picker:
                 detail += '; picker total/web ' + ','.join(name + '=' + total + '/' + web for name, total, web in picker[-6:])
