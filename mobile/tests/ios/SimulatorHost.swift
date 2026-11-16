@@ -14,7 +14,9 @@ func executableCandidates(_ bundleURL: URL, _ identifier: String, _ declared: UR
     // app executes this specific native binary. Do not allow arbitrary helpers.
     let native = bundleURL.appendingPathComponent("Contents/MacOS/DeviceHub").resolvingSymlinksInPath()
     let attributes = try? FileManager.default.attributesOfItem(atPath: native.path)
+    let selected = bundleURL.resolvingSymlinksInPath().standardizedFileURL.path
     if identifier == "com.apple.dt.Devices" && declared.lastPathComponent == "DevicesTrampoline",
+       native.standardizedFileURL.path.hasPrefix(selected + "/"),
        attributes?[.type] as? FileAttributeType == .typeRegular,
        FileManager.default.isExecutableFile(atPath: native.path) {
         candidates.append(native)
@@ -56,7 +58,11 @@ func identitySelfTest() -> Bool {
         let missingPassed = executableCandidates(app, "com.apple.dt.Devices", trampoline).count == 1
         try manager.createDirectory(at: native, withIntermediateDirectories: false)
         let directoryRefused = executableCandidates(app, "com.apple.dt.Devices", trampoline).count == 1
-        return filesPassed && scopePassed && missingPassed && directoryRefused
+        try manager.removeItem(at: native)
+        try manager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: separate.path)
+        try manager.createSymbolicLink(at: native, withDestinationURL: separate)
+        let escapedRefused = executableCandidates(app, "com.apple.dt.Devices", trampoline).count == 1
+        return filesPassed && scopePassed && missingPassed && directoryRefused && escapedRefused
     } catch { return false }
 }
 if CommandLine.arguments.count == 2 && CommandLine.arguments[1] == "--identity-self-test" {
@@ -95,11 +101,33 @@ if let developer = ProcessInfo.processInfo.environment["DEVELOPER_DIR"], !develo
 var launched: NSRunningApplication?
 var launchCompleted = false
 var launchFailed = false
-NSWorkspace.shared.openApplication(at: bundle.bundleURL, configuration: configuration) { application, error in
-    DispatchQueue.main.async {
-        launched = application
-        launchFailed = error != nil
+// Device Hub's trampoline can exit before AppKit returns a running app.
+// Launch only its measured native executable, then inspect that exact owned
+// PID. Never discover an unrelated process by name or bundle identifier.
+var ownedNative: Process?
+if identifier == "com.apple.dt.Devices", executable.lastPathComponent == "DevicesTrampoline",
+   let native = candidates.first(where: { $0.lastPathComponent == "DeviceHub" }) {
+    let process = Process()
+    process.executableURL = native
+    process.environment = ProcessInfo.processInfo.environment
+    process.standardInput = FileHandle.nullDevice
+    process.standardOutput = FileHandle.nullDevice
+    process.standardError = FileHandle.nullDevice
+    do {
+        try process.run()
+        ownedNative = process
         launchCompleted = true
+    } catch {
+        launchCompleted = true
+        launchFailed = true
+    }
+} else {
+    NSWorkspace.shared.openApplication(at: bundle.bundleURL, configuration: configuration) { application, error in
+        DispatchQueue.main.async {
+            launched = application
+            launchFailed = error != nil
+            launchCompleted = true
+        }
     }
 }
 let deadline = Date().addingTimeInterval(60)
@@ -110,6 +138,10 @@ var sawSameFile = false
 var actualKind = "other"
 while Date() < deadline {
     if launchCompleted && launchFailed { break }
+    if let process = ownedNative {
+        if !process.isRunning { break }
+        launched = NSRunningApplication(processIdentifier: process.processIdentifier)
+    }
     if let application = launched, application.processIdentifier > 0, !application.isTerminated,
        let actual = application.executableURL {
         sawApplication = true

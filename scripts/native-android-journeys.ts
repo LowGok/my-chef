@@ -1379,8 +1379,33 @@ async function analyticsJourneys() {
       .getByLabel("Username", { exact: true })
       .fill(recipient.split("@")[0]!);
     await page.getByLabel("Email", { exact: true }).fill(recipient);
-    await activate("Create my account");
-    await expect(page.getByRole("heading", { name: "Check your inbox", exact: true })).toBeVisible();
+    // Observe the single native activation without changing form values or
+    // dispatching a synthetic input. Only closed booleans leave the runner.
+    const activation = await button("Create my account").evaluateHandle((node) => {
+      const facts = { touch: false, trusted: false, clicked: false, submitted: false };
+      node.addEventListener("pointerdown", (event) => {
+        facts.touch = (event as PointerEvent).pointerType === "touch";
+        facts.trusted = event.isTrusted;
+      }, { once: true });
+      node.addEventListener("click", () => { facts.clicked = true; }, { once: true });
+      (node as HTMLButtonElement).form?.addEventListener("submit", () => { facts.submitted = true; }, { once: true });
+      return facts;
+    });
+    try {
+      await activate("Create my account");
+      await expect(page.getByRole("heading", { name: "Check your inbox", exact: true })).toBeVisible();
+    } catch (error) {
+      const touch = await activation.jsonValue().catch(() => ({ unavailable: true }));
+      const form = await button("Create my account").evaluate((node) => ({
+        valid: (node as HTMLButtonElement).form?.checkValidity() === true,
+        submitDisabled: (node as HTMLButtonElement).disabled === true,
+        alert: (node as HTMLButtonElement).form?.parentElement?.querySelector('[role="alert"]') != null,
+      })).catch(() => ({ unavailable: true }));
+      console.log("Installed Android signup state: " + JSON.stringify({ touch, form }));
+      throw error;
+    } finally {
+      await activation.dispose().catch(() => undefined);
+    }
     const proof = await fixture("proof", { recipient });
     if (
       !/^https:\/\/localhost:8977\/app\/signup#[A-Za-z0-9_-]{43}$/.test(

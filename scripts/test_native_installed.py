@@ -89,7 +89,7 @@ def command(*argv, timeout=90, data=None):
 def account_api_summary(events):
     """Closed diagnostic vocabulary; never request paths, headers or bodies."""
     records = [(method, kind, status) for method, kind, status in events
-               if method == 'POST' and kind in ('account-export', 'account-deletion')
+               if method == 'POST' and kind in ('register', 'account-export', 'account-deletion')
                and type(status) is int and 100 <= status <= 599]
     return ', '.join(method + '/' + kind + '/' + str(status) for method, kind, status in records[-8:])
 
@@ -357,7 +357,7 @@ def fixture(state, stack, journeys=False, analytics=None, controls=None):
                 self.wfile.write(body)
                 # Fixed route groups only: no IDs, query values or response bodies.
                 route = self.path.split("?", 1)[0].removeprefix("/api/native/v1/")
-                event_kind = route if route in ("session", "refresh", "login", "profile", "menus", "generations", "personal-recipes", "feedback") else "feature"
+                event_kind = route if route in ("session", "refresh", "login", "register", "profile", "menus", "generations", "personal-recipes", "feedback") else "feature"
                 if route == "analytics/notice" and response.status == 200:
                     notice = json.loads(body)
                     if notice.get("available") is False and notice.get("defaultEnabled") is False:
@@ -622,9 +622,10 @@ def start_ios_ui(state, stack, arguments, observer=None):
     executable = bundle / 'Contents/MacOS' / name
     if not executable.is_file():
         raise RuntimeError('Selected Xcode UI executable is unavailable')
-    # AppKit launches the explicit selected bundle with substitution disabled,
-    # then verifies the returned app's actual executable. Do not launch a
-    # second instance through open or scan unrelated processes by bundle ID.
+    # The observer launches the explicit selected bundle, or Device Hub's
+    # measured native executable when its trampoline exits during startup.
+    # Readiness requires the actual returned app or the exact owned child PID;
+    # it never scans unrelated processes by name or bundle identifier.
     if observer is None:
         observer = compile_ios_ui_observer(state)
     result = subprocess.run([str(observer), str(bundle)], env=ENV, text=True,

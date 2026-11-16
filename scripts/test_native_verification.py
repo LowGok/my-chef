@@ -481,10 +481,10 @@ class NativeSystemPickerTest(unittest.TestCase):
 
 class AccountAPIDiagnosticTest(unittest.TestCase):
     def test_summary_retains_only_closed_account_operations_and_status_codes(self):
-        records = [('POST', 'account-export', 200), ('GET', 'account-deletion', 200),
+        records = [('POST', 'register', 202), ('GET', 'register', 200), ('POST', 'account-export', 200), ('GET', 'account-deletion', 200),
                    ('POST', 'account-deletion', 401), ('POST', 'private@example.test', 200),
                    ('POST', 'account-export', 'private token'), ('POST', 'account-deletion', True)]
-        self.assertEqual(installed.account_api_summary(records), 'POST/account-export/200, POST/account-deletion/401')
+        self.assertEqual(installed.account_api_summary(records), 'POST/register/202, POST/account-export/200, POST/account-deletion/401')
         self.assertEqual(installed.account_api_summary([('POST', 'account-deletion', 204)] * 20).count('204'), 8)
 
 
