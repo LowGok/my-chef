@@ -598,7 +598,7 @@ def ios_host_resources(state):
     print("Simulator runner resources: " + json.dumps(result, sort_keys=True), flush=True)
 
 
-def start_ios_simulator(sim, identifier, open_ui, *, boot_timeout=240):
+def start_ios_simulator(sim, identifier, open_ui, *, boot_timeout=240, before_boot=None):
     # Open the selected host before boot, as required by the UI client startup
     # sequence. A host may initiate boot itself; inspect the exact owned UUID
     # and still require bootstatus/HTTPS afterward.
@@ -608,6 +608,8 @@ def start_ios_simulator(sim, identifier, open_ui, *, boot_timeout=240):
         if len(matches) != 1 or matches[0].get('state') not in ('Shutdown', 'Booting', 'Booted'):
             raise RuntimeError('The owned simulator has an unexpected boot state')
         return matches[0]['state']
+    if before_boot is not None:
+        before_boot(identifier)
     if open_ui is not None:
         open_ui()
     if owned_state() == 'Shutdown':
@@ -685,7 +687,9 @@ def ios_ui_command(developer, model, identifier, *, headless=False):
     return None
 
 
-def ios(state, stack, ca, package, model="iPhone 16", fixture_name="MyChef fixture", *, headless=False):
+def ios(state, stack, ca, package, model="iPhone 16", fixture_name="MyChef fixture", *, headless=False, before_boot=None):
+    if before_boot is not None and not headless:
+        raise ValueError("Preboot compilation is limited to the VoiceOver fixture")
     if headless and (model, fixture_name) != ("iPhone 17", "MyChef analytics voice fixture"):
         raise ValueError("Command-line UI testing is limited to the VoiceOver fixture")
     if (model, fixture_name) not in (("iPhone 16", "MyChef fixture"),
@@ -760,7 +764,7 @@ def ios(state, stack, ca, package, model="iPhone 16", fixture_name="MyChef fixtu
     # tests on this standard runner. Keep actual completion mandatory while
     # allowing that cold modern-runtime startup; older fixtures keep240s.
     boot_timeout = 600 if model == "iPhone 17" else 240
-    start_ios_simulator(sim, identifier, open_ui, boot_timeout=boot_timeout)
+    start_ios_simulator(sim, identifier, open_ui, boot_timeout=boot_timeout, before_boot=before_boot)
     try:
         sim("bootstatus", identifier, timeout=boot_timeout)
     except subprocess.TimeoutExpired as error:

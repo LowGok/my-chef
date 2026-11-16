@@ -12,7 +12,7 @@ import analytics_voiceover
 
 
 class IOSProbeOrderTest(unittest.TestCase):
-    def exercise(self, fail_warmup=False):
+    def exercise(self, fail_warmup=False, precompile=False):
         with tempfile.TemporaryDirectory(prefix='analytics-probe-order-') as folder:
             state = Path(folder)
             stages = []
@@ -38,10 +38,13 @@ class IOSProbeOrderTest(unittest.TestCase):
                     raise RuntimeError('Fictional bootstrap unavailable')
 
             with patch.object(analytics_ios.subprocess, 'run', side_effect=execute):
+                prepared = analytics_ios.prepare(state, 'fictional-device') if precompile else None
+                if precompile:
+                    stages.append('boot')
                 run = lambda: analytics_ios.run(state, {'url': 'http://127.0.0.1:18137/control', 'token': 'a' * 43},
                                                {'email': 'fictional@example.test', 'password': 'fictional'},
                                                'fictional-device', state / 'container', voiceover_only=True,
-                                               before_test=warmup)
+                                               before_test=warmup, prepared_plan=prepared)
                 if fail_warmup:
                     with self.assertRaisesRegex(RuntimeError, 'Fictional bootstrap unavailable'):
                         run()
@@ -51,6 +54,9 @@ class IOSProbeOrderTest(unittest.TestCase):
 
     def test_native_bootstrap_occurs_after_probe_compilation_before_xctest(self):
         self.assertEqual(self.exercise(), ['compile', 'bootstrap', 'test'])
+
+    def test_precompiled_probe_is_not_rebuilt_after_the_phone_boots(self):
+        self.assertEqual(self.exercise(precompile=True), ['compile', 'boot', 'bootstrap', 'test'])
 
     def test_failed_bootstrap_prevents_xctest_execution(self):
         self.assertEqual(self.exercise(fail_warmup=True), ['compile', 'bootstrap'])

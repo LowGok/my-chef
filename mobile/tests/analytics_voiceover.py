@@ -118,8 +118,12 @@ def main():
         account = fixture.operate({'operation': 'seed'})
         control = fixture.serve(stack)
         observer = native.compile_ios_ui_observer(state)
+        prepared = []
+        def prepare_probe(identifier):
+            prepared.append(analytics_ios.prepare(state, identifier))
+            print('Separate VoiceOver probe compiled before phone boot', flush=True)
         metadata, launch, _, diagnostic = native.ios(state, stack, ca, artifact,
-            model='iPhone 17', fixture_name='MyChef analytics voice fixture', headless=True)
+            model='iPhone 17', fixture_name='MyChef analytics voice fixture', headless=True, before_boot=prepare_probe)
         devices = json.loads(native.command('xcrun', 'simctl', 'list', 'devices', 'booted', '-j'))['devices']
         identifiers = [d['udid'] for group in devices.values() for d in group if d.get('name') == 'MyChef analytics voice fixture']
         if len(identifiers) != 1:
@@ -140,7 +144,7 @@ def main():
         # XCTest activates the already bootstrapped fixture instance. Later
         # relaunch tests still terminate/restart it with these same arguments.
         checks = analytics_ios.run(state, control, account, identifier, container, voiceover_only=True,
-                                   before_test=bootstrap)
+                                   before_test=bootstrap, prepared_plan=prepared[0])
         if not all(('GET', kind, 200) in events for kind in ('analytics-notice-disabled', 'analytics-notice-assessed')):
             raise RuntimeError('VoiceOver requires both actual signup notice responses')
         text_scale = json.loads((container / 'tmp/analytics-text-result.json').read_text())

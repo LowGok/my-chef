@@ -552,6 +552,22 @@ class SimulatorBootOrderTest(unittest.TestCase):
         installed.start_ios_simulator(sim, 'owned-device', lambda: calls.append(('host-ui',)))
         self.assertEqual(calls, [('host-ui',), ('list', 'devices', '-j'), ('boot', 'owned-device')])
 
+    def test_preboot_preparation_finishes_before_any_ui_or_boot_work(self):
+        calls = []
+        def sim(*args, **_):
+            calls.append(args)
+            return json.dumps({'devices': {'runtime': [{'udid': 'owned-device', 'state': 'Shutdown'}]}})
+        installed.start_ios_simulator(sim, 'owned-device', lambda: calls.append(('host-ui',)),
+            before_boot=lambda identifier: calls.append(('compile', identifier)))
+        self.assertEqual(calls, [('compile', 'owned-device'), ('host-ui',), ('list', 'devices', '-j'), ('boot', 'owned-device')])
+        def refused(_):
+            raise RuntimeError('Fictional probe compilation failed')
+        with patch.object(installed, 'command') as command:
+            with self.assertRaisesRegex(RuntimeError, 'Fictional probe compilation failed'):
+                installed.start_ios_simulator(command, 'owned-device', lambda: calls.append(('unexpected-ui',)), before_boot=refused)
+            command.assert_not_called()
+        self.assertNotIn(('unexpected-ui',), calls)
+
     def test_ui_initiated_boot_does_not_issue_a_duplicate_boot(self):
         for state in ('Booted', 'Booting'):
             calls = []

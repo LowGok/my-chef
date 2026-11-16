@@ -90,7 +90,33 @@ def project(state):
     return path
 
 
-def run(state, control, account, identifier, container, layout_only=False, voiceover_only=False, before_test=None):
+def prepare(state, identifier):
+    """Compile only the separate probe, optionally while its phone is shut down."""
+    root = Path(state)
+    source = project(root)
+    derived = root / 'ios-probe-build'
+    arguments = ['xcodebuild', '-project', str(source), '-scheme', 'AnalyticsProbe', '-sdk', 'iphonesimulator',
+                 '-destination', 'id=' + identifier, '-derivedDataPath', str(derived), 'CODE_SIGNING_ALLOWED=NO',
+                 'CODE_SIGN_IDENTITY=', 'build-for-testing']
+    try:
+        result = subprocess.run(arguments, cwd=root, env=native.ENV, stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT, timeout=240)
+    except subprocess.TimeoutExpired:
+        raise RuntimeError('Isolated iOS analytics probe compilation deadline 240 seconds') from None
+    if result.returncode:
+        # Compilation has no account input. Still publish only fixed classes
+        # and numeric source lines, never raw compiler or runner output.
+        text = result.stdout.decode(errors='replace')
+        lines = sorted(set(re.findall(r'AnalyticsProbe\.swift:([0-9]{1,4}):', text)))
+        raise RuntimeError('Isolated iOS analytics probe compilation failed; source lines ' + ','.join(lines[-6:]))
+    plans = list((derived / 'Build/Products').glob('*.xctestrun'))
+    if len(plans) != 1:
+        raise RuntimeError('Expected one isolated XCTest plan')
+    return plans[0]
+
+
+def run(state, control, account, identifier, container, layout_only=False, voiceover_only=False, before_test=None,
+        prepared_plan=None):
     root = Path(state)
     output = root / 'analytics-ios-observations.json'
     input_path = root / 'analytics-ios-input.json'
@@ -100,8 +126,6 @@ def run(state, control, account, identifier, container, layout_only=False, voice
                                      'voiceOverOnly': 'true' if voiceover_only else 'false',
                                      'anonymousScreenshot': str(native.ARTIFACTS / 'analytics-anonymous.png')}))
     input_path.chmod(0o600)
-    source = project(root)
-    derived = root / 'ios-probe-build'
     # Raw XCTest logs can include synthetic field values. Keep them private,
     # never echo a failing assertion's data or upload an xcresult/screenshots.
     def execute(arguments, seconds):
@@ -173,12 +197,13 @@ def run(state, control, account, identifier, container, layout_only=False, voice
             if diagnostic:
                 detail += '; ' + diagnostic
             raise RuntimeError('Isolated iOS analytics probe failed: ' + detail)
-    execute(['xcodebuild', '-project', str(source), '-scheme', 'AnalyticsProbe', '-sdk', 'iphonesimulator',
-             '-destination', 'id=' + identifier, '-derivedDataPath', str(derived), 'CODE_SIGNING_ALLOWED=NO',
-             'CODE_SIGN_IDENTITY=', 'build-for-testing'], 240)
-    plans = list((derived / 'Build/Products').glob('*.xctestrun'))
-    if len(plans) != 1:
-        raise RuntimeError('Expected one isolated XCTest plan')
+    if prepared_plan is None:
+        prepared_plan = prepare(root, identifier)
+    plans = list((root / 'ios-probe-build/Build/Products').glob('*.xctestrun'))
+    if (len(plans) != 1 or Path(prepared_plan).resolve() != plans[0].resolve()
+            or (root / 'ios-analytics-probe/AnalyticsProbe.swift').read_bytes()
+               != (ROOT / 'mobile/tests/ios/AnalyticsProbe.swift').read_bytes()):
+        raise RuntimeError('Expected the current isolated XCTest plan')
     plan = plistlib.loads(plans[0].read_bytes())
     # Xcode may emit either the modern TestConfigurations form or the legacy
     # target dictionary. Update only the separate probe's execution parameters.
