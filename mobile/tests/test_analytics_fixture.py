@@ -14,6 +14,24 @@ import analytics_ios
 
 
 class FixtureBoundaryTest(unittest.TestCase):
+    def test_native_preference_observations_exclude_controller_and_other_routes(self):
+        fixture = object.__new__(Fixture)
+        fixture.native_events = [('GET', 'analytics-preferences', 200),
+                                 ('PUT', 'profile', 200),
+                                 ('PUT', 'analytics-preferences', 200),
+                                 ('GET', 'analytics-preferences', 200),
+                                 ('PUT', 'analytics-preferences', 409)]
+        self.assertEqual(fixture.operate({'operation': 'native-preference'}),
+                         {'reads': 2, 'writes': 2, 'lastStatus': 409})
+        fixture.native_events = []
+        self.assertEqual(fixture.operate({'operation': 'native-preference'}),
+                         {'reads': 0, 'writes': 0, 'lastStatus': 0})
+        with self.assertRaises(ValueError):
+            fixture.operate({'operation': 'native-preference', 'target': 'private-canary'})
+        fixture.native_events = None
+        with self.assertRaises(ValueError):
+            fixture.operate({'operation': 'native-preference'})
+
     def test_profile_failure_diagnostics_keep_only_closed_facts(self):
         fixture = object.__new__(Fixture)
         fixture.native_events = [('PUT', 'profile', 200), ('PUT', 'profile', 200)]

@@ -385,7 +385,7 @@ def fixture(state, stack, journeys=False, analytics=None, controls=None):
                         event_kind = "analytics-notice-disabled"
                     elif notice.get("available") is True and notice.get("defaultEnabled") is True:
                         event_kind = "analytics-notice-assessed"
-                if route in ("account/export", "account/deletion"):
+                if route in ("account/export", "account/deletion", "analytics/preferences"):
                     event_kind = route.replace("/", "-")
                 if re.fullmatch(r"favorite-weeks/\d{4}-\d{2}-\d{2}", route):
                     event_kind = "favorite-week"

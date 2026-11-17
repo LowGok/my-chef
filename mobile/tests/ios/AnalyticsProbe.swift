@@ -397,6 +397,17 @@ final class AnalyticsProbe: XCTestCase {
             XCUIElement.ElementType.switch.rawValue, XCUIElement.ElementType.checkBox.rawValue,
             XCUIElement.ElementType.button.rawValue)).firstMatch
     }
+    func preferenceState() {
+        if let result = try? control("native-preference"),
+           let reads = result["reads"] as? Int, let writes = result["writes"] as? Int,
+           let status = result["lastStatus"] as? Int {
+            print("Analytics iOS preference requests: reads=\(reads) writes=\(writes) status=\(status)")
+        }
+        let box = checkbox()
+        let value = box.exists ? box.value as? String : nil
+        let state = value == "1" ? "on" : value == "0" ? "off" : "unknown"
+        print("Analytics iOS preference control: state=" + state)
+    }
     func enabled(_ desired: Bool) {
         let box = checkbox(); reveal(box)
         XCTAssertTrue(box.isEnabled, "Analytics control is available")
@@ -540,8 +551,22 @@ final class AnalyticsProbe: XCTestCase {
         XCTAssertEqual(try control("counts")["delivered"] as? Int, 1)
         print("Analytics iOS phase: primary participation complete")
         mark("participation", "restarted", "exactlyOneEvent")
+        let choiceWrites = try control("native-preference")["writes"] as? Int
+        XCTAssertNotNil(choiceWrites, "Native preference observation is available")
         _ = try control("other-session-choice", ["enabled": false])
-        tapSettled(checkbox())
+        let staleBox = checkbox(); reveal(staleBox)
+        XCTAssertEqual(staleBox.value as? String, "1", "Conflict fixture retains its older visible choice")
+        tapSettled(staleBox, nativeElement: true)
+        waitFor({ ((try? self.control("native-preference")["writes"]) as? Int ?? 0) > (choiceWrites ?? 0) },
+                "Native checkbox must send its preference update", onTimeout: {
+            self.preferenceState()
+        })
+        let choiceResult = try control("native-preference")
+        XCTAssertEqual(choiceResult["lastStatus"] as? Int, 409, "Actual stale update must be rejected")
+        // The inserted warning can be above the enlarged-text viewport.
+        // Reach the real warning with OS gestures before checking its text.
+        reveal(app.descendants(matching: .any).matching(NSPredicate(format:
+            "label CONTAINS %@", "Your setting changed elsewhere")).firstMatch)
         waitFor({ self.text("Your setting changed elsewhere") }, "Stale choice must show conflict")
         XCTAssertEqual(checkbox().value as? String, "0"); mark("conflict", "staleConflict", "currentState")
         _ = try control("maintenance"); enabled(true)
@@ -655,10 +680,13 @@ final class AnalyticsProbe: XCTestCase {
         try openSetting("Navigation Style")
         try openSetting("Flat")
         func flatSelected() -> Bool {
+            let label = settings.staticTexts["Flat"].firstMatch
             let row = settings.cells.containing(.staticText, identifier: "Flat").firstMatch
             let button = settings.buttons["Flat"].firstMatch
             let parent = settings.cells.containing(.staticText, identifier: "Navigation Style").firstMatch
-            return row.exists && row.isSelected || button.exists && button.isSelected
+            // Settings can attach the selected accessibility trait to the
+            // text itself rather than its containing cell or button.
+            return label.exists && label.isSelected || row.exists && row.isSelected || button.exists && button.isSelected
                 || parent.exists && (parent.value as? String) == "Flat"
         }
         let selectionDeadline = Date().addingTimeInterval(15)
@@ -666,6 +694,10 @@ final class AnalyticsProbe: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.2))
         }
         guard flatSelected() else {
+            let label = settings.staticTexts["Flat"].firstMatch
+            let row = settings.cells.containing(.staticText, identifier: "Flat").firstMatch
+            let button = settings.buttons["Flat"].firstMatch
+            print("Analytics iOS Flat selection: label=\(label.exists && label.isSelected) cell=\(row.exists && row.isSelected) button=\(button.exists && button.isSelected)")
             XCTFail("Native Settings must confirm flat VoiceOver navigation")
             throw Failure.missingControl
         }

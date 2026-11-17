@@ -209,6 +209,15 @@ def run(state, control, account, identifier, container, layout_only=False, voice
             environment = voice_environment(text)
             if environment:
                 detail += '; voice environment ' + environment
+            requests = re.findall(r'Analytics iOS preference requests: reads=([0-9]{1,5}) writes=([0-9]{1,5}) status=([0-9]{1,3})', text)
+            if requests:
+                detail += '; preference reads/writes/status ' + '/'.join(requests[-1])
+            choices = re.findall(r'Analytics iOS preference control: state=(on|off|unknown)', text)
+            if choices:
+                detail += '; preference control ' + choices[-1]
+            selections = re.findall(r'Analytics iOS Flat selection: label=(true|false) cell=(true|false) button=(true|false)', text)
+            if selections:
+                detail += '; Flat label/cell/button selected ' + '/'.join(selections[-1])
             roles = re.findall(r'Analytics iOS accessibility type: ([0-9]{1,3}) state: (off|on|other) enabled: (true|false)', text)
             if roles:
                 detail += '; observed roles ' + ', '.join('/'.join(role) for role in roles[-8:])
