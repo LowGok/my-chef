@@ -49,12 +49,13 @@ class IOSTextObservationTest(unittest.TestCase):
 
 
 class IOSProbeOrderTest(unittest.TestCase):
-    def exercise(self, fail_warmup=False, precompile=False):
+    def exercise(self, fail_warmup=False, precompile=False, *, layout_only=False, voiceover_only=True,
+                 expected_timeout=1500):
         with tempfile.TemporaryDirectory(prefix='analytics-probe-order-') as folder:
             state = Path(folder)
             stages = []
 
-            def execute(arguments, **_):
+            def execute(arguments, **options):
                 if arguments[-1] == 'build-for-testing':
                     stages.append('compile')
                     products = state / 'ios-probe-build/Build/Products'
@@ -62,6 +63,7 @@ class IOSProbeOrderTest(unittest.TestCase):
                     (products / 'AnalyticsProbe.xctestrun').write_bytes(plistlib.dumps({'AnalyticsProbe': {}}))
                 else:
                     stages.append('test')
+                    self.assertEqual(options['timeout'], expected_timeout)
                     plan = plistlib.loads((state / 'ios-probe-build/Build/Products/AnalyticsProbe.xctestrun').read_bytes())
                     self.assertEqual(plan['AnalyticsProbe']['UITargetAppBundleIdentifier'], analytics_ios.native.APP)
                     (state / 'analytics-ios-observations.json').write_text(json.dumps({'checks': {}}))
@@ -70,7 +72,7 @@ class IOSProbeOrderTest(unittest.TestCase):
             def warmup():
                 stages.append('bootstrap')
                 config = json.loads((state / 'analytics-ios-input.json').read_text())
-                self.assertEqual(config['voiceOverOnly'], 'true')
+                self.assertEqual(config['voiceOverOnly'], 'true' if voiceover_only else 'false')
                 self.assertEqual(config['preserveBootstrap'], 'true')
                 if fail_warmup:
                     raise RuntimeError('Fictional bootstrap unavailable')
@@ -81,7 +83,8 @@ class IOSProbeOrderTest(unittest.TestCase):
                     stages.append('boot')
                 run = lambda: analytics_ios.run(state, {'url': 'http://127.0.0.1:18137/control', 'token': 'a' * 43},
                                                {'email': 'fictional@example.test', 'password': 'fictional'},
-                                               'fictional-device', state / 'container', voiceover_only=True,
+                                               'fictional-device', state / 'container', layout_only=layout_only,
+                                               voiceover_only=voiceover_only,
                                                before_test=warmup, prepared_plan=prepared)
                 if fail_warmup:
                     with self.assertRaisesRegex(RuntimeError, 'Fictional bootstrap unavailable'):
@@ -98,6 +101,13 @@ class IOSProbeOrderTest(unittest.TestCase):
 
     def test_failed_bootstrap_prevents_xctest_execution(self):
         self.assertEqual(self.exercise(fail_warmup=True), ['compile', 'bootstrap'])
+
+    def test_only_the_complete_functional_journey_receives_the_longer_budget(self):
+        self.assertEqual(self.exercise(voiceover_only=False, expected_timeout=1800),
+                         ['compile', 'bootstrap', 'test'])
+        self.assertEqual(self.exercise(layout_only=True, voiceover_only=False),
+                         ['compile', 'bootstrap', 'test'])
+        self.assertEqual(self.exercise(), ['compile', 'bootstrap', 'test'])
 
 
 

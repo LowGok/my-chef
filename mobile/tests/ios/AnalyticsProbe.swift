@@ -711,7 +711,7 @@ final class AnalyticsProbe: XCTestCase {
         guard settings.wait(for: .runningForeground, timeout: 20) else { throw Failure.missingControl }
         // Foreground state precedes Settings' first usable accessibility tree.
         // Use XCTest's bounded readiness wait before querying individual rows.
-        func settingsNavigation(_ name: String? = nil, timeout: TimeInterval) -> (bounds: CGRect, bar: CGRect)? {
+        func settingsNavigation(timeout: TimeInterval) -> (bounds: CGRect, bar: CGRect)? {
             let deadline = Date().addingTimeInterval(timeout)
             while Date() < deadline {
                 // Capture once and inspect the immutable tree locally. Repeated
@@ -721,8 +721,7 @@ final class AnalyticsProbe: XCTestCase {
                     var visited = 0
                     while let node = pending.popLast(), visited < 2048 {
                         visited += 1
-                        if node.elementType == .navigationBar,
-                           name == nil || node.identifier == name || node.label == name {
+                        if node.elementType == .navigationBar {
                             let bounds = snapshot.frame, bar = node.frame
                             if !bounds.isNull && !bounds.isInfinite && !bar.isNull && !bar.isInfinite,
                                bounds.width > 1, bounds.height > 1, bar.width > 1, bar.height > 1,
@@ -739,7 +738,27 @@ final class AnalyticsProbe: XCTestCase {
             }
             return nil
         }
+        func settingsState() {
+            guard let snapshot = try? settings.snapshot() else {
+                print("Analytics iOS Settings error: snapshot=unavailable")
+                return
+            }
+            let known = ["Accessibility", "VoiceOver", "Navigation Style", "Flat", "Grouped"]
+            var found = Set<String>()
+            var pending: [any XCUIElementSnapshot] = [snapshot]
+            var visited = 0, bars = 0, alerts = 0
+            while let node = pending.popLast(), visited < 2048 {
+                visited += 1
+                if node.elementType == .navigationBar { bars += 1 }
+                if node.elementType == .alert { alerts += 1 }
+                for name in known where node.label == name || node.identifier == name { found.insert(name) }
+                pending.append(contentsOf: node.children)
+            }
+            // No arbitrary Settings labels, identifiers, values or paths.
+            print("Analytics iOS Settings error: bars=\(min(99, bars)) alerts=\(min(99, alerts)) accessibility=\(found.contains("Accessibility")) voiceover=\(found.contains("VoiceOver")) style=\(found.contains("Navigation Style")) flat=\(found.contains("Flat")) grouped=\(found.contains("Grouped")) truncated=\(visited >= 2048)")
+        }
         guard settingsNavigation(timeout: 45) != nil else {
+            settingsState()
             XCTFail("Native Settings navigation must become ready")
             throw Failure.missingControl
         }
@@ -748,6 +767,7 @@ final class AnalyticsProbe: XCTestCase {
             print("Analytics iOS voice phase: Settings " + name)
             let item = settings.staticTexts[name].firstMatch
             guard let layout = settingsNavigation(timeout: 5) else {
+                settingsState()
                 XCTFail("Native Settings layout must be measurable before row input")
                 throw Failure.missingControl
             }
@@ -774,12 +794,9 @@ final class AnalyticsProbe: XCTestCase {
                     stable = visible && unchanged ? stable + 1 : 0
                     if stable >= 2 {
                         item.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
-                        if name != "Flat" {
-                            guard settingsNavigation(name, timeout: 20) != nil else {
-                                XCTFail("Required native Settings destination must become ready")
-                                throw Failure.missingControl
-                            }
-                        }
+                        // The next required native row confirms progression;
+                        // navigation-bar labels are not a portable page identity.
+                        // Flat selection is still independently required below.
                         return
                     }
                     previous = frame
@@ -789,6 +806,7 @@ final class AnalyticsProbe: XCTestCase {
                 let end = settings.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.35))
                 start.press(forDuration: 0.2, thenDragTo: end)
             }
+            settingsState()
             XCTFail("Required native VoiceOver setting must be reachable")
             throw Failure.missingControl
         }
@@ -821,6 +839,7 @@ final class AnalyticsProbe: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.2))
         }
         guard flatSelected() else {
+            settingsState()
             let label = settings.staticTexts["Flat"].firstMatch
             let row = settings.cells.containing(.staticText, identifier: "Flat").firstMatch
             let button = settings.buttons["Flat"].firstMatch
