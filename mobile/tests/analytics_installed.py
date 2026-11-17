@@ -109,7 +109,12 @@ def full_journeys(receipt, artifact):
             native.command(adb_path, '-s', 'emulator-5554', 'shell', 'wm', 'density', str(density))
             native.command(adb_path, '-s', 'emulator-5554', 'shell', 'settings', 'put', 'system', 'font_scale', '1.5' if speech is not None else '1.0')
         else:
-            metadata, launch, stop, diagnostic = native.ios(state, stack, ca, artifact)
+            primary_plan = []
+            def prepare_primary(identifier):
+                primary_plan.append(analytics_ios.prepare(state, identifier))
+                print('Separate primary iOS probe compiled before phone boot', flush=True)
+            metadata, launch, stop, diagnostic = native.ios(state, stack, ca, artifact,
+                before_boot=prepare_primary)
         native.verify_stage(lambda: ('POST', 'session', 201) in events and ('GET', 'session', 200) in events,
                             'native analytics fixture session', events, rejected, diagnostic, launch=launch,
                             wait_after_launch_timeout=native.PLATFORM == 'ios-simulator')
@@ -144,9 +149,12 @@ def full_journeys(receipt, artifact):
             native.command('xcrun', 'simctl', 'ui', identifier, 'content_size', 'accessibility-medium')
             container = Path(native.command('xcrun', 'simctl', 'get_app_container', identifier, native.APP, 'data'))
             stop()
+            if len(primary_plan) != 1:
+                raise RuntimeError('Expected one precompiled primary iOS probe')
             try:
                 checks = analytics_ios.run(state, control, account, identifier, container,
-                    before_test=lambda: analytics_ios.bootstrap(identifier, events, rejected, diagnostic))
+                    before_test=lambda: analytics_ios.bootstrap(identifier, events, rejected, diagnostic),
+                    prepared_plan=primary_plan[0])
             except RuntimeError:
                 # Fixed route groups and HTTP statuses; no headers/bodies/IDs.
                 print('Native iOS account API results: ' + native.account_api_summary(events), flush=True)
@@ -177,8 +185,13 @@ def full_journeys(receipt, artifact):
             # phone's authenticated journey or claim screen-reader speech.
             small = state / 'small-phone'
             small.mkdir(mode=0o700)
+            small_plan = []
+            def prepare_small(identifier):
+                small_plan.append(analytics_ios.prepare(small, identifier))
+                print('Separate small-phone iOS probe compiled before phone boot', flush=True)
             small_metadata, _, _, small_diagnostic = native.ios(small, stack, ca, artifact,
-                model='iPhone SE (3rd generation)', fixture_name='MyChef analytics small fixture')
+                model='iPhone SE (3rd generation)', fixture_name='MyChef analytics small fixture',
+                before_boot=prepare_small)
             devices = json.loads(native.command('xcrun', 'simctl', 'list', 'devices', 'booted', '-j'))['devices']
             identifiers = [d['udid'] for group in devices.values() for d in group if d.get('name') == 'MyChef analytics small fixture']
             if len(identifiers) != 1:
@@ -186,8 +199,11 @@ def full_journeys(receipt, artifact):
             small_id = identifiers[0]
             native.command('xcrun', 'simctl', 'ui', small_id, 'content_size', 'accessibility-medium')
             small_container = Path(native.command('xcrun', 'simctl', 'get_app_container', small_id, native.APP, 'data'))
+            if len(small_plan) != 1:
+                raise RuntimeError('Expected one precompiled small-phone iOS probe')
             small_checks = analytics_ios.run(small, control, account, small_id, small_container, layout_only=True,
-                before_test=lambda: analytics_ios.bootstrap(small_id, events, rejected, small_diagnostic))
+                before_test=lambda: analytics_ios.bootstrap(small_id, events, rejected, small_diagnostic),
+                prepared_plan=small_plan[0])
             analytics_ios.text_observation(small_id)
             if (small_checks['accessibility']['phoneWidths'] is not True
                     or small_checks['accessibility']['keyboardUnobstructed'] is not True):

@@ -137,8 +137,18 @@ def main():
             analytics_ios.bootstrap(identifier, events, rejected, diagnostic)
         # XCTest activates the already bootstrapped fixture instance. Later
         # relaunch tests still terminate/restart it with these same arguments.
-        checks = analytics_ios.run(state, control, account, identifier, container, voiceover_only=True,
-                                   before_test=bootstrap, prepared_plan=prepared[0])
+        try:
+            checks = analytics_ios.run(state, control, account, identifier, container, voiceover_only=True,
+                                       before_test=bootstrap, prepared_plan=prepared[0])
+        except RuntimeError:
+            print('VoiceOver native API results: ' + ', '.join(method + '/' + kind + '/' + str(status)
+                for method, kind, status in events[-20:]), flush=True)
+            notice_events = [(method, kind, status) for method, kind, status in events
+                             if kind in ('analytics-notice', 'analytics-notice-disabled', 'analytics-notice-assessed')]
+            print('VoiceOver notice API results: ' + (', '.join(method + '/' + kind + '/' + str(status)
+                for method, kind, status in notice_events[-8:]) or 'none observed')
+                + '; rejected requests=' + str(len(rejected)), flush=True)
+            raise
         if not all(('GET', kind, 200) in events for kind in ('analytics-notice-disabled', 'analytics-notice-assessed')):
             raise RuntimeError('VoiceOver requires both actual signup notice responses')
         analytics_ios.text_observation(identifier)

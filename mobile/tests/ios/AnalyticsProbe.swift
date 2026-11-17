@@ -881,6 +881,8 @@ final class AnalyticsProbe: XCTestCase {
         XCTAssertFalse(signupBox.isEnabled); XCTAssertEqual(signupBox.value as? String, "0")
         let unavailable = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Analytics is Off while unavailable")).firstMatch
         reveal(unavailable)
+        waitFor({ ((try? self.control("native-notice")["disabledObserved"]) as? Bool) == true },
+                "Native disabled notice response must precede VoiceOver observation")
         try enableVoice()
         defer { try? voice.disable() }
         XCTAssertTrue(voice.isEnabled)

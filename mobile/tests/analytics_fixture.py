@@ -110,6 +110,11 @@ class Fixture:
                       if method == 'PUT' and kind == 'analytics-preferences']
             return {'reads': len(reads), 'writes': len(writes),
                     'lastStatus': writes[-1] if writes else 0}
+        if op == 'native-notice':
+            if set(value) != {'operation'} or self.native_events is None:
+                raise ValueError('Native proxy observations unavailable')
+            return {'disabledObserved': ('GET', 'analytics-notice-disabled', 200) in self.native_events,
+                    'assessedObserved': ('GET', 'analytics-notice-assessed', 200) in self.native_events}
         if op == 'native-export':
             if self.native_events is None:
                 raise ValueError('Native proxy observations unavailable')
@@ -252,7 +257,7 @@ class Fixture:
                     status = 200
                 except (ValueError, RuntimeError, OSError) as error:
                     operation = request.get('operation') if type(request) is dict else None
-                    closed = {'proof', 'approved', 'profile-input', 'native-preference', 'speech-start', 'speech-stop', 'speech-gesture', 'preference', 'counts',
+                    closed = {'proof', 'approved', 'profile-input', 'native-preference', 'native-notice', 'speech-start', 'speech-stop', 'speech-gesture', 'preference', 'counts',
                               'tick', 'backup', 'maintenance', 'other-session-choice', 'offline', 'online',
                               'foreign-export', 'verify-native-export'}
                     operation = operation if isinstance(operation, str) and operation in closed else 'unknown'

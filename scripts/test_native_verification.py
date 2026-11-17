@@ -641,6 +641,25 @@ class SimulatorBootOrderTest(unittest.TestCase):
             command.assert_not_called()
         self.assertNotIn(('unexpected-ui',), calls)
 
+    def test_analytics_owned_phones_allow_preboot_compilation_before_archive_work(self):
+        for model, name in (('iPhone 16', 'MyChef fixture'),
+                            ('iPhone SE (3rd generation)', 'MyChef analytics small fixture')):
+            with patch.dict(installed.os.environ, {'NATIVE_ANALYTICS_JOURNEYS': '1'}), \
+                    patch.object(installed, 'command', side_effect=RuntimeError('archive boundary reached')):
+                with self.assertRaisesRegex(RuntimeError, 'archive boundary reached'):
+                    installed.ios(Path('.'), None, 'fictional-ca', 'fictional-package', model=model,
+                                  fixture_name=name, before_boot=lambda _: None)
+
+    def test_ordinary_or_unowned_phones_reject_preboot_analytics_compilation(self):
+        for flag, model, name in (('0', 'iPhone 16', 'MyChef fixture'),
+                                  ('1', 'iPhone 16', 'Other fixture')):
+            with patch.dict(installed.os.environ, {'NATIVE_ANALYTICS_JOURNEYS': flag}), \
+                    patch.object(installed, 'command') as command:
+                with self.assertRaises(ValueError):
+                    installed.ios(Path('.'), None, 'fictional-ca', 'fictional-package', model=model,
+                                  fixture_name=name, before_boot=lambda _: None)
+                command.assert_not_called()
+
     def test_ui_initiated_boot_does_not_issue_a_duplicate_boot(self):
         for state in ('Booted', 'Booting'):
             calls = []

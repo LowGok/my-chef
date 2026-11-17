@@ -379,12 +379,14 @@ def fixture(state, stack, journeys=False, analytics=None, controls=None):
                 # Fixed route groups only: no IDs, query values or response bodies.
                 route = self.path.split("?", 1)[0].removeprefix("/api/native/v1/")
                 event_kind = route if route in ("session", "refresh", "login", "register", "profile", "menus", "generations", "personal-recipes", "feedback") else "feature"
-                if route == "analytics/notice" and response.status == 200:
-                    notice = json.loads(body)
-                    if notice.get("available") is False and notice.get("defaultEnabled") is False:
-                        event_kind = "analytics-notice-disabled"
-                    elif notice.get("available") is True and notice.get("defaultEnabled") is True:
-                        event_kind = "analytics-notice-assessed"
+                if route == "analytics/notice":
+                    event_kind = "analytics-notice"
+                    if response.status == 200:
+                        notice = json.loads(body)
+                        if notice.get("available") is False and notice.get("defaultEnabled") is False:
+                            event_kind = "analytics-notice-disabled"
+                        elif notice.get("available") is True and notice.get("defaultEnabled") is True:
+                            event_kind = "analytics-notice-assessed"
                 if route in ("account/export", "account/deletion", "analytics/preferences"):
                     event_kind = route.replace("/", "-")
                 if re.fullmatch(r"favorite-weeks/\d{4}-\d{2}-\d{2}", route):
@@ -717,8 +719,10 @@ def ios_ui_command(developer, model, identifier, *, headless=False):
 
 
 def ios(state, stack, ca, package, model="iPhone 16", fixture_name="MyChef fixture", *, headless=False, before_boot=None):
-    if before_boot is not None and (model, fixture_name) != ("iPhone 17", "MyChef analytics voice fixture"):
-        raise ValueError("Preboot compilation is limited to the VoiceOver fixture")
+    analytics_owned = os.environ.get('NATIVE_ANALYTICS_JOURNEYS') == '1' and (model, fixture_name) in (
+        ('iPhone 16', 'MyChef fixture'), ('iPhone SE (3rd generation)', 'MyChef analytics small fixture'))
+    if before_boot is not None and not (analytics_owned or (model, fixture_name) == ("iPhone 17", "MyChef analytics voice fixture")):
+        raise ValueError("Preboot compilation requires an owned analytics fixture")
     if headless and (model, fixture_name) != ("iPhone 17", "MyChef analytics voice fixture"):
         raise ValueError("Command-line UI testing is limited to the VoiceOver fixture")
     if (model, fixture_name) not in (("iPhone 16", "MyChef fixture"),

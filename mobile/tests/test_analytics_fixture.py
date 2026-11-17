@@ -14,6 +14,21 @@ import analytics_ios
 
 
 class FixtureBoundaryTest(unittest.TestCase):
+    def test_native_notice_requires_actual_proxy_responses(self):
+        fixture = object.__new__(Fixture)
+        fixture.native_events = [('GET', 'feature', 200), ('GET', 'analytics-notice', 503)]
+        self.assertEqual(fixture.operate({'operation': 'native-notice'}),
+                         {'disabledObserved': False, 'assessedObserved': False})
+        fixture.native_events += [('GET', 'analytics-notice-disabled', 200),
+                                  ('GET', 'analytics-notice-assessed', 200)]
+        self.assertEqual(fixture.operate({'operation': 'native-notice'}),
+                         {'disabledObserved': True, 'assessedObserved': True})
+        with self.assertRaises(ValueError):
+            fixture.operate({'operation': 'native-notice', 'target': 'private-canary'})
+        fixture.native_events = None
+        with self.assertRaises(ValueError):
+            fixture.operate({'operation': 'native-notice'})
+
     def test_native_preference_observations_exclude_controller_and_other_routes(self):
         fixture = object.__new__(Fixture)
         fixture.native_events = [('GET', 'analytics-preferences', 200),
