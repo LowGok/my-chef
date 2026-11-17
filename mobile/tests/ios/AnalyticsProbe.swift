@@ -685,8 +685,36 @@ final class AnalyticsProbe: XCTestCase {
             print("Analytics iOS voice phase: Settings " + name)
             let item = settings.staticTexts[name].firstMatch
             for _ in 0..<16 {
-                if item.wait(for: \.isHittable, toEqual: true, timeout: 2) {
-                    item.tap(); return
+                // Settings exposes these row labels as StaticText. XCTest
+                // can reject their activation point even while their measured
+                // rectangle is visible. Use actual stable geometry for OS input;
+                // never ask a noninteractive label for a computed hit point.
+                let readyDeadline = Date().addingTimeInterval(2)
+                var previous = CGRect.null
+                var stable = 0
+                while Date() < readyDeadline && item.exists {
+                    let frame = item.frame
+                    let bounds = settings.frame.insetBy(dx: 1, dy: 1)
+                    let navigation = settings.navigationBars.firstMatch.frame
+                    let visible = !frame.isNull && !frame.isInfinite && frame.width > 1 && frame.height > 1
+                        && [frame.minX, frame.minY, frame.maxX, frame.maxY].allSatisfy({ $0.isFinite })
+                        && bounds.contains(frame) && frame.minY > navigation.maxY
+                    let unchanged = !previous.isNull && abs(frame.minX - previous.minX) <= 1
+                        && abs(frame.minY - previous.minY) <= 1 && abs(frame.width - previous.width) <= 1
+                        && abs(frame.height - previous.height) <= 1
+                    stable = visible && unchanged ? stable + 1 : 0
+                    if stable >= 2 {
+                        item.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+                        if name != "Flat" {
+                            guard settings.navigationBars[name].waitForExistence(timeout: 20) else {
+                                XCTFail("Required native Settings destination must become ready")
+                                throw Failure.missingControl
+                            }
+                        }
+                        return
+                    }
+                    previous = frame
+                    RunLoop.current.run(until: Date().addingTimeInterval(0.2))
                 }
                 let start = settings.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7))
                 let end = settings.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.35))
