@@ -289,7 +289,7 @@ final class AnalyticsProbe: XCTestCase {
         }
         return native.count == 1 ? native[0] : nil
     }
-    func waitPickerButton(_ label: String) -> XCUIElement? {
+    func waitPickerButton(_ label: String, required: Bool = true) -> XCUIElement? {
         let end = Date().addingTimeInterval(30)
         var openedBrowse = false
         while Date() < end {
@@ -303,7 +303,7 @@ final class AnalyticsProbe: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.2))
         }
         pickerState()
-        XCTFail("System picker control must exist outside WebKit")
+        if required { XCTFail("System picker control must exist outside WebKit") }
         return nil
     }
     func pickerState() {
@@ -312,6 +312,9 @@ final class AnalyticsProbe: XCTestCase {
             let p = NSPredicate(format: "label == %@", name)
             print("Analytics iOS picker control: " + name + " total=\(app.buttons.matching(p).count) web=\(app.webViews.buttons.matching(p).count)")
             print("Analytics iOS picker navigation: " + name + " count=\(app.navigationBars.buttons.matching(p).count)")
+            let types = app.descendants(matching: .any).matching(p).allElementsBoundByIndex
+                .prefix(8).map { String($0.elementType.rawValue) }.joined(separator: ",")
+            print("Analytics iOS picker types: " + name + " all=" + types)
         }
     }
     func pickerAction(save: Bool) {
@@ -319,11 +322,43 @@ final class AnalyticsProbe: XCTestCase {
         // Save control before looking for Cancel, which is also in the HTML
         // dialog. This avoids mistaking the underlying animated dialog for
         // a system picker that has not appeared yet.
-        guard waitPickerButton("Save") != nil else { return }
+        // Save can be present but unavailable before a destination is chosen.
+        // Presentation needs a measured native control, not a tappable Save.
+        let nativeSave = app.navigationBars.buttons.matching(NSPredicate(format: "label == %@", "Save"))
+        waitFor({ nativeSave.count == 1 && self.hasTapRegion(nativeSave.firstMatch) },
+                "Native export picker must become visibly present", timeout: 30)
         print("Analytics iOS phase: native picker presented")
         if !save {
             print("Analytics iOS phase: native picker Cancel")
-            guard let cancel = waitPickerButton("Cancel") else { return }
+            guard let cancel = waitPickerButton("Cancel", required: false) else {
+                // Some native export presentations expose Save/Browse without
+                // a named Cancel. Dismiss that actual UIKit sheet with OS input;
+                // the underlying HTML Cancel is never a substitute.
+                let bars = app.navigationBars.containing(.button, identifier: "Save")
+                guard bars.count == 1, nativeSave.count == 1, hasTapRegion(nativeSave.firstMatch) else {
+                    XCTFail("Native export navigation must own the dismissal gesture")
+                    return
+                }
+                let bar = bars.firstMatch
+                let frame = bar.frame
+                guard !frame.isNull, !frame.isInfinite,
+                      [frame.minX, frame.minY, frame.maxX, frame.maxY].allSatisfy({ $0.isFinite }),
+                      frame.width > 1, frame.height > 1, app.frame.contains(frame),
+                      frame.maxY + 80 < app.frame.maxY else {
+                    XCTFail("Native export navigation must have visible dismissal geometry")
+                    return
+                }
+                print("Analytics iOS phase: native picker dismiss gesture")
+                let start = bar.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.05))
+                let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.92))
+                start.press(forDuration: 0.1, thenDragTo: end)
+                waitFor({
+                    let result = self.app.descendants(matching: .any).matching(NSPredicate(format:
+                        "label BEGINSWITH %@", "Download cancelled.")).firstMatch
+                    return result.exists && self.pickerButton("Save") == nil
+                }, "Native picker dismissal must deliver the actual app cancellation", timeout: 15)
+                return
+            }
             var button = cancel
             for attempt in 0..<3 {
                 button.tap()
@@ -676,7 +711,35 @@ final class AnalyticsProbe: XCTestCase {
         guard settings.wait(for: .runningForeground, timeout: 20) else { throw Failure.missingControl }
         // Foreground state precedes Settings' first usable accessibility tree.
         // Use XCTest's bounded readiness wait before querying individual rows.
-        guard settings.navigationBars.firstMatch.waitForExistence(timeout: 45) else {
+        func settingsNavigation(_ name: String? = nil, timeout: TimeInterval) -> (bounds: CGRect, bar: CGRect)? {
+            let deadline = Date().addingTimeInterval(timeout)
+            while Date() < deadline {
+                // Capture once and inspect the immutable tree locally. Repeated
+                // matching queries can time out while Settings changes panes.
+                if let snapshot = try? settings.snapshot() {
+                    var pending: [any XCUIElementSnapshot] = [snapshot]
+                    var visited = 0
+                    while let node = pending.popLast(), visited < 2048 {
+                        visited += 1
+                        if node.elementType == .navigationBar,
+                           name == nil || node.identifier == name || node.label == name {
+                            let bounds = snapshot.frame, bar = node.frame
+                            if !bounds.isNull && !bounds.isInfinite && !bar.isNull && !bar.isInfinite,
+                               bounds.width > 1, bounds.height > 1, bar.width > 1, bar.height > 1,
+                               [bounds.minX, bounds.minY, bounds.maxX, bounds.maxY,
+                                bar.minX, bar.minY, bar.maxX, bar.maxY].allSatisfy({ $0.isFinite }),
+                               bounds.contains(bar) {
+                                return (bounds, bar)
+                            }
+                        }
+                        pending.append(contentsOf: node.children)
+                    }
+                }
+                RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+            }
+            return nil
+        }
+        guard settingsNavigation(timeout: 45) != nil else {
             XCTFail("Native Settings navigation must become ready")
             throw Failure.missingControl
         }
@@ -684,6 +747,14 @@ final class AnalyticsProbe: XCTestCase {
             guard ["Accessibility", "VoiceOver", "Navigation Style", "Flat"].contains(name) else { throw Failure.invalidFixture }
             print("Analytics iOS voice phase: Settings " + name)
             let item = settings.staticTexts[name].firstMatch
+            guard let layout = settingsNavigation(timeout: 5) else {
+                XCTFail("Native Settings layout must be measurable before row input")
+                throw Failure.missingControl
+            }
+            // Keep the measured window and conservative excluded navigation
+            // region for upward content scrolls. Refresh after navigation.
+            let bounds = layout.bounds.insetBy(dx: 1, dy: 1)
+            let navigation = layout.bar
             for _ in 0..<16 {
                 // Settings exposes these row labels as StaticText. XCTest
                 // can reject their activation point even while their measured
@@ -694,8 +765,6 @@ final class AnalyticsProbe: XCTestCase {
                 var stable = 0
                 while Date() < readyDeadline && item.exists {
                     let frame = item.frame
-                    let bounds = settings.frame.insetBy(dx: 1, dy: 1)
-                    let navigation = settings.navigationBars.firstMatch.frame
                     let visible = !frame.isNull && !frame.isInfinite && frame.width > 1 && frame.height > 1
                         && [frame.minX, frame.minY, frame.maxX, frame.maxY].allSatisfy({ $0.isFinite })
                         && bounds.contains(frame) && frame.minY > navigation.maxY
@@ -706,7 +775,7 @@ final class AnalyticsProbe: XCTestCase {
                     if stable >= 2 {
                         item.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
                         if name != "Flat" {
-                            guard settings.navigationBars[name].waitForExistence(timeout: 20) else {
+                            guard settingsNavigation(name, timeout: 20) != nil else {
                                 XCTFail("Required native Settings destination must become ready")
                                 throw Failure.missingControl
                             }

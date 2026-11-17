@@ -127,7 +127,8 @@ export function androidExitFacts(raw: string, expectedPid?: string) {
 export function androidCrashFacts(raw: string, expectedPid?: string) {
   const empty = { targetProcess: false, javaCrash: false, nativeCrash: false,
     rendererFailure: false, exceptions: [] as string[], frames: [] as string[],
-    signals: [] as string[], libraries: [] as string[], abortClasses: [] as string[] };
+    signals: [] as string[], libraries: [] as string[], abortClasses: [] as string[],
+    threadRole: "unknown", nativeFrameCategories: [] as string[] };
   if (raw.length > 131072) return empty;
   if (expectedPid !== undefined && !/^[1-9][0-9]{0,9}$/.test(expectedPid)) return empty;
   const lines = raw.split(/\r?\n/);
@@ -148,6 +149,22 @@ export function androidCrashFacts(raw: string, expectedPid?: string) {
     "OutOfMemoryError", "NoSuchMethodError", "UnsatisfiedLinkError"];
   const frames = [...block.matchAll(/\bat\s+(?:com\.gkldevelopment\.mychef\.(?:preview|testing)|com\.getcapacitor)\.[\w.$]+\(((?:ProtectedRefresh|ProtectedShopping|MyChefNativePlugin|MainActivity|NativeBoundary|NativeRuntime|NativeMediaFiles|NativeJourneyProbe|Bridge|BridgeWebViewClient|WebViewLocalServer|PluginCall|PluginHandle)\.java):([0-9]{1,5})\)/g)]
     .map(match => match[1] + ":" + match[2]);
+  const thread = block.match(/\bname:\s*([^>\n]{1,64})\s+>>>/)?.[1]?.trim() ?? "";
+  const threadRole = ([ ["main", /^main$/], ["render", /^RenderThread$/],
+    ["binder", /^Binder:/], ["instrumentation", /^Instr:/], ["automation", /^UiAutomation/],
+    ["gc", /^(HeapTaskDaemon|FinalizerDaemon)$/], ["jit", /^Jit thread pool$/] ] as const)
+    .find(([, pattern]) => pattern.test(thread))?.[0] ?? "unknown";
+  // Restrict symbol recognition to native stack lines. Keep names, addresses,
+  // paths, thread ids and arbitrary crash messages out of the result.
+  const nativeFrames = block.split("\n").filter(line =>
+    /(?:^\s*|\bDEBUG\s*:\s*)#[0-9]{2,3}\s+pc\s+[0-9a-f]{1,16}\s+/.test(line)).join("\n");
+  const nativeFrameCategories = ([
+    ["jni-reference", /DecodeJObject|NewGlobalRef|DeleteGlobalRef|JNIEnvExt|ScopedCheck|CheckJNI/],
+    ["art-interpreter", /art::interpreter|ExecuteNterpImpl|nterp_helper|art_quick_to_interpreter/],
+    ["art-gc", /art::gc::|Heap::CollectGarbage|MarkCompact::/],
+    ["art-jit", /art::jit::|JitCompileTask|JitCompiler/],
+    ["ui-automation", /UiAutomationConnection|UiAutomation::/],
+  ] as const).filter(([, pattern]) => pattern.test(nativeFrames)).map(([kind]) => kind);
   return { targetProcess: true, javaCrash: block.includes("FATAL EXCEPTION:"),
     nativeCrash: /signal [0-9]{1,2} \(SIG(?:ABRT|SEGV|BUS|ILL)\)/.test(block),
     rendererFailure: /[Rr]ender(?:er| process).*crash|lib(?:webviewchromium|monochrome)\.so/.test(block),
@@ -156,6 +173,7 @@ export function androidCrashFacts(raw: string, expectedPid?: string) {
     signals: ["SIGABRT", "SIGSEGV", "SIGBUS", "SIGILL"].filter(name => block.includes("(" + name + ")")),
     libraries: ["libc.so", "libart.so", "libandroid_runtime.so", "libhwui.so", "libEGL.so", "libGLESv2.so",
       "libwebviewchromium.so", "libmonochrome.so"].filter(name => block.includes("/" + name + " ") || block.includes("/" + name + "\n") || block.endsWith("/" + name)),
+    threadRole, nativeFrameCategories,
     abortClasses: ([ ["jni", /JNI DETECTED ERROR/], ["allocation", /out of memory|Failed to allocate|allocation failed/i],
       ["thread", /Failed to create thread|pthread_create.*failed/i], ["scudo", /Scudo ERROR/],
       ["assertion", /Check failed:|assertion.*failed/i] ] as const).filter(([, pattern]) => pattern.test(block)).map(([kind]) => kind) };

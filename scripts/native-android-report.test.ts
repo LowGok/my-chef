@@ -223,3 +223,32 @@ ApplicationExitInfo #1:
   expect(report.androidExitFacts(raw, "300")).toEqual({ currentProcess: false, reason: "unknown", status: "unknown" });
   expect(report.androidExitFacts(raw)).toEqual({ currentProcess: false, reason: "unknown", status: "unknown" });
 });
+
+
+test("native runtime crash categories bind the current thread without disclosing symbols", () => {
+  const raw = `pid: 100, tid: 101, name: HeapTaskDaemon >>> com.gkldevelopment.mychef.preview <<<
+    #00 pc 123 /apex/libart.so (art::gc::Heap::CollectGarbage+48)
+pid: 200, tid: 201, name: Instr:com.gkl >>> com.gkldevelopment.mychef.preview <<<
+signal 11 (SIGSEGV), code 1
+11-17 21:44:00.123 200 201 F DEBUG   : #00 pc 456 /private/customer-canary/libart.so (art::Thread::DecodeJObject+77)
+    #01 pc 789 /private/customer-canary/libprivate.so (secret_customer_symbol+99)
+Abort message: private@example.test art::gc::Heap::CollectGarbage`;
+  const result = report.androidCrashFacts(raw, "200");
+  expect(result.threadRole).toBe("instrumentation");
+  expect(result.nativeFrameCategories).toEqual(["jni-reference"]);
+  for (const secret of ["customer", "private", "@example", "DecodeJObject", "200", "201", "456", "77", "Instr:"])
+    expect(JSON.stringify(result)).not.toContain(secret);
+  expect(report.androidCrashFacts(raw, "300").nativeFrameCategories).toEqual([]);
+});
+
+test("native runtime crash categories ignore unknown names and non-frame messages", () => {
+  const raw = `pid: 200, tid: 201, name: private-canary >>> com.gkldevelopment.mychef.preview <<<
+signal 11 (SIGSEGV), code 1
+Abort message: art::jit::JitCompileTask private@example.test
+    #00 pc abc /private/libunknown.so (unknown_customer_symbol+42)`;
+  const result = report.androidCrashFacts(raw, "200");
+  expect(result.threadRole).toBe("unknown");
+  expect(result.nativeFrameCategories).toEqual([]);
+  for (const secret of ["private", "customer", "@example", "JitCompileTask"])
+    expect(JSON.stringify(result)).not.toContain(secret);
+});
