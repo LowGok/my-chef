@@ -221,6 +221,9 @@ def run(state, control, account, identifier, container, layout_only=False, voice
             roles = re.findall(r'Analytics iOS accessibility type: ([0-9]{1,3}) state: (off|on|other) enabled: (true|false)', text)
             if roles:
                 detail += '; observed roles ' + ', '.join('/'.join(role) for role in roles[-8:])
+            choice_frames = re.findall(r'Analytics iOS choice frame: width=([0-9]{1,4}) height=([0-9]{1,4})', text)
+            if choice_frames:
+                detail += '; choice width/height ' + '/'.join(choice_frames[-1])
             known = re.findall(r'Analytics iOS known control: ([A-Za-z ]{1,30}) types: ([0-9,]{0,30})', text)
             if known:
                 detail += '; known roles ' + ', '.join(name + '=' + types for name, types in known[-5:])

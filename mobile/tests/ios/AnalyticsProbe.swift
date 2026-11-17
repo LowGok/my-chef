@@ -230,6 +230,13 @@ final class AnalyticsProbe: XCTestCase {
             // WebKit page. Wait before scrolling a still-loading viewport.
             // An offscreen header can still be revealed by the gestures below.
             _ = home.waitForExistence(timeout: 20)
+            let startup = app.descendants(matching: .any).matching(NSPredicate(format:
+                "label CONTAINS %@", "Loading MyChef")).firstMatch
+            if !home.exists && startup.exists {
+                print("Analytics iOS phase: wait for authenticated startup")
+                XCTAssertTrue(startup.waitForNonExistence(timeout: 90),
+                              "Authenticated startup must finish before navigation")
+            }
             for _ in 0..<18 {
                 if home.exists && home.isHittable && home.frame.minY >= app.frame.minY { break }
                 scrollContent(up: false)
@@ -780,9 +787,29 @@ final class AnalyticsProbe: XCTestCase {
                     return nil
                 }
             }
-            // Flat navigation visits each item sequentially. Do not enter
-            // guessed label containers or substitute AX text for real speech.
-            if let current = observe({ try voice.currentSpeech().utterance }), matches(current) { return current }
+            var inspectedLabelCandidate = false
+            func candidate(_ output: String) -> String? {
+                if matches(output) { return output }
+                guard controlRole, words(output).contains(expected), !inspectedLabelCandidate else { return nil }
+                inspectedLabelCandidate = true
+                // Do not interrupt a just-focused control's announcement.
+                // Every sample must independently include its label and role.
+                for _ in 0..<3 {
+                    RunLoop.current.run(until: Date().addingTimeInterval(0.3))
+                    if let current = observe({ try voice.currentSpeech().utterance }), matches(current) { return current }
+                }
+                // A spoken label can be a container around the input. Enter
+                // that observed candidate once, retaining the same strict
+                // speech match; never combine separate utterances.
+                if let nested = observe({ try voice.moveIn().utterance }) {
+                    if matches(nested) { return nested }
+                    _ = observe({ try voice.moveOut().utterance })
+                }
+                return nil
+            }
+            // Search sequentially. Only an observed target-label candidate
+            // can be entered; AX text never substitutes for real speech.
+            if let current = observe({ try voice.currentSpeech().utterance }), let found = candidate(current) { return found }
             for reverse in [backward, !backward] {
                 // Reserve time for both directions if the first reaches a
                 // boundary without throwing or changing its announcement.
@@ -797,7 +824,7 @@ final class AnalyticsProbe: XCTestCase {
                         RunLoop.current.run(until: Date().addingTimeInterval(0.2))
                         continue
                     }
-                    if matches(output) { return output }
+                    if let found = candidate(output) { return found }
                 }
             }
             // Describe only known choice nodes if speech remains missing.
@@ -820,8 +847,15 @@ final class AnalyticsProbe: XCTestCase {
             let control = ["Help improve MyChef", "Save preferences", "Refresh analytics setting"].contains(phrase)
             if hasTapRegion(element) {
                 if control {
-                    // Interactive controls require the native computed hit point.
-                    if element.isHittable { element.tap() }
+                    if element.isHittable {
+                        if phrase == "Help improve MyChef" {
+                            let frame = element.frame
+                            print("Analytics iOS choice frame: width=\(Int(frame.width)) height=\(Int(frame.height))")
+                            // Use the same measured, stable native rectangle
+                            // as other input, rather than a label hit point.
+                            tapSettled(element)
+                        } else { element.tap() }
+                    }
                 } else {
                     // Readable static text has no activation point. A real
                     // visible touch can anchor VoiceOver without activating it.
