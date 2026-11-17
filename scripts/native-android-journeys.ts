@@ -10,7 +10,7 @@ import {
 } from "../web/node_modules/@playwright/test";
 import { join } from "node:path";
 import { readFile, unlink, writeFile } from "node:fs/promises";
-import { safeJourneyError, androidCrashFacts } from "./native-android-report";
+import { safeJourneyError, androidCrashFacts, androidExitFacts } from "./native-android-report";
 import { startProbeProcess } from "./native-android/probe-process";
 import analyticsContract from "../mobile/tests/analytics-contract.json";
 import { addDays, monday } from "../web/src/dates";
@@ -80,7 +80,9 @@ const analyticsChecks = Object.fromEntries(
 );
 const browserErrors: string[] = [];
 let previousProbeExit: Promise<number> | undefined;
+let probeAppPid: string | undefined;
 async function connect() {
+  probeAppPid = undefined;
   stage = "wake disposable Android emulator";
   adb("shell", "input", "keyevent", "KEYCODE_WAKEUP");
   adb("shell", "wm", "dismiss-keyguard");
@@ -135,6 +137,10 @@ async function connect() {
       { timeout: 90_000 },
     )
     .toBe(true);
+  try {
+    const pid = adb("shell", "pidof", app);
+    if (/^[1-9][0-9]{0,9}$/.test(pid)) probeAppPid = pid;
+  } catch { /* Missing identity supplies no current-process crash evidence. */ }
   stage = "discover Android device";
   const devices = await _android.devices();
   device = devices.find((value) => value.serial() === "emulator-5554");
@@ -1873,13 +1879,10 @@ try {
     }));
     let exitInfo = "";
     try { exitInfo = adb("shell", "dumpsys", "activity", "exit-info", app); } catch {}
-    console.log("Installed Android process exit: " + JSON.stringify({
-      reason: exitInfo.match(/\breason=([0-9]{1,2})\b/)?.[1] ?? "unknown",
-      status: exitInfo.match(/\bstatus=([0-9]{1,3})\b/)?.[1] ?? "unknown",
-    }));
+    console.log("Installed Android process exit: " + JSON.stringify(androidExitFacts(exitInfo, probeAppPid)));
     let crash = "";
     try { crash = adb("logcat", "-b", "crash", "-d", "-t", "400"); } catch {}
-    console.log("Installed Android crash facts: " + JSON.stringify(androidCrashFacts(crash)));
+    console.log("Installed Android crash facts: " + JSON.stringify(androidCrashFacts(crash, probeAppPid ?? "")));
   }
   for (const browserError of browserErrors) console.error(browserError);
   throw new Error(safeJourneyError(error, stage, privateValues));

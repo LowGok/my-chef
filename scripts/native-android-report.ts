@@ -111,18 +111,38 @@ export function safeJourneyError(
 }
 
 /** Raw emulator crash logs stay private; only closed categories reach CI. */
-export function androidCrashFacts(raw: string) {
+export function androidExitFacts(raw: string, expectedPid?: string) {
+  const empty = { currentProcess: false, reason: "unknown", status: "unknown" };
+  if (raw.length > 131072 || !expectedPid || !/^[1-9][0-9]{0,9}$/.test(expectedPid)) return empty;
+  for (const block of raw.split(/(?=ApplicationExitInfo #[0-9]+:)/)) {
+    if (block.match(/\bpid=([0-9]+)\b/)?.[1] !== expectedPid
+        || !/\bprocess=com\.gkldevelopment\.mychef\.preview(?:\s|$)/.test(block)) continue;
+    return { currentProcess: true,
+      reason: block.match(/\breason=([0-9]{1,2})\b/)?.[1] ?? "unknown",
+      status: block.match(/\bstatus=([0-9]{1,3})\b/)?.[1] ?? "unknown" };
+  }
+  return empty;
+}
+
+export function androidCrashFacts(raw: string, expectedPid?: string) {
   const empty = { targetProcess: false, javaCrash: false, nativeCrash: false,
-    rendererFailure: false, exceptions: [] as string[], frames: [] as string[] };
+    rendererFailure: false, exceptions: [] as string[], frames: [] as string[],
+    signals: [] as string[], libraries: [] as string[], abortClasses: [] as string[] };
   if (raw.length > 131072) return empty;
+  if (expectedPid !== undefined && !/^[1-9][0-9]{0,9}$/.test(expectedPid)) return empty;
   const lines = raw.split(/\r?\n/);
   const target = /Process: com\.gkldevelopment\.mychef\.preview(?:,|$)|>>> com\.gkldevelopment\.mychef\.preview <<</;
   let index = -1;
-  for (let i = 0; i < lines.length; i++) if (target.test(lines[i]!)) index = i;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
+    if (target.test(line) && (expectedPid === undefined
+        || line.match(/\b(?:PID|pid):\s*([0-9]+)\b/)?.[1] === expectedPid)) index = i;
+  }
   if (index < 0) return empty;
   let end = index + 1;
   while (end < lines.length && !/FATAL EXCEPTION:|\bProcess: |>>> .* <<</.test(lines[end]!)) end++;
-  const block = lines.slice(Math.max(0, index - 1), end).join("\n");
+  const start = index > 0 && /FATAL EXCEPTION:/.test(lines[index - 1]!) ? index - 1 : index;
+  const block = lines.slice(start, end).join("\n");
   const known = ["SecurityException", "NullPointerException", "IllegalStateException",
     "FileUriExposedException", "RuntimeException", "UnsupportedOperationException",
     "OutOfMemoryError", "NoSuchMethodError", "UnsatisfiedLinkError"];
@@ -132,5 +152,11 @@ export function androidCrashFacts(raw: string) {
     nativeCrash: /signal [0-9]{1,2} \(SIG(?:ABRT|SEGV|BUS|ILL)\)/.test(block),
     rendererFailure: /[Rr]ender(?:er| process).*crash|lib(?:webviewchromium|monochrome)\.so/.test(block),
     exceptions: known.filter(name => new RegExp("\\b" + name + "\\b").test(block)),
-    frames: [...new Set(frames)].slice(0, 8) };
+    frames: [...new Set(frames)].slice(0, 8),
+    signals: ["SIGABRT", "SIGSEGV", "SIGBUS", "SIGILL"].filter(name => block.includes("(" + name + ")")),
+    libraries: ["libc.so", "libart.so", "libandroid_runtime.so", "libhwui.so", "libEGL.so", "libGLESv2.so",
+      "libwebviewchromium.so", "libmonochrome.so"].filter(name => block.includes("/" + name + " ") || block.includes("/" + name + "\n") || block.endsWith("/" + name)),
+    abortClasses: ([ ["jni", /JNI DETECTED ERROR/], ["allocation", /out of memory|Failed to allocate|allocation failed/i],
+      ["thread", /Failed to create thread|pthread_create.*failed/i], ["scudo", /Scudo ERROR/],
+      ["assertion", /Check failed:|assertion.*failed/i] ] as const).filter(([, pattern]) => pattern.test(block)).map(([kind]) => kind) };
 }

@@ -186,3 +186,40 @@ java.lang.NullPointerException: private
   expect(report.androidCrashFacts("Process: another.app\njava.lang.SecurityException").targetProcess).toBe(false);
   expect(report.androidCrashFacts("x".repeat(131073)).targetProcess).toBe(false);
 });
+
+test("native crash observations bind the current PID and retain only known categories", () => {
+  const raw = `pid: 100, tid: 101, name: RenderThread >>> com.gkldevelopment.mychef.preview <<<
+signal 11 (SIGSEGV), code 1
+    #00 pc 123 /private/user/libprivate-canary.so
+    #01 pc 234 /apex/com.android.runtime/lib64/bionic/libc.so
+pid: 200, tid: 201, name: RenderThread >>> com.gkldevelopment.mychef.preview <<<
+signal 6 (SIGABRT), code -1
+Abort message: 'JNI DETECTED ERROR IN APPLICATION: private@example.test'
+    #00 pc 456 /system/lib64/libandroid_runtime.so
+    #01 pc 789 /system/lib64/libart.so`;
+  const result = report.androidCrashFacts(raw, "200");
+  expect(result.targetProcess).toBe(true);
+  expect(result.signals).toEqual(["SIGABRT"]);
+  expect(result.libraries).toEqual(["libart.so", "libandroid_runtime.so"]);
+  expect(result.abortClasses).toEqual(["jni"]);
+  expect(report.androidCrashFacts(raw, "300").targetProcess).toBe(false);
+  for (const value of ["private", "@example", "libc.so", "100", "200", "456", "/system"])
+    expect(JSON.stringify(result)).not.toContain(value);
+});
+
+test("exit observations ignore other app instances and all private details", () => {
+  const raw = `ApplicationExitInfo #0:
+  pid=100
+  process=com.gkldevelopment.mychef.preview
+  reason=1 (EXIT_SELF)
+  status=0
+ApplicationExitInfo #1:
+  pid=200
+  process=com.gkldevelopment.mychef.preview
+  reason=5 (CRASH_NATIVE)
+  status=6
+  description=private@example.test`;
+  expect(report.androidExitFacts(raw, "200")).toEqual({ currentProcess: true, reason: "5", status: "6" });
+  expect(report.androidExitFacts(raw, "300")).toEqual({ currentProcess: false, reason: "unknown", status: "unknown" });
+  expect(report.androidExitFacts(raw)).toEqual({ currentProcess: false, reason: "unknown", status: "unknown" });
+});

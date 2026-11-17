@@ -476,6 +476,9 @@ final class AnalyticsProbe: XCTestCase {
         fill("Password", configuration["password"] ?? "", secure: true)
         fill("Confirm password", configuration["password"] ?? "", secure: true)
         tap("Create account")
+        let completed = app.descendants(matching: .any).matching(NSPredicate(format:
+            "label CONTAINS %@", "Account created. Sign in to MyChef.")).firstMatch
+        reveal(completed)
         waitFor({ self.text("Account created. Sign in to MyChef.") }, "Installed signup must complete")
         let counts = try control("counts")
         XCTAssertEqual(counts["enabled"] as? Int, 0)
@@ -664,10 +667,20 @@ final class AnalyticsProbe: XCTestCase {
         // app bootstrap. Preserve that instance instead of cold-launching it.
         settings.activate()
         guard settings.wait(for: .runningForeground, timeout: 20) else { throw Failure.missingControl }
+        // Foreground state precedes Settings' first usable accessibility tree.
+        // Use XCTest's bounded readiness wait before querying individual rows.
+        guard settings.navigationBars.firstMatch.waitForExistence(timeout: 45) else {
+            XCTFail("Native Settings navigation must become ready")
+            throw Failure.missingControl
+        }
         func openSetting(_ name: String) throws {
+            guard ["Accessibility", "VoiceOver", "Navigation Style", "Flat"].contains(name) else { throw Failure.invalidFixture }
+            print("Analytics iOS voice phase: Settings " + name)
             let item = settings.staticTexts[name].firstMatch
             for _ in 0..<16 {
-                if item.exists && item.isHittable { item.tap(); return }
+                if item.wait(for: \.isHittable, toEqual: true, timeout: 2) {
+                    item.tap(); return
+                }
                 let start = settings.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7))
                 let end = settings.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.35))
                 start.press(forDuration: 0.2, thenDragTo: end)
