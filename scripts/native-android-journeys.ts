@@ -175,7 +175,7 @@ const button = (name: string) =>
 let controlSequence = 0;
 function probeCommand(value: string) {
   if (
-    !/^(pinch|activate:[1-9][0-9]{0,3}:[A-Za-z -]{1,50}|document:[1-9][0-9]{0,3}:(?:SAVE|native-(?:dish|page)\.png)|accessibility:[1-9][0-9]{0,3}:(?:nav|export-dialog)|speech-focus:[1-9][0-9]{0,3}:(?:on|off|stale|offline|cleanup|backup)|speech-toggle:[1-9][0-9]{0,3}:(?:on|off)|speech-order:[1-9][0-9]{0,3}:on)$/.test(
+    !/^(pinch|system-ui:[1-9][0-9]{0,3}:RECOVER|activate:[1-9][0-9]{0,3}:[A-Za-z -]{1,50}|document:[1-9][0-9]{0,3}:(?:SAVE|native-(?:dish|page)\.png)|accessibility:[1-9][0-9]{0,3}:(?:nav|export-dialog)|speech-focus:[1-9][0-9]{0,3}:(?:on|off|stale|offline|cleanup|backup)|speech-toggle:[1-9][0-9]{0,3}:(?:on|off)|speech-order:[1-9][0-9]{0,3}:on)$/.test(
       value,
     )
   )
@@ -206,7 +206,7 @@ function probeCommand(value: string) {
   );
 }
 async function probeAction(
-  kind: "activate" | "document" | "accessibility" | "speech-focus" | "speech-order" | "speech-toggle",
+  kind: "activate" | "document" | "accessibility" | "speech-focus" | "speech-order" | "speech-toggle" | "system-ui",
   name: string,
 ) {
   const sequence = String(++controlSequence);
@@ -1336,9 +1336,18 @@ async function analyticsJourneys() {
     speechEngineWarmed = true;
     // The first TalkBack/TTS tutorial can take the foreground after startup.
     // Require the actual app window before native focus or input.
-    await expect.poll(() => {
+    let recoveryAttempted = false;
+    await expect.poll(async () => {
       const focused = adb("shell", "dumpsys", "window", "displays").split("\n").some(line => line.includes("mCurrentFocus") && line.includes(app));
-      if (!focused) adb("shell", "am", "start", "-W", "-n", app + "/.MainActivity");
+      if (!focused) {
+        if (!recoveryAttempted && focusOwner() === "system-ui-anr") {
+          recoveryAttempted = true;
+          // The owning probe rechecks the exact System UI ANR identity and
+          // permits only its existing single close action for this launch.
+          await probeAction("system-ui", "RECOVER");
+        }
+        adb("shell", "am", "start", "-W", "-n", app + "/.MainActivity");
+      }
       return focused;
     }).toBe(true);
     await control.evaluate((node) => node.scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" }));

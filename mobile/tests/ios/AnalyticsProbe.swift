@@ -696,11 +696,21 @@ final class AnalyticsProbe: XCTestCase {
             let label = settings.staticTexts["Flat"].firstMatch
             let row = settings.cells.containing(.staticText, identifier: "Flat").firstMatch
             let button = settings.buttons["Flat"].firstMatch
-            let parent = settings.cells.containing(.staticText, identifier: "Navigation Style").firstMatch
+            let parents = [settings.cells.containing(.staticText, identifier: "Navigation Style").firstMatch,
+                           settings.buttons.containing(.staticText, identifier: "Navigation Style").firstMatch]
             // Settings can attach the selected accessibility trait to the
             // text itself rather than its containing cell or button.
             return label.exists && label.isSelected || row.exists && row.isSelected || button.exists && button.isSelected
-                || parent.exists && (parent.value as? String) == "Flat"
+                || parents.contains { $0.exists && (($0.value as? String) == "Flat" || $0.staticTexts["Flat"].exists) }
+        }
+        if !flatSelected() {
+            // A checked option need not expose a selected trait. Return to
+            // the parent screen to inspect this setting's current value.
+            let back = settings.navigationBars.buttons.matching(NSPredicate(format:
+                "label == %@ OR label == %@", "VoiceOver", "Back")).firstMatch
+            if back.wait(for: \.isHittable, toEqual: true, timeout: 5) {
+                back.tap()
+            }
         }
         let selectionDeadline = Date().addingTimeInterval(15)
         while !flatSelected() && Date() < selectionDeadline {

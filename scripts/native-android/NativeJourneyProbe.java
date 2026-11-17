@@ -584,7 +584,16 @@ public final class NativeJourneyProbe extends Instrumentation {
                     runOnMainSync(this::refreshWeb);
                     String value = new String(Files.readAllBytes(command.toPath()), StandardCharsets.UTF_8).trim();
                     command.delete();
-                    if (value.equals("pinch")) pinch();
+                    if (value.matches("system-ui:[1-9][0-9]{0,3}:RECOVER")) {
+                        if (systemUiRecoveryAttempted) throw new IllegalStateException("native-window-unfocused");
+                        systemUiRecoveryAttempted = true;
+                        String recovery = recoverSystemUiAnr();
+                        Bundle result = new Bundle(); result.putString("probeSystemUiRecovery", recovery);
+                        sendStatus(1, result);
+                        if (!recovery.equals("closed")) throw new IllegalStateException("native-window-unfocused");
+                        Files.write(done.toPath(), value.split(":", 3)[1].getBytes(StandardCharsets.UTF_8));
+                    }
+                    else if (value.equals("pinch")) pinch();
                     else if (value.matches("activate:[1-9][0-9]{0,3}:[A-Za-z -]{1,50}")) {
                         String[] parts = value.split(":", 3);
                         activate(parts[2]);
