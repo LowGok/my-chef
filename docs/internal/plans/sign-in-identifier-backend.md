@@ -77,7 +77,7 @@ collisions; the revised test plan covers the four checks:
 
 ### Policy-independent sign-in baseline
 
-A temporary Go test overlay exercised the existing HTTP handlers with disposable
+During spec preparation, a temporary Go test overlay exercised the existing HTTP handlers with disposable
 SQLite accounts at `69523dba413b267281af834d51c755bee17f0fd6`. All five probes
 and six existing HTTP tests passed on an uncached run:
 
@@ -94,15 +94,17 @@ session rotation and revocation, stale credential rejection, native verification
 recovery's verified recipient and persistent limits, and email identity migration
 and collision behavior. This evidence describes the unchanged backend. Username
 matching and mixed email/username throttling still require implementation and
-review.
+review. The overlay documents the old behavior; it is not a substitute for
+the checked-in compatibility tests specified in AC-01.
 
 ## Scope
 
 Accept email or username in the existing API request on both transports. Keep
 email validation and case handling, verification, access, password hash upgrade,
 session rotation, and recovery. Reject new folded username collisions on
-app registration and username edits. Preserve existing account data, including
-legacy spellings and collisions.
+authorized app registration and username edits, after their existing write
+authority checks. Preserve account data, including legacy spellings and
+collisions.
 
 Exclude new request fields, username display changes, confusable-name detection,
 new naming syntax rules, account deduplication, UI and device changes, analytics,
@@ -136,8 +138,11 @@ values outside the supported byte limit are not username aliases. Names with
 `@` or NUL retain the existing display/write policy and folded collision guard
 when supported by the existing write rules, but are never login aliases. Use
 byte-exact equality on the folded key so SQLite comparison does not introduce
-extra normalization. Newsletter-only rows neither match nor reserve an app
-alias. Return at most two matches through the index; a username is usable only
+extra normalization. Newsletter-only rows neither match nor reserve a folded
+app key. The existing global exact-spelling constraint still applies, including
+to stored newsletter usernames (`migrations/001_initial.sql:1-5`;
+`internal/newsletter/capture.go:323-341`). Return at most two matches through
+the index; a username is usable only
 when exactly one app account owns that key. Exact case, insertion order,
 password, or verification status never breaks a tie.
 
@@ -152,6 +157,18 @@ password under the lock. Two concurrent writes for the same key cannot both
 claim it. Return the existing generic 409 account-details conflict for a new
 collision. Keep the original exact uniqueness constraint. Never reveal the
 owner or the collision set.
+
+Check write authority before testing or disclosing availability. Verify live
+native access in the same transaction before the profile collision query;
+keep the existing live access predicate on the actual update. A revoked or
+expired token gives the existing authorization failure for both free and
+occupied names and writes nothing. For verified signup, recheck the live
+anonymous session, proof, mailbox ownership, retirement and any promotion
+conditions before the conflict query. Invalid signup authority continues to
+return its existing result without revealing name availability
+(`internal/auth/manager.go:243-248,266-286`;
+`internal/auth/native_profile_test.go:13-35`;
+`internal/auth/registration.go:400-445`).
 
 Apply the check to compatibility registration, verified signup completion
 including an existing newsletter contact becoming an app user, and profile
@@ -258,18 +275,18 @@ database and account-lifecycle backups under the existing controls
 - [ ] AC-03: Email and username variants for the same account share one attempt limit across both transports, including concurrent requests, while the separate source limit and response stay unchanged.
 - [ ] AC-04: A stale username resolution cannot commit sign-in or a password upgrade after the account loses that alias or its credential changes. Native may still adopt an already committed valid anchor under its existing checks. Verification and verified-email recovery keep their current requirements.
 - [ ] AC-05: Fresh and upgraded SQLite databases use an indexed username lookup and preserve account data, aliases and prior access. A failed upgrade is retryable, and the prior version can still use a correctly restored pre-upgrade database.
-- [ ] AC-06: New app signup and username changes cannot create a collision under the same Unicode case folding. Existing collisions preserve email sign-in and can be resolved by one user choosing an available username.
+- [ ] AC-06: New app signup and username changes cannot create a collision under the same Unicode case folding. Requests without live write authority do not reveal whether a name is taken. Existing collisions preserve email sign-in and can be resolved by one user choosing an available username.
 
 ## Test Plan
 
 | Criterion | Proof |
 | --- | --- |
-| AC-01 | Use disposable SQLite manager and HTTP tests with unchanged JSON on web and native. Sign in with a trimmed, folded email and a mixed-case, accented username; check the same account ID and old/replacement session behavior. Include Unicode full-fold and accent-preservation examples and run the policy-independent email probes. |
+| AC-01 | Use disposable SQLite manager and HTTP tests with unchanged JSON on web and native. Sign in with a trimmed, folded email and a mixed-case, accented username; check the same account ID and old/replacement session behavior. Include Unicode full-fold and accent-preservation examples. Commit regression tests for all five policy-independent scenarios above, with names starting TestSignInCompatibility; the reviewer runs `go test -p 1 -count=1 -run '^TestSignInCompatibility' ./internal/http` from the candidate commit. |
 | AC-02 | Seed accented case collisions, padded/NUL legacy names, an email-shaped username of a different account, a non-mailbox email-shaped username and newsletter-only rows. Verify exact-case input and correct passwords cannot resolve ambiguity; compare the existing 401 code and message for unknown, ambiguous and wrong password without request ID. Verify eligible unresolved identities use padding and rejected syntax/passwords skip it while still charging limits. Verify both mailbox owners still sign in by email. |
 | AC-03 | Alternate known email, username, case and spacing variants across web/native requests from distinct fixture sources. The eleventh attempt receives 429 on either alias. Race the two transports for the last slot after nine attempts: one proceeds and one returns 429 with the existing header. Verify the separate 15-per-source limit, independent account buckets and the cap on repeated unresolved input. |
 | AC-04 | In disposable tests resolve and verify, then change alias ownership, introduce legacy ambiguity, delete the user or change the password/canonical email before committing; assert no anchor, password upgrade or session replacement. Separately commit the anchor, rename, and demonstrate normal native adoption of that valid anchor; repeat with existing anchor revocation to verify rejection. Exercise browser CSRF, invalid native authority, unverified profile restriction through either alias and verified mailbox recovery. |
-| AC-05 | Migrate fresh SQLite and an old-schema fixture with collisions; compare account IDs, names, credential data and sessions; confirm `EXPLAIN QUERY PLAN` uses the index and ignored newsletter rows have no key. Inject an upgrade failure after key/index work, prove the old schema and rows are unchanged, then retry. Use the prior binary and protected disposable pre-upgrade backup with lifecycle reconciliation to rehearse rollback and confirm prior email sign-in. Test store/import creation preserves legacy rows and derives their keys. Run `go test -p 1 ./internal/auth ./internal/store ./internal/http ./internal/importer`, with the existing disposable test provider for importer integration if required. |
-| AC-06 | Test direct registration, verified signup with and without newsletter conversion, and profile rename. Use case-only and non-ASCII collisions; confirm generic 409, no consumed proof or unintended state change, and a successful retry with an available name. Race two attempts for one folded key, including across registration and profile operations, and verify only one can claim it. Verify unchanged legacy edits, a sole-owner case change, grandfathered email sign-in and recovery of username sign-in after resolving an existing collision. |
+| AC-05 | Migrate fresh SQLite and an old-schema fixture with collisions; compare account IDs, names, credential data and sessions; confirm `EXPLAIN QUERY PLAN` uses the index and newsletter rows have no folded app key. Inject an upgrade failure after key/index work, prove the old schema and rows are unchanged, then retry. Use the prior binary and protected disposable pre-upgrade backup with lifecycle reconciliation to rehearse rollback and confirm prior email sign-in. Test store/import creation preserves legacy rows and derives their keys. Run `go test -p 1 ./internal/auth ./internal/store ./internal/http ./internal/importer`, with the existing disposable test provider for importer integration if required. |
+| AC-06 | Test direct registration, verified signup with and without newsletter conversion, and profile rename. Use case-only and non-ASCII collisions; confirm generic 409, no consumed proof or unintended state change, and a successful retry with an available name. Race two attempts for one folded key, including across registration and profile operations, and verify only one can claim it. For revoked or expired native access and invalid signup authority, compare outcomes against free and occupied names: same authorization failure and no writes. With a disposable newsletter row, check that only its exact stored spelling remains reserved by the old constraint. Verify unchanged legacy edits, a sole-owner case change, grandfathered email sign-in and recovery of username sign-in after resolving an existing collision. |
 
 ## Tasks
 
