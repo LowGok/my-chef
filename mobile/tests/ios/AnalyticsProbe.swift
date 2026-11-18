@@ -757,7 +757,7 @@ final class AnalyticsProbe: XCTestCase {
             // No arbitrary Settings labels, identifiers, values or paths.
             print("Analytics iOS Settings error: bars=\(min(99, bars)) alerts=\(min(99, alerts)) accessibility=\(found.contains("Accessibility")) voiceover=\(found.contains("VoiceOver")) style=\(found.contains("Navigation Style")) flat=\(found.contains("Flat")) grouped=\(found.contains("Grouped")) truncated=\(visited >= 2048)")
         }
-        guard settingsNavigation(timeout: 45) != nil else {
+        guard let layout = settingsNavigation(timeout: 45) else {
             settingsState()
             XCTFail("Native Settings navigation must become ready")
             throw Failure.missingControl
@@ -766,13 +766,9 @@ final class AnalyticsProbe: XCTestCase {
             guard ["Accessibility", "VoiceOver", "Navigation Style", "Flat"].contains(name) else { throw Failure.invalidFixture }
             print("Analytics iOS voice phase: Settings " + name)
             let item = settings.staticTexts[name].firstMatch
-            guard let layout = settingsNavigation(timeout: 5) else {
-                settingsState()
-                XCTFail("Native Settings layout must be measurable before row input")
-                throw Failure.missingControl
-            }
-            // Keep the measured window and conservative excluded navigation
-            // region for upward content scrolls. Refresh after navigation.
+            // These owned-phone panes keep the same full-screen window. Reuse
+            // its measured bounds instead of requiring another complete Settings
+            // snapshot; each target still needs fresh, stable visible geometry.
             let bounds = layout.bounds.insetBy(dx: 1, dy: 1)
             let navigation = layout.bar
             for _ in 0..<16 {
@@ -812,8 +808,6 @@ final class AnalyticsProbe: XCTestCase {
         }
         try openSetting("Accessibility")
         try openSetting("VoiceOver")
-        try openSetting("Navigation Style")
-        try openSetting("Flat")
         func flatSelected() -> Bool {
             let label = settings.staticTexts["Flat"].firstMatch
             let row = settings.cells.containing(.staticText, identifier: "Flat").firstMatch
@@ -825,13 +819,19 @@ final class AnalyticsProbe: XCTestCase {
             return label.exists && label.isSelected || row.exists && row.isSelected || button.exists && button.isSelected
                 || parents.contains { $0.exists && (($0.value as? String) == "Flat" || $0.staticTexts["Flat"].exists) }
         }
+        // Read the actual native value first. An already-confirmed Flat
+        // setting needs no mutation; its label alone never confirms the mode.
         if !flatSelected() {
-            // A checked option need not expose a selected trait. Return to
-            // the parent screen to inspect this setting's current value.
-            let back = settings.navigationBars.buttons.matching(NSPredicate(format:
-                "label == %@ OR label == %@", "VoiceOver", "Back")).firstMatch
-            if back.wait(for: \.isHittable, toEqual: true, timeout: 5) {
-                back.tap()
+            try openSetting("Navigation Style")
+            try openSetting("Flat")
+            if !flatSelected() {
+                // A checked option need not expose a selected trait. Return to
+                // the parent screen to inspect this setting's current value.
+                let back = settings.navigationBars.buttons.matching(NSPredicate(format:
+                    "label == %@ OR label == %@", "VoiceOver", "Back")).firstMatch
+                if back.wait(for: \.isHittable, toEqual: true, timeout: 5) {
+                    back.tap()
+                }
             }
         }
         let selectionDeadline = Date().addingTimeInterval(15)
