@@ -1,6 +1,6 @@
 ---
-status: draft
-status_description: "Independent review found no issues; awaiting owner acceptance."
+status: planned
+status_description: "Accepted for test-first backend implementation; branch claim pending."
 issue: https://github.com/LowGok/my-chef/issues/41
 goal: "Sign in to the same existing app account through the current API using its email address or a uniquely matching username."
 covers:
@@ -34,8 +34,8 @@ is merged or renamed by the upgrade.
 
 The backend will add an indexed comparison key to SQLite. The test plan includes
 a disposable upgrade and backup-based rollback because the prior binary will
-refuse the new schema. The independent spec review found no issues. Owner
-acceptance is still needed before implementation. Merge and rollout require separate authority. The web
+refuse the new schema. The independent spec review found no issues. The owner accepted
+that revision for backend implementation. Merge and rollout require separate authority. The web
 form and the final iOS and Android keyboard, autofill and password-manager
 checks remain later work for #41.
 
@@ -305,6 +305,7 @@ are outside this policy.
 | 2026-11-18 | R-1 | spec | `4df5bcc5d337709899dbe8ad640c3c028c35743d` | unknown | procedural | 1 blocking, 4 should-fix |
 | 2026-11-18 | R-2 | spec | `6e3f76b065ebdbdba7d3b5c709d183a95e0ff926` | unknown | procedural | 1 blocking, 2 should-fix |
 | 2026-11-18 | R-3 | spec | `5bc04e63ccf60c1210396101306e0a231bec83b3` | unknown | procedural | No findings |
+| 2026-11-18 | R-3 | spec | `5bc04e63ccf60c1210396101306e0a231bec83b3` | n/a | n/a | accepted by owner |
 
 ### R-1
 
