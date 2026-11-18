@@ -874,6 +874,10 @@ final class AnalyticsProbe: XCTestCase {
                         settings.coordinate(withNormalizedOffset: .zero).withOffset(
                             CGVector(dx: frame.midX - layout.bounds.minX,
                                      dy: frame.midY - layout.bounds.minY)).tap()
+                        // Give the real pane transition time to finish before
+                        // the next AX query; a busy Settings main loop cannot
+                        // supply a reliable selection snapshot.
+                        RunLoop.current.run(until: Date().addingTimeInterval(1))
                         // Next native row and final actual Flat selection still
                         // confirm progression; no inferred mode or synthetic input.
                         return
@@ -896,22 +900,27 @@ final class AnalyticsProbe: XCTestCase {
         try openSetting("Accessibility")
         try openSetting("VoiceOver")
         func flatSelected() -> Bool {
+            // Prefer the setting's actual current value on the parent pane.
+            // Do not search every possible Flat control before reading it.
+            let parents = [settings.cells.containing(.staticText, identifier: "Navigation Style").firstMatch,
+                           settings.buttons.containing(.staticText, identifier: "Navigation Style").firstMatch]
+            if parents.contains(where: { $0.exists && (($0.value as? String) == "Flat" || $0.staticTexts["Flat"].exists) }) {
+                return true
+            }
             let label = settings.staticTexts["Flat"].firstMatch
             let row = settings.cells.containing(.staticText, identifier: "Flat").firstMatch
             let button = settings.buttons["Flat"].firstMatch
-            let parents = [settings.cells.containing(.staticText, identifier: "Navigation Style").firstMatch,
-                           settings.buttons.containing(.staticText, identifier: "Navigation Style").firstMatch]
-            // Settings can attach the selected accessibility trait to the
-            // text itself rather than its containing cell or button.
+            // On the choices pane, require the actual selected trait.
             return label.exists && label.isSelected || row.exists && row.isSelected || button.exists && button.isSelected
-                || parents.contains { $0.exists && (($0.value as? String) == "Flat" || $0.staticTexts["Flat"].exists) }
         }
         // Read the actual native value first. An already-confirmed Flat
         // setting needs no mutation; its label alone never confirms the mode.
-        if !flatSelected() {
+        var selectedFlat = flatSelected()
+        if !selectedFlat {
             try openSetting("Navigation Style")
             try openSetting("Flat")
-            if !flatSelected() {
+            selectedFlat = flatSelected()
+            if !selectedFlat {
                 // A checked option need not expose a selected trait. Return to
                 // the parent screen to inspect this setting's current value.
                 let back = settings.navigationBars.buttons.matching(NSPredicate(format:
@@ -922,10 +931,11 @@ final class AnalyticsProbe: XCTestCase {
             }
         }
         let selectionDeadline = Date().addingTimeInterval(15)
-        while !flatSelected() && Date() < selectionDeadline {
+        while !selectedFlat && Date() < selectionDeadline {
             RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+            selectedFlat = flatSelected()
         }
-        guard flatSelected() else {
+        guard selectedFlat else {
             settingsState()
             let label = settings.staticTexts["Flat"].firstMatch
             let row = settings.cells.containing(.staticText, identifier: "Flat").firstMatch
