@@ -88,6 +88,7 @@ def full_journeys(receipt, artifact):
         fixture = Fixture(state, controls['restart'])
         fixture.native_events = events
         account = fixture.operate({'operation': 'seed'})
+        controls['expected_native_login'] = account
         control = fixture.serve(stack)
         config_digest = hashlib.sha256((state / 'analytics-config.json').read_bytes()).hexdigest()
         speech = None
@@ -158,6 +159,7 @@ def full_journeys(receipt, artifact):
                     prepared_plan=primary_plan[0])
             except RuntimeError:
                 # Fixed route groups and HTTP statuses; no headers/bodies/IDs.
+                print('Native iOS login input: ' + json.dumps(controls.get('native_login', 'unobserved')), flush=True)
                 print('Native iOS account API results: ' + native.account_api_summary(events), flush=True)
                 print('Native iOS API results: ' + ', '.join(method + '/' + kind + '/' + str(status)
                     for method, kind, status in events[-16:]), flush=True)

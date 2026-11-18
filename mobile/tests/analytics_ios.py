@@ -243,7 +243,7 @@ def run(state, control, account, identifier, container, layout_only=False, voice
             if app_state:
                 detail += '; app state/webview/alert ' + '/'.join(app_state[-1])
             if states:
-                detail += '; screens ' + ', '.join(name + '=' + value for name, value in states[-11:])
+                detail += '; screens ' + ', '.join(name + '=' + value for name, value in states[-14:])
             picker = re.findall(r'Analytics iOS picker control: (Cancel|Close|Done|Save|Browse|Locations|On My iPhone|Downloads) total=([0-9]{1,2}) web=([0-9]{1,2})', text)
             if picker:
                 detail += '; picker total/web ' + ','.join(name + '=' + total + '/' + web for name, total, web in picker[-8:])

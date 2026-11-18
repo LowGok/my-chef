@@ -117,7 +117,7 @@ class SpeechToolSetupTest(unittest.TestCase):
                     if hasattr(output, 'write'):
                         output.write(payload); output.flush()
                     if timeout:
-                        raise subprocess.TimeoutExpired(arguments, 240, output=payload)
+                        raise subprocess.TimeoutExpired(arguments, options['timeout'], output=payload)
                     raise subprocess.CalledProcessError(100, arguments, output=payload)
                 return subprocess.CompletedProcess(arguments, 0)
             with patch.dict(os.environ, {'GITHUB_EVENT_PATH': str(event), 'NATIVE_PLATFORM': 'android'}), \
@@ -136,7 +136,7 @@ class SpeechToolSetupTest(unittest.TestCase):
             self.assertIn('DEBIAN_FRONTEND=noninteractive', arguments)
             self.assertIn('NEEDRESTART_MODE=l', arguments)
             self.assertEqual(options.get('stdin'), subprocess.DEVNULL)
-            self.assertEqual(options['timeout'], 240)
+            self.assertEqual(options['timeout'], 420 if 'install' in arguments else 240)
         install = self.calls[1][0]
         self.assertIn('--no-upgrade', install)
         self.assertEqual(list(install[install.index('--no-install-recommends') + 1:]),

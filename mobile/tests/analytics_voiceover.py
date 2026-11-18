@@ -113,6 +113,7 @@ def main():
         fixture = Fixture(state, controls['restart'])
         fixture.native_events = events
         account = fixture.operate({'operation': 'seed'})
+        controls['expected_native_login'] = account
         control = fixture.serve(stack)
         prepared = []
         def prepare_probe(identifier):
@@ -142,6 +143,7 @@ def main():
             checks = analytics_ios.run(state, control, account, identifier, container, voiceover_only=True,
                                        before_test=bootstrap, prepared_plan=prepared[0])
         except RuntimeError:
+            print('VoiceOver login input: ' + json.dumps(controls.get('native_login', 'unobserved')), flush=True)
             print('VoiceOver native API results: ' + ', '.join(method + '/' + kind + '/' + str(status)
                 for method, kind, status in events[-20:]), flush=True)
             notice_events = [(method, kind, status) for method, kind, status in events

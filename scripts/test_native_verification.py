@@ -443,6 +443,34 @@ class NativeFixtureProxyTest(unittest.TestCase):
             handler.forward()
             self.assertEqual(namespace['events'][-1], ('GET', 'analytics-notice-assessed', 200))
 
+            # Compare only the fictional fixture login, without changing the
+            # actual request, response, authentication or diagnostic vocabulary.
+            expected_login = {'email': 'fixture@example.test', 'password': 'FictionalPassword'}
+            namespace.update(analytics='disabled',
+                             controls={'expected_native_login': expected_login},
+                             native_login_facts=installed.native_login_facts)
+            request = json.dumps(dict(expected_login, password='prefix-' + expected_login['password'])).encode()
+            handler.path = '/api/native/v1/login'
+            handler.command = 'POST'
+            handler.headers.replace_header('Content-Length', str(len(request)))
+            for active in (True, False):
+                namespace['analytics'] = 'disabled' if active else None
+                namespace['controls'].pop('native_login', None)
+                handler.rfile = io.BytesIO(request)
+                handler.wfile = io.BytesIO()
+                sent.clear()
+                replies.append(Response(401, b'{"error":"unauthorized"}'))
+                handler.forward()
+                self.assertEqual(upstream[-1][2], request)
+                self.assertEqual(sent, [401])
+                self.assertEqual(handler.wfile.getvalue(), b'{"error":"unauthorized"}')
+                self.assertEqual(namespace['events'][-1], ('POST', 'login', 401))
+                if active:
+                    self.assertEqual(namespace['controls']['native_login'],
+                                     {'status': 401, 'email': 'exact', 'password': 'prepended'})
+                else:
+                    self.assertNotIn('native_login', namespace['controls'])
+
 
 class NativeSystemPickerTest(unittest.TestCase):
     def test_cancel_repeats_back_only_while_the_system_picker_is_still_active(self):
@@ -575,6 +603,31 @@ class OwnedAndroidTransportTest(unittest.TestCase):
                  patch.object(installed.time, 'monotonic', side_effect=[0, 0, 181]), patch.object(installed.time, 'sleep'):
                 with self.assertRaisesRegex(RuntimeError, 'owned Android ADB transport'):
                     installed.wait_owned_android_transport('/fictional-sdk/adb', types.SimpleNamespace(poll=lambda: None))
+
+
+class NativeLoginFactsTest(unittest.TestCase):
+    def test_login_facts_classify_actual_fixture_input_without_disclosing_it(self):
+        expected = {'email': 'fixture@example.test', 'password': 'FictionalPrivatePassword'}
+        for field in ('email', 'password'):
+            for value, kind in [(expected[field], 'exact'), ('', 'empty'),
+                                ('prefix-' + expected[field], 'prepended'),
+                                (expected[field] + '-suffix', 'appended'),
+                                (expected[field].swapcase(), 'case'),
+                                (expected[field][:-2], 'truncated-end')]:
+                body = dict(expected); body[field] = value
+                result = installed.native_login_facts(json.dumps(body).encode(), expected, 401)
+                self.assertEqual(result['status'], 401)
+                self.assertEqual(result[field], kind)
+                for secret in ['fixture@', 'PrivatePassword', 'prefix-', '-suffix', '@example']:
+                    self.assertNotIn(secret, json.dumps(result))
+
+    def test_malformed_or_oversized_login_input_has_only_closed_facts(self):
+        expected = {'email': 'fixture@example.test', 'password': 'FictionalPrivatePassword'}
+        for body in (b'private-canary', b'[]', b'{}', b'x' * 16385):
+            result = installed.native_login_facts(body, expected, 401)
+            self.assertEqual(result, {'status': 401, 'email': 'invalid', 'password': 'invalid'})
+        self.assertEqual(installed.native_login_facts(b'{}', {}, 999),
+                         {'status': 0, 'email': 'unavailable', 'password': 'unavailable'})
 
 
 class AccountAPIDiagnosticTest(unittest.TestCase):

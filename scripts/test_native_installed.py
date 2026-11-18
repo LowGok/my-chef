@@ -94,6 +94,41 @@ def account_api_summary(events):
     return ', '.join(method + '/' + kind + '/' + str(status) for method, kind, status in records[-8:])
 
 
+def native_login_facts(body, expected, status):
+    """Fixture-only comparisons: never return submitted or expected values."""
+    result = {"status": status if type(status) is int and 100 <= status <= 599 else 0}
+    fields = ("email", "password")
+    if type(expected) is not dict or any(type(expected.get(key)) is not str
+            or not 0 < len(expected[key]) <= 1024 for key in fields):
+        return dict(result, email="unavailable", password="unavailable")
+    try:
+        value = json.loads(body) if type(body) is bytes and len(body) <= 16384 else None
+    except (ValueError, UnicodeDecodeError, RecursionError):
+        value = None
+    if type(value) is not dict or any(type(value.get(key)) is not str for key in fields):
+        return dict(result, email="invalid", password="invalid")
+    for key in fields:
+        actual, wanted = value[key], expected[key]
+        if actual == wanted:
+            kind = "exact"
+        elif not actual:
+            kind = "empty"
+        elif actual.casefold() == wanted.casefold():
+            kind = "case"
+        elif actual.endswith(wanted):
+            kind = "prepended"
+        elif actual.startswith(wanted):
+            kind = "appended"
+        elif wanted.startswith(actual):
+            kind = "truncated-end"
+        elif wanted.endswith(actual):
+            kind = "truncated-start"
+        else:
+            kind = "different"
+        result[key] = kind
+    return result
+
+
 def wait_for(check, description, seconds=100):
     end = time.monotonic() + seconds
     while time.monotonic() < end:
@@ -392,6 +427,10 @@ def fixture(state, stack, journeys=False, analytics=None, controls=None):
                 if re.fullmatch(r"favorite-weeks/\d{4}-\d{2}-\d{2}", route):
                     event_kind = "favorite-week"
                 events.append((self.command, event_kind, response.status))
+                if (self.command == "POST" and route == "login" and analytics is not None
+                        and controls is not None and "expected_native_login" in controls):
+                    controls["native_login"] = native_login_facts(
+                        request_body, controls["expected_native_login"], response.status)
                 if journeys and self.command == "PUT" and response.status == 200 and re.fullmatch(r"/api/native/v1/shopping/\d{4}-\d{2}-\d{2}", self.path):
                     value = json.loads(request_body)
                     names = [item.get("name") for item in value.get("items", [])]

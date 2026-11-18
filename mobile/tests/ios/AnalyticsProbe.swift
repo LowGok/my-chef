@@ -936,8 +936,12 @@ final class AnalyticsProbe: XCTestCase {
         }
         print("Analytics iOS VoiceOver navigation: flat selected=true")
         settings.terminate()
-        app.activate()
-        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 20))
+        // Settings configuration can suspend the initial fixture for minutes.
+        // Start the measured app journey in a fresh foreground instance; the
+        // real notice response below must still arrive before speech counts.
+        print("Analytics iOS voice phase: app relaunch after Settings")
+        relaunch()
+        waitFor({ self.text("Welcome back.") }, "Fresh app must reach sign in after native Settings")
         func enableVoice() throws {
             try voice.enable()
             XCTAssertTrue(voice.isEnabled)

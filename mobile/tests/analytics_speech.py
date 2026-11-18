@@ -89,8 +89,12 @@ def prepare_system_packages(root):
         # on exit. Public diagnostics contain only closed stage/reason/phase.
         with tempfile.TemporaryFile(dir=root) as log:
             try:
+                # The observed install timeout was still downloading missing
+                # packages. Keep update and build budgets; only this external
+                # package download/install gets a bounded seven-minute window.
                 subprocess.run([*prefix, stage, *arguments], cwd=root, check=True,
-                               stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT, timeout=240)
+                               stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT,
+                               timeout=420 if stage == 'install' else 240)
             except (subprocess.TimeoutExpired, subprocess.CalledProcessError) as error:
                 log.seek(0)
                 raw = log.read(65537)
