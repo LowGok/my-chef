@@ -137,6 +137,10 @@ class SpeechToolSetupTest(unittest.TestCase):
             self.assertIn('NEEDRESTART_MODE=l', arguments)
             self.assertEqual(options.get('stdin'), subprocess.DEVNULL)
             self.assertEqual(options['timeout'], 420 if 'install' in arguments else 240)
+            # Match the hosted runner's bounded mirror failover policy.
+            for setting in ('Acquire::Retries=1', 'Acquire::http::Timeout=15',
+                            'Acquire::https::Timeout=15'):
+                self.assertIn(setting, arguments)
         install = self.calls[1][0]
         self.assertIn('--no-upgrade', install)
         self.assertEqual(list(install[install.index('--no-install-recommends') + 1:]),

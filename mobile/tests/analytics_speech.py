@@ -80,9 +80,12 @@ def prepare_system_packages(root):
           + ' install=' + str(len(packages)), flush=True)
     if not packages:
         return
+    # Use the hosted runner's short mirror-failover policy instead of
+    # overriding it with longer retries. Package authenticity stays enforced.
+    # actions/runner-images: images/ubuntu/scripts/build/configure-apt.sh
     prefix = ['sudo', '-n', 'env', 'DEBIAN_FRONTEND=noninteractive', 'NEEDRESTART_MODE=l', 'apt-get',
-              '-o', 'DPkg::Lock::Timeout=30', '-o', 'Acquire::Retries=2',
-              '-o', 'Acquire::http::Timeout=30', '-o', 'Acquire::https::Timeout=30']
+              '-o', 'DPkg::Lock::Timeout=30', '-o', 'Acquire::Retries=1',
+              '-o', 'Acquire::http::Timeout=15', '-o', 'Acquire::https::Timeout=15']
     for stage, arguments in (('update', ['-qq']),
                              ('install', ['-y', '-q', '--no-upgrade', '--no-install-recommends', *packages])):
         # Package output stays in an anonymous runner-local file and is deleted
