@@ -265,7 +265,7 @@ database and account-lifecycle backups under the existing controls
 
 ### Issue #41 closeout
 
-- [ ] Backend: review and test the API slice. Publication, merge and rollout are separate decisions.
+- [x] Backend: review and test the API slice. Publication, merge and rollout are separate decisions.
 - [ ] Web: change only the sign-in field to **Email or username**, allow a username without email-format validation, and retain explicit username/current-password autofill semantics. Keep recovery email-only.
 - [ ] Final roadmap review: verify on iOS and Android that both identifiers sign in, the keyboard accepts either, native autofill and password managers can fill and update sign-in, and recovery still uses verified email. Record target builds and automated evidence plus any owner device evidence. Do not mark #41 complete until both clients pass this checkpoint.
 
@@ -323,6 +323,7 @@ are outside this policy.
 | 2026-11-18 | R-2 | spec | `6e3f76b065ebdbdba7d3b5c709d183a95e0ff926` | unknown | procedural | 1 blocking, 2 should-fix |
 | 2026-11-18 | R-3 | spec | `5bc04e63ccf60c1210396101306e0a231bec83b3` | unknown | procedural | No findings |
 | 2026-11-18 | R-3 | spec | `5bc04e63ccf60c1210396101306e0a231bec83b3` | n/a | n/a | accepted by owner |
+| 2026-11-18 | R-4 | implementation | `21beed92747dedead9d2d3823c0fcf2e23987b3f` | unknown | procedural | All six backend criteria met; no findings |
 
 ### R-1
 
@@ -387,6 +388,32 @@ PROPOSAL: Require equivalent probes to be committed as regression tests and name
 ### R-3
 
 NO FINDINGS
+
+### R-4
+
+CRITERION: AC-01 The existing web and native sign-in requests accept an account's normalized email or uniquely matching Unicode-folded username and reach the same account without changing the request or session contract.
+VERDICT: met
+EVIDENCE: Independently executed go test -p 1 -count=1 ./internal/auth ./internal/store ./internal/http ./internal/importer at 21beed92747dedead9d2d3823c0fcf2e23987b3f; all packages passed. Inspected and observed the checked-in compatibility and identifier tests establishing unchanged JSON, identical account IDs, Unicode folding and session replacement on web, iOS transport and Android transport. Additional scratch probes established accent preservation and absence of NFC normalization. Evidence covers the backend API; client UI and physical-device behavior are outside this scope.
+
+CRITERION: AC-02 Unknown or ambiguous usernames, disallowed legacy aliases and wrong passwords retain the existing generic credentials failure; email-shaped input cannot sign in as a username, and newsletter-only rows cannot sign in.
+VERDICT: met
+EVIDENCE: The uncached auth and HTTP suites passed at 21beed92747dedead9d2d3823c0fcf2e23987b3f, including email namespace precedence, ambiguous legacy names, padded and NUL aliases, wrong passwords and password-work boundaries. Independently added and executed scratch-only TestReviewerUsernameGenericFailuresAcrossTransports; ambiguous aliases, newsletter aliases and mailboxes, padded names, NUL input and unknown names returned the exact existing generic 401 code and message on both transports without issuing credentials. A separate scratch probe confirmed a newsletter spelling does not make an otherwise unique app alias ambiguous.
+
+CRITERION: AC-03 Email and username variants for the same account share one attempt limit across both transports, including concurrent requests, while the separate source limit and response stay unchanged.
+VERDICT: met
+EVIDENCE: Independently executed the uncached HTTP suite and go test -race -p 1 -count=1 -run '^(TestSignIn|TestReviewer)' ./internal/auth ./internal/http ./internal/store against 21beed92747dedead9d2d3823c0fcf2e23987b3f; all passed without race reports. Observed the mixed email/username last-slot test produce exactly one credential failure and one 429, the existing Retry-After value, canonical variants sharing limits, separate account and unresolved buckets, and the unchanged fifteen-attempt source limit.
+
+CRITERION: AC-04 A stale username resolution cannot commit sign-in or a password upgrade after the account loses that alias or its credential changes. Native may still adopt an already committed valid anchor under its existing checks. Verification and verified-email recovery keep their current requirements.
+VERDICT: met
+EVIDENCE: Independently executed the uncached auth and HTTP suites at 21beed92747dedead9d2d3823c0fcf2e23987b3f. Tests passed for alias loss, newly ambiguous ownership, deletion, canonical mailbox changes and password changes before commitment, including pending legacy rehash rejection and preservation of anonymous authority. Native adoption after a committed login passed alongside existing native expiry and revocation tests. A scratch-only alias-reassignment probe confirmed the old snapshot cannot authenticate either owner and creates no session. Existing verification restriction, verified-recipient recovery and session-boundary tests passed.
+
+CRITERION: AC-05 Fresh and upgraded SQLite databases use an indexed username lookup and preserve account data, aliases and prior access. A failed upgrade is retryable, and the prior version can still use a correctly restored pre-upgrade database.
+VERDICT: met
+EVIDENCE: Independently executed the store suite at 21beed92747dedead9d2d3823c0fcf2e23987b3f; indexed lookup, preserved collisions and sessions, shared creation, injected migration failure, complete rollback and retry checks passed. Built candidate binaries from an exact git archive and prior binaries from exact prior source 9a40796, then executed scripts/test_sign_in_identifier_upgrade.py; schema 27 to 28 preserved the account and session, username login succeeded, and restored schema 27 retained prior-binary email access with the current lifecycle journal. Independently executed scripts/test_sqlite_upgrade.py with reviewer-built binaries; upgrade, backup, restore, integrity, pre-incarnation rejection and deleted-account reconciliation passed. The pinned disposable PostgreSQL importer integration also passed. All databases and providers were disposable fixtures.
+
+CRITERION: AC-06 New app signup and username changes cannot create a collision under the same Unicode case folding. Requests without live write authority do not reveal whether a name is taken. Existing collisions preserve email sign-in and can be resolved by one user choosing an available username.
+VERDICT: met
+EVIDENCE: Independently executed the uncached auth suite and focused race checks at 21beed92747dedead9d2d3823c0fcf2e23987b3f; registration, verified signup, newsletter promotion, proof retry, rename, expired/revoked authority, grandfathered edits and legacy collision resolution passed. Inspected transactional ordering confirming live authority precedes collision disclosure. An additional scratch-only race using two independently opened SQLite connections produced exactly one successful folded-name registration and one ErrConflict. Newsletter fixtures preserved the existing exact-spelling constraint without reserving a folded app alias. The owning checkout remained clean at the reviewed commit.
 
 ## Sources
 
