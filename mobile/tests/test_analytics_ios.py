@@ -103,7 +103,7 @@ class IOSProbeOrderTest(unittest.TestCase):
         self.assertEqual(self.exercise(fail_warmup=True), ['compile', 'bootstrap'])
 
     def test_only_the_complete_functional_journey_receives_the_longer_budget(self):
-        self.assertEqual(self.exercise(voiceover_only=False, expected_timeout=1800),
+        self.assertEqual(self.exercise(voiceover_only=False, expected_timeout=2100),
                          ['compile', 'bootstrap', 'test'])
         self.assertEqual(self.exercise(layout_only=True, voiceover_only=False),
                          ['compile', 'bootstrap', 'test'])
