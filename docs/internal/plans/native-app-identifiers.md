@@ -1,6 +1,6 @@
 ---
 status: draft
-status_description: "Specification for review; no store or application changes authorized."
+status_description: "Owner approved implementation; final independent review and branch claim precede code changes."
 issue: https://github.com/LowGok/my-chef/issues/42
 goal: "Approved testers can install the same MyChef app identity that will be used for release while their existing MyChef accounts and the current Preview remain usable."
 covers:
@@ -29,7 +29,7 @@ Prepare `dev.mychef.app` for iOS and Android and use those same store records fo
 
 ### Owner summary
 
-The owner chose `dev.mychef.app` for both platforms, for private beta and the eventual release. That choice avoids setting up another temporary identity before release. Apple locks the bundle ID after the first upload, and Google Play treats a different package as a different app. The new identity installs beside the Preview and needs a fresh sign-in. The pilot requires a usable Preview build for the entire test and rollback window.
+The owner chose `dev.mychef.app` for both platforms, for private beta and the eventual release. The approved main-domain link uses a browser fallback for same-site Safari navigation. That choice avoids setting up another temporary identity before release. Apple locks the bundle ID after the first upload, and Google Play treats a different package as a different app. The new identity installs beside the Preview and needs a fresh sign-in. The pilot requires a usable Preview build for the entire test and rollback window.
 
 People keep the same MyChef account and server data. They should let pending shopping changes sync in the old app before starting with the new one. The new install starts with its own session, shopping cache and notification permission. The current Preview, its tester access and its subscription tests stay in place until there is a verified alternative. The old installation is also the fallback if a pilot fails.
 
@@ -73,7 +73,7 @@ Public GitHub Actions runs secret-free variants for both identities, including A
 
 First use disposable accounts on a private backend that matches the candidate contract. Before any approved move of existing testers, confirm the new lane can use their same authorized private account backend, not a copy that could diverge. Keep the current route and API behavior available while both apps run. A fresh installation signs in normally and loads saved recipes, favorites, plans, synced shopping changes and server-side entitlement from the current account. Do not change the account ID, import a session or share keys or caches across installs. Tell the tester how to confirm shopping edits have synced in the old app; if offline or pending, keep the old installation and wait before switching. Use existing server write and shopping sync semantics for overlapping changes; no import or second account is created.
 
-The proposed handoff is `https://mychef.dev/app/open`, with no query or fragment; the host is open in Q1. A tap from another app opens Meals after normal sign-in when platform link handling is enabled. Address-bar entry and user-chosen browser handling stay on the web. With the main host, same-site Safari navigation also stays on the web. In a browser it shows a neutral page with a link to the existing `/app/` page. The handoff carries no account or device data. On 18 November 2026, `curl` returned HTML 200 for `/app/` and 404 for the proposed path and both `/.well-known` association paths. Prepare the fallback and association files with the website owner and seek approval for these exact paths. No API, verification endpoint, or private origin is published.
+The app-opening link is `https://mychef.dev/app/open`, with no query or fragment. A tap from another app opens Meals after normal sign-in when platform link handling is enabled. Address-bar entry and user-chosen browser handling stay on the web. With the main host, same-site Safari navigation also stays on the web. In a browser it shows a neutral page with a link to the existing `/app/` page. The handoff carries no account or device data. On 18 November 2026, `curl` returned HTML 200 for `/app/` and 404 for the proposed path and both `/.well-known` association paths. Prepare the fallback and association files with the website owner and seek approval for these exact paths. No API, verification endpoint, or private origin is published.
 
 Bind the Apple App ID through an exact-path AASA rule and the Android package through Digital Asset Links using every applicable Play app-signing SHA-256 fingerprint from authenticated readback, including all hybrid signatures if used. Upload certificates and debug fingerprints are excluded from the public association. The Android manifest restricts the exact host and path on old and new Android; Android 14 and earlier ignore dynamic rules. Use a narrow native handler that validates HTTPS and exact URL shape. On an allowed cold launch open Meals after sign-in. On a warm launch use the normal navigation and unsaved-edit guard in `web/src/App.tsx:190-208`; never replace or interrupt an active private proof flow. Preserve the private proof validator in `web/src/native-runtime.ts:20-41,85-90`. Do not claim account proof paths, other public URLs or any legacy route. Android may still dispatch path matches with an unsupported query or fragment; reject those in the app and offer the browser fallback. If the OS caches an association and still launches the withdrawn candidate, show a neutral paused state and a browser action to the unassociated `/app/` route. Keep handoff disabled without current candidate authorization, including on a cold offline launch.
 
@@ -126,16 +126,7 @@ None yet; written once the document is planned.
 
 ## Open Questions
 
-### Q1: Should the app-opening link live on the main site or on its own subdomain?
-
-**Recommendation:** A. Use the existing host and let Safari same-site navigation remain on the website.
-
-| Option | You get | It costs |
-| --- | --- | --- |
-| **A. Main site** | `mychef.dev/app/open` opens from another app where enabled; same-site Safari has a web fallback | No new hostname, but no guarantee that a website tap opens the app |
-| **B. Separate subdomain** | A link that can open the app from the main website in Safari as well | Additional site and DNS setup and a new association target |
-
-**Why this is yours:** The route changes the public site's behavior and determines how testers and future users reach the app.
+None. The owner approved the native identity draft and implementation on 18 November 2026, following the recommendation to use the existing main-domain app-opening link.
 
 ## Review Log
 
