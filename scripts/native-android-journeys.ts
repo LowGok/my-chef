@@ -313,10 +313,32 @@ async function activateControl(control: Locator, name: string) {
       },
       { message: name + " must keep its center point and native viewport stable", intervals: [150], timeout: 10_000 },
     )
-    .toBe(true).catch((error: unknown) => {
+    .toBe(true).catch(async (error: unknown) => {
       console.log("Installed Android viewport state: " + JSON.stringify({
         observed: sawGeometry, valid: previousGeometry !== null, stable: stableGeometry, owner: focusOwner(),
       }));
+      // Failure-only, closed facts distinguish clipping from hit-test mismatch.
+      // Never return text, values, identifiers, classes or a DOM representation.
+      const facts = await control.evaluate((node) => {
+        const rect = node.getBoundingClientRect(), viewport = visualViewport;
+        const cx = rect.left + rect.width / 2, cy = rect.top + rect.height / 2;
+        const ox = viewport?.offsetLeft ?? 0, oy = viewport?.offsetTop ?? 0;
+        const width = viewport?.width ?? innerWidth, height = viewport?.height ?? innerHeight;
+        const target = document.elementFromPoint(cx, cy);
+        const tag = target?.tagName.toUpperCase() ?? "NONE";
+        return {
+          finite: [cx, cy, rect.width, rect.height, ox, oy, width, height, innerWidth, innerHeight].every(Number.isFinite),
+          positive: rect.width > 0 && rect.height > 0,
+          centerHit: target !== null && node.contains(target),
+          insideLayout: cx >= 0 && cy >= 0 && cx < innerWidth && cy < innerHeight,
+          insideVisual: cx - ox >= 0 && cy - oy >= 0 && cx - ox < width && cy - oy < height,
+          offset: Math.abs(ox) > 1 || Math.abs(oy) > 1,
+          scaled: Math.abs((viewport?.scale ?? 1) - 1) > .001,
+          pointerBlocked: getComputedStyle(node).pointerEvents === "none",
+          hitTag: ["NONE", "BUTTON", "INPUT", "LABEL", "BODY", "HTML", "DIV", "SPAN", "A", "SVG", "PATH"].includes(tag) ? tag : "OTHER",
+        };
+      }, undefined, { timeout: 2_000 }).catch(() => null);
+      console.log("Installed Android center facts: " + JSON.stringify({ measured: facts !== null, ...facts }));
       throw error;
     });
   // The input still comes from the actual OS probe, with no activation retry.
