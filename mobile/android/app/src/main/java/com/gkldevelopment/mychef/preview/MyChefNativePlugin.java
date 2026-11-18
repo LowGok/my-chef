@@ -173,7 +173,10 @@ public class MyChefNativePlugin extends Plugin {
             @Override public void onLost(Network network) { runtimeChanged(); }
         };
         if (connectivity != null) connectivity.registerDefaultNetworkCallback(networkCallback);
-        try { origin = NativeBoundary.origin(getConfig().getString("apiOrigin", "")); }
+        try {
+            NativeAppIdentity.require(getContext().getPackageName(), getConfig().getString("identityLane", "preview"));
+            origin = NativeBoundary.origin(getConfig().getString("apiOrigin", ""));
+        }
         catch (Exception ignored) { origin = null; }
     }
     @PluginMethod public void configuration(PluginCall call) {

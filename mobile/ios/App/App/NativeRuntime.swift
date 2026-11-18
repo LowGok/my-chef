@@ -107,3 +107,14 @@ final class NativeRuntime {
         return value
     }
 }
+
+// The OS application identity is separate from display and Keychain service names.
+enum NativeAppIdentity {
+    static func matches(bundle: String?, lane: String) -> Bool {
+        switch lane {
+        case "preview": return bundle == "com.gkldevelopment.mychef.preview"
+        case "app": return bundle == "dev.mychef.app"
+        default: return false
+        }
+    }
+}

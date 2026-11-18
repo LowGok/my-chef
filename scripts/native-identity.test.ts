@@ -71,3 +71,52 @@ test("a selected identity cannot package a substituted app or invalid lane", asy
   const invalid = {...config, appId: nativeIdentity("preview").appId};
   await expect(prepareMobileBundle(source, join(root,"out"), invalid, "b".repeat(40))).rejects.toThrow();
 });
+
+test("native build commands bind package identity independently of the compile namespace", async () => {
+  const {nativeBuildPlan} = await import("./mobile-hosted");
+  const {compilePlan} = await import("./mobile-compile");
+  const version = {version: "0.1.0", build: 10};
+  for (const lane of ["preview","app"] as const) {
+    const id = nativeIdentity(lane).appId;
+    expect(nativeBuildPlan("android", version, lane)).toContain(`-PmychefIdentityLane=${lane}`);
+    expect(nativeBuildPlan("ios-simulator", version, lane)).toContain(`PRODUCT_BUNDLE_IDENTIFIER=${id}`);
+    expect(compilePlan("ios-device", false, undefined, lane)).toContain(`PRODUCT_BUNDLE_IDENTIFIER=${id}`);
+    expect(compilePlan("android", false, undefined, lane)).toContain(`-PmychefIdentityLane=${lane}`);
+  }
+});
+
+test("the actual JVM package guard rejects a copied config from the sibling app", async () => {
+  const output = await mkdtemp(join(tmpdir(), "mychef-native-identity-jvm-"));
+  temporary.push(output);
+  const source = join(import.meta.dir, "../mobile/android/app/src/main/java/com/gkldevelopment/mychef/preview/NativeAppIdentity.java");
+  const harness = join(output,"IdentityContract.java");
+  await writeFile(harness, `import com.gkldevelopment.mychef.preview.NativeAppIdentity;
+public class IdentityContract {
+  public static void main(String[] args) {
+    NativeAppIdentity.require("dev.mychef.app", "app");
+    NativeAppIdentity.require("com.gkldevelopment.mychef.preview", "preview");
+    for (String[] pair: new String[][]{
+      {"dev.mychef.app","preview"}, {"com.gkldevelopment.mychef.preview","app"},
+      {"foreign.app","app"}, {"dev.mychef.app","release"}
+    }) {
+      try { NativeAppIdentity.require(pair[0],pair[1]); }
+      catch (IllegalArgumentException expected) { continue; }
+      throw new AssertionError("Identity mismatch accepted");
+    }
+  }
+}`);
+  const compile = Bun.spawnSync(["javac","--release","17","-d",output,source,harness]);
+  expect(compile.exitCode,compile.stderr.toString()).toBe(0);
+  const run = Bun.spawnSync(["java","-cp",output,"IdentityContract"]);
+  expect(run.exitCode,run.stderr.toString()).toBe(0);
+});
+
+test("installed probe package selection matches the requested lane and rejects unknown names", () => {
+  for (const [lane, id] of [["preview",nativeIdentity("preview").appId],["app",nativeIdentity("app").appId]]) {
+    const result = Bun.spawnSync(["python","-c","import sys; sys.path.insert(0,'scripts'); from native_identity import application_id; print(application_id())"], {cwd:join(import.meta.dir,".."),env:{...process.env,NATIVE_IDENTITY_LANE:lane}});
+    expect(result.exitCode,result.stderr.toString()).toBe(0);
+    expect(result.stdout.toString().trim()).toBe(id);
+  }
+  const rejected=Bun.spawnSync(["python","-c","import sys; sys.path.insert(0,'scripts'); from native_identity import application_id; application_id()"],{cwd:join(import.meta.dir,".."),env:{...process.env,NATIVE_IDENTITY_LANE:"foreign"}});
+  expect(rejected.exitCode).not.toBe(0);
+});

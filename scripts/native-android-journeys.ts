@@ -9,6 +9,7 @@ import {
   type Page,
 } from "../web/node_modules/@playwright/test";
 import { join } from "node:path";
+import { nativeIdentity } from "./native-identity";
 import { readFile, unlink, writeFile } from "node:fs/promises";
 import { safeJourneyError } from "./native-android-report";
 import { addDays, monday } from "../web/src/dates";
@@ -17,7 +18,7 @@ import {
   personalPhoto,
 } from "../web/tests/support/personal-recipes";
 
-const app = "com.gkldevelopment.mychef.preview";
+const app = nativeIdentity(process.env.NATIVE_IDENTITY_LANE ?? "preview").appId;
 // Native requests and emulator UI work have the same bounded wait budget.
 const expect = playwrightExpect.configure({ timeout: 30_000 });
 const interruptedConnection =
@@ -76,7 +77,7 @@ async function connect() {
       "am",
       "instrument",
       "-w",
-      "com.gkldevelopment.mychef.preview.test/com.gkldevelopment.mychef.testing.NativeJourneyProbe",
+      `${app}.test/com.gkldevelopment.mychef.testing.NativeJourneyProbe`,
     ],
     { stdout: Bun.file(join(state, "probe-private.log")), stderr: "ignore" },
   );

@@ -326,6 +326,7 @@
 				MARKETING_VERSION = 0.1.0;
 				OTHER_SWIFT_FLAGS = "$(inherited) \"-D\" \"COCOAPODS\" \"-DDEBUG\"";
 				PRODUCT_BUNDLE_IDENTIFIER = com.gkldevelopment.mychef.preview;
+				MYCHEF_DISPLAY_NAME = "MyChef Preview";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_VERSION = 5.0;
@@ -348,6 +349,7 @@
 				);
 				MARKETING_VERSION = 0.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.gkldevelopment.mychef.preview;
+				MYCHEF_DISPLAY_NAME = "MyChef Preview";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				"OTHER_LDFLAGS[sdk=iphonesimulator*]" = "$(inherited) $(MYCHEF_SIMULATOR_LDFLAGS)";
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "";

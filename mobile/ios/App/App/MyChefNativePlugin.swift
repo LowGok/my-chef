@@ -126,6 +126,8 @@ public class MyChefNativePlugin: CAPPlugin, CAPBridgedPlugin, URLSessionDataDele
         runtimeObserver = NotificationCenter.default.addObserver(forName: NativeRuntime.changed, object: nil, queue: .main) { [weak self] _ in
             self?.notifyListeners("runtime", data: [:])
         }
+        guard NativeAppIdentity.matches(bundle: Bundle.main.bundleIdentifier,
+                                        lane: getConfig().getString("identityLane") ?? "preview") else { return }
         let value = getConfig().getString("apiOrigin") ?? ""
         if let url = URLComponents(string: value), url.scheme == "https", let host = url.host,
            host == "localhost" || host.range(of: "^[a-z0-9-]+\\.tail[a-z0-9]+\\.ts\\.net$", options: .regularExpression) != nil,

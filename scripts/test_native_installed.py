@@ -22,11 +22,13 @@ from e2e_server import fixture_email, fixture_imports
 ROOT = Path(__file__).resolve().parent.parent
 GENERATED = ROOT / "mobile/.generated"
 ARTIFACTS = GENERATED / "artifacts"
-APP = "com.gkldevelopment.mychef.preview"
+from native_identity import application_id
+
+APP = application_id()
 PLATFORM = os.environ.get("NATIVE_PLATFORM")
 ORIGIN = "https://localhost:8977"
 ENV = {k: v for k, v in os.environ.items() if k in {
-    "PATH", "HOME", "USER", "LOGNAME", "TMPDIR", "LANG", "ANDROID_HOME", "ANDROID_SDK_ROOT"
+    "PATH", "HOME", "USER", "LOGNAME", "TMPDIR", "LANG", "ANDROID_HOME", "ANDROID_SDK_ROOT", "NATIVE_IDENTITY_LANE"
 }}
 ENV.update(DEVELOPER_DIR="/Applications/Xcode_26.3.app/Contents/Developer", GOTOOLCHAIN="go1.27.4", CGO_ENABLED="0")
 

@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { nativeIdentity, type NativeIdentityLane } from "./native-identity";
 import { appendFileSync, readFileSync } from "node:fs";
 import {
   copyFile,
@@ -77,7 +78,9 @@ export function compilePlan(
   platform: Platform,
   bootstrap: boolean,
   simulatorEntitlements?: string,
+  lane: NativeIdentityLane = "preview",
 ) {
+  const identity = nativeIdentity(lane);
   if (
     simulatorEntitlements &&
     (platform !== "ios-simulator" ||
@@ -85,7 +88,7 @@ export function compilePlan(
   )
     stop();
   if (platform === "ios-device")
-    return nativeBuildPlan("ios-simulator", compilationVersion).map((value) =>
+    return nativeBuildPlan("ios-simulator", compilationVersion, lane).map((value) =>
       value === "iphonesimulator"
         ? "iphoneos"
         : value === "generic/platform=iOS Simulator"
@@ -95,7 +98,7 @@ export function compilePlan(
             : value,
     );
   if (platform === "ios-simulator") {
-    const plan = nativeBuildPlan(platform, compilationVersion);
+    const plan = nativeBuildPlan(platform, compilationVersion, lane);
     if (simulatorEntitlements)
       plan.splice(
         -1,
@@ -110,6 +113,7 @@ export function compilePlan(
     "--no-daemon",
     `-PmychefVersionName=${compilationVersion.version}`,
     `-PmychefVersionCode=${compilationVersion.build}`,
+    `-PmychefIdentityLane=${identity.lane}`,
     ...(bootstrap
       ? ["--write-locks", "--write-verification-metadata", "sha256"]
       : ["--dependency-verification=strict"]),
@@ -275,13 +279,13 @@ async function compile() {
     let simulatorEntitlements: string | undefined;
     if (input.installed && input.platform === "ios-simulator") {
       simulatorEntitlements = join(generated, "simulator-keychain.plist");
-      const identity = "MYCHEF0000.com.gkldevelopment.mychef.preview";
+      const identity = `MYCHEF0000.${bundle.config.appId}`;
       await writeFile(
         simulatorEntitlements,
         `<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0"><dict><key>application-identifier</key><string>${identity}</string><key>keychain-access-groups</key><array><string>${identity}</string></array></dict></plist>\n`,
       );
     }
-    const plan = compilePlan(input.platform, bootstrap, simulatorEntitlements);
+    const plan = compilePlan(input.platform, bootstrap, simulatorEntitlements, bundle.identityLane);
     run(plan, input.platform === "android" ? join(mobile, "android") : mobile);
     if (input.platform === "android") await retainDependencies();
     const artifact =

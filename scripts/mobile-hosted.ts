@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { nativeIdentity, type NativeIdentityLane } from "./native-identity";
 import { appendFileSync } from "node:fs";
 import {
   readFile,
@@ -51,7 +52,9 @@ export function hostedInputs(env: Record<string, string | undefined>) {
 export function nativeBuildPlan(
   platform: "ios-simulator" | "android",
   version: { version: string; build: number },
+  lane: NativeIdentityLane = "preview",
 ) {
+  const identity = nativeIdentity(lane);
   if (
     !/^\d+\.\d+\.\d+$/.test(version.version) ||
     !Number.isSafeInteger(version.build) ||
@@ -79,6 +82,8 @@ export function nativeBuildPlan(
       "CODE_SIGNING_ALLOWED=NO",
       `MARKETING_VERSION=${version.version}`,
       `CURRENT_PROJECT_VERSION=${version.build}`,
+      `PRODUCT_BUNDLE_IDENTIFIER=${identity.appId}`,
+      `MYCHEF_DISPLAY_NAME=${identity.appName}`,
       "build",
     ];
   if (platform === "android")
@@ -88,6 +93,7 @@ export function nativeBuildPlan(
       "--dependency-verification=strict",
       `-PmychefVersionName=${version.version}`,
       `-PmychefVersionCode=${version.build}`,
+      `-PmychefIdentityLane=${identity.lane}`,
       "assembleDebug",
       "lintDebug",
       "testDebugUnitTest",
