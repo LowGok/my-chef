@@ -810,8 +810,7 @@ final class AnalyticsProbe: XCTestCase {
                 return nil
             }
         }
-        func walkSpeech(reverse: Bool = false, enterIf: (String) -> Bool = { _ in false },
-                        visit: (String) -> Bool) -> Bool {
+        func walkSpeech(reverse: Bool = false, visit: (String) -> Bool) -> Bool {
             let deadline = Date().addingTimeInterval(45)
             var output = observe { try voice.currentSpeech().utterance }
             var previous = "", repeated = 0, silent = 0, entries = 0
@@ -830,8 +829,9 @@ final class AnalyticsProbe: XCTestCase {
                     }
                     let container = value.range(of: "\\b(web content|group|container)\\b",
                                                 options: [.regularExpression, .caseInsensitive]) != nil
-                    if entries < 4 && (container || enterIf(value))
-                            && inspected.insert(value).inserted {
+                    // A matching label is not evidence of a container.
+                    // Enter only a container actually announced by VoiceOver.
+                    if entries < 4 && container && inspected.insert(value).inserted {
                         // Entry is a real native command, not inferred success.
                         // A silent result never satisfies the visitor; keep the
                         // attempt bounded and return out at a silent boundary.
@@ -898,9 +898,7 @@ final class AnalyticsProbe: XCTestCase {
             // commands handle the current hierarchy without assuming its mode.
             for reverse in [backward, !backward] {
                 var found: String?
-                let reached = walkSpeech(reverse: reverse, enterIf: {
-                    controlRole && words($0).contains(expected)
-                }, visit: { output in
+                let reached = walkSpeech(reverse: reverse, visit: { output in
                     if let result = candidate(output) { found = result; return true }
                     return false
                 })
@@ -927,6 +925,14 @@ final class AnalyticsProbe: XCTestCase {
             let region = hasTapRegion(element)
             let ready = region && (!control || tapReady(element, frame: element.frame, nativeElement: false))
             print("Analytics iOS voice anchor: region=\(region) ready=\(ready)")
+            if !region && element.exists {
+                let frame = element.frame, bounds = app.frame
+                let finite = !frame.isNull && !frame.isInfinite && frame.width > 1 && frame.height > 1
+                    && [frame.minX, frame.minY, frame.maxX, frame.maxY].allSatisfy({ $0.isFinite })
+                let keyboard = app.keyboards.firstMatch
+                let covered = keyboard.exists && keyboard.frame.intersects(frame)
+                print("Analytics iOS voice anchor frame: valid=\(finite) above=\(finite && frame.minY < bounds.minY) below=\(finite && frame.maxY > bounds.maxY) keyboard=\(covered)")
+            }
             if ready {
                 if control {
                     if phrase == "Help improve MyChef" {
@@ -996,11 +1002,7 @@ final class AnalyticsProbe: XCTestCase {
         _ = try focusSpeech(privacyHeading, "Privacy and data")
         var checkboxIndex: Int?, statusIndex: Int?, refreshIndex: Int?
         var index = 0
-        let traversedOrder = walkSpeech(enterIf: { value in
-            value.localizedCaseInsensitiveContains("Help improve MyChef")
-                && value.range(of: "switch|check.?box|tick.?box|button",
-                               options: [.regularExpression, .caseInsensitive]) == nil
-        }, visit: { utterance in
+        let traversedOrder = walkSpeech(visit: { utterance in
             defer { index += 1 }
             let role = utterance.range(of: "switch|check.?box|tick.?box|button", options: [.regularExpression, .caseInsensitive]) != nil
             if utterance.localizedCaseInsensitiveContains("Help improve MyChef"), role, checkboxIndex == nil { checkboxIndex = index }

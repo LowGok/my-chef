@@ -284,6 +284,9 @@ def run(state, control, account, identifier, container, layout_only=False, voice
             voice_anchors = re.findall(r'Analytics iOS voice anchor: region=(true|false) ready=(true|false)', text)
             if voice_anchors:
                 detail += '; voice anchor region/ready ' + '/'.join(voice_anchors[-1])
+            voice_frames = re.findall(r'Analytics iOS voice anchor frame: valid=(true|false) above=(true|false) below=(true|false) keyboard=(true|false)', text)
+            if voice_frames:
+                detail += '; voice frame valid/above/below/keyboard ' + '/'.join(voice_frames[-1])
             voice_errors = re.findall(r'Analytics iOS voice API error: ([0-9]{1,2}|other)', text)
             if voice_errors:
                 detail += '; voice API error codes ' + ','.join(sorted(set(voice_errors)))
