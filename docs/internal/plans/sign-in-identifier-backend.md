@@ -1,6 +1,6 @@
 ---
 status: draft
-status_description: "Backend slice specified for review; no implementation, publication or rollout."
+status_description: "Independent spec review found an open username policy decision."
 issue: https://github.com/LowGok/my-chef/issues/41
 goal: "Sign in to the same existing app account through the current API using its email address or a uniquely matching username."
 covers:
@@ -79,12 +79,62 @@ None yet. Break the approved slice into failing-test-first storage, credential a
 
 ## Open Questions
 
-None.
+### Q1: Which rule should MyChef use for username matching and future collisions?
+
+**Recommendation:** A. Ignore ASCII letter case and prevent new collisions so a later signup or rename cannot disable someone else's username sign-in.
+
+| Option | You get | It costs |
+| --- | --- | --- |
+| **A. Reserve ASCII aliases** | `Pantry` and `pantry` match. Existing collisions keep email sign-in only until they are resolved. New signups and username changes cannot create these collisions. Accented letters must match their stored case. | Extend backend signup and username-change validation as well as sign-in. No UI work in this slice. |
+| **B. Change sign-in only** | Same case matching, no changes to signup or username updates. Existing and future collisions both fall back to email sign-in. | A later signup or rename can disable another user's username sign-in until the collision is removed. |
+| **C. Reserve Unicode aliases** | Same collision protection as A, with Unicode case folding, so `Étage` and `étage` also match without dropping accents. | A different indexed lookup and more migration and multilingual coverage. |
+
+All options preserve existing display spellings, reserve email-shaped input for email sign-in, and return the existing generic error for ambiguous usernames. Stored usernames with legacy surrounding whitespace remain email-only.
+
+**Why this is yours:** This determines whether username sign-in can stop working after another person's signup or rename, and whether accented letters ignore case too.
 
 ## Review Log
 
 | Date | Review | Kind | Commit | Model | Isolation | Outcome |
 | --- | --- | --- | --- | --- | --- | --- |
+| 2026-11-18 | R-1 | spec | `4df5bcc5d337709899dbe8ad640c3c028c35743d` | unknown | procedural | 1 blocking, 4 should-fix |
+
+### R-1
+
+FINDING: F-01
+KIND: judgement
+SEVERITY: blocking
+WHERE: Context > Owner summary; Scope; Design > Identifier resolution; Acceptance Criteria AC-01 and AC-02; Test Plan AC-01 and AC-02; Open Questions
+EVIDENCE: Issue #41 requests a consistent case and collision rule without selecting one. The draft selects ASCII folding, exact non-ASCII spelling and rejection of padded stored names, while leaving username writes unchanged. The database enforces only exact uniqueness and the profile update accepts case variants (`migrations/001_initial.sql:2-4`, `internal/auth/manager.go:243-248,266-278`). A collision can therefore be introduced after rollout and make a previously usable username stop working, with email sign-in still available. The pinned feature standard's Open questions section reserves consequential tradeoffs for the owner.
+PROPOSAL: Put the matching choice and its effect on existing and newly created collisions to the owner together. If the owner keeps write validation out of scope, state the accepted limitation and verify both email accounts remain usable when a collision is introduced.
+
+FINDING: F-02
+KIND: factual
+SEVERITY: should-fix
+WHERE: Context > Owner summary; Scope; Design > Identifier resolution; Acceptance Criteria AC-05; Test Plan AC-05
+EVIDENCE: The new index requires a checksummed schema version, even without rewriting a user row. The previous app binary rejects a schema version newer than its own at startup (`internal/store/migrate.go:78-101`, `cmd/mychef/main.go:140`). The draft defines fresh and forward upgrade checks but leaves failed migration and rollback undefined.
+PROPOSAL: Specify transactional migration and test failure and retry against a disposable old schema. Document and rehearse the supported way to restore a compatible database with matching lifecycle state during a later authorized rollout; do not imply that switching back to the previous binary alone will work.
+
+FINDING: F-03
+KIND: factual
+SEVERITY: should-fix
+WHERE: Context > Owner summary and Background; Scope; Design > Throttle and session authority; Acceptance Criteria AC-01 and AC-04; Test Plan AC-01 and AC-04
+EVIDENCE: The stale-alias guarantee currently reads as applying to any session creation. Native sign-in commits the anchor in `internal/auth/manager.go:175-206`, then separately adopts it and issues native credentials in `internal/http/native.go:141-158` and `internal/auth/native.go:72-99`. An alias can change between those steps. The draft prescribes the first transaction check but does not identify the authorization point for the two-stage native flow.
+PROPOSAL: Define when alias ownership must hold. If it is the existing anchor transaction, state that a later rename does not revoke a login already committed there and keep existing native adoption semantics. Test both a rename before the authority check and the boundary after commitment.
+
+FINDING: F-04
+KIND: factual
+SEVERITY: should-fix
+WHERE: Context > Owner summary and Background; Design > Identifier resolution and Throttle and session authority; Acceptance Criteria AC-02; Test Plan AC-02
+EVIDENCE: The draft can be read as applying password padding to any well-formed JSON request whose identifier has no unique account, including syntactically invalid or disallowed identifiers. Existing sign-in returns the same generic error before password hashing when email parsing or password normalization fails (`internal/auth/manager.go:136-147`). The padded path uses the shared password-work slots, bcrypt and Argon2id (`internal/auth/password.go:153-177`).
+PROPOSAL: Distinguish syntactically eligible unresolved identifiers, which need existing padding, from rejected syntax, which can return the same generic error without database-dependent or password verification work. Keep the approved source and unresolved-input limit for both, and include both paths in the fixture tests.
+
+FINDING: F-05
+KIND: factual
+SEVERITY: should-fix
+WHERE: Design > Throttle and session authority; Acceptance Criteria AC-03; Test Plan AC-03
+EVIDENCE: The current process limit atomically checks and increments a key (`internal/http/api.go:288-311`), but the new account key is derived after identity resolution. The proposed sequential test verifies the total after alternate identifiers but does not verify mixed-transport requests contending for the last account slot.
+PROPOSAL: Add a concurrent fixture check with email and username using distinct sources and one account attempt left. Exactly one should reach credential verification, while the other receives the ordinary 429 response.
 
 ## Sources
 
