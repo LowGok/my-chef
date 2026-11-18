@@ -299,6 +299,9 @@ def run(state, control, account, identifier, container, layout_only=False, voice
             voice_scrolls = re.findall(r'Analytics iOS VoiceOver scroll: acknowledged=(true|false) code=([0-5])', text)
             if voice_scrolls:
                 detail += '; native three-finger scroll acknowledged/code ' + ','.join('/'.join(row) for row in voice_scrolls[-6:])
+            scroll_geometry = re.findall(r'Analytics iOS VoiceOver scroll geometry: moved=(true|false) region=(true|false)', text)
+            if scroll_geometry:
+                detail += '; native scroll moved/region ' + ','.join('/'.join(row) for row in scroll_geometry[-6:])
             voice_frames = re.findall(r'Analytics iOS voice anchor frame: valid=(true|false) above=(true|false) below=(true|false) keyboard=(true|false)', text)
             if voice_frames:
                 detail += '; voice frame valid/above/below/keyboard ' + '/'.join(voice_frames[-1])

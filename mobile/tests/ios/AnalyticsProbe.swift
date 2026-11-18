@@ -84,7 +84,7 @@ final class AnalyticsProbe: XCTestCase {
         }
         onTimeout?()
         for (name, label) in [("Shopping destination", "Shopping list."), ("Profile destination", "Your profile."), ("Shopping saved", "Saved")] {
-            let matches = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", label)).allElementsBoundByIndex
+            let matches = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", label)).allElementsBoundByAccessibilityElement.filter { $0.exists }
             print("Analytics iOS known control: " + name + " types: " + matches.prefix(6).map { String($0.elementType.rawValue) }.joined(separator: ","))
         }
         screenState()
@@ -164,7 +164,7 @@ final class AnalyticsProbe: XCTestCase {
                 }
                 let known = ["Create an account", "Sign in to MyChef", "Help improve MyChef", "Privacy", "First name", "Last name", "Username", "Email", "Password", "Create my account", "Create account", "Welcome back."]
                 let rows = known.map { label -> [String: Any] in
-                    let matches = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", label)).allElementsBoundByIndex
+                    let matches = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", label)).allElementsBoundByAccessibilityElement.filter { $0.exists }
                     return ["control": label, "types": matches.prefix(8).map { Int($0.elementType.rawValue) }]
                 }
                 if let data = try? JSONSerialization.data(withJSONObject: rows) {
@@ -173,11 +173,11 @@ final class AnalyticsProbe: XCTestCase {
             }
             screenState()
             for word in ["Shopping", "Profile", "Meals", "A few extras", "Extra item", "Create account", "Finish signing up", "Password", "Confirm password", "Done"] {
-                let matches = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", word)).allElementsBoundByIndex
+                let matches = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", word)).allElementsBoundByAccessibilityElement.filter { $0.exists }
                 let types = matches.prefix(6).map { String($0.elementType.rawValue) }.joined(separator: ",")
                 print("Analytics iOS known control: " + word + " types: " + types)
             }
-            let candidates = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Help improve MyChef")).allElementsBoundByIndex
+            let candidates = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Help improve MyChef")).allElementsBoundByAccessibilityElement.filter { $0.exists }
             for node in candidates.prefix(8) {
                 let value = node.value as? String
                 let state = value == "0" ? "off" : value == "1" ? "on" : "other"
@@ -288,12 +288,16 @@ final class AnalyticsProbe: XCTestCase {
         print("Analytics iOS control: " + label)
         if app.keyboards.firstMatch.exists {
             let done = app.buttons.matching(NSPredicate(format: "label == %@", "Done")).firstMatch
-            if done.exists && done.isHittable {
-                done.tap()
-                waitFor({ !self.app.keyboards.firstMatch.exists }, "Software keyboard must dismiss before the next control")
-                // Let the native viewport finish resizing before asking WebKit
-                // for new target geometry. Native system controls still need hittability.
-                RunLoop.current.run(until: Date().addingTimeInterval(0.3))
+            if done.waitForExistence(timeout: 5) {
+                waitFor({ !self.app.keyboards.firstMatch.exists || (done.exists && done.isHittable) },
+                        "Software keyboard Done must be ready before the next control", timeout: 10)
+                if app.keyboards.firstMatch.exists {
+                    done.tap()
+                    waitFor({ !self.app.keyboards.firstMatch.exists }, "Software keyboard must dismiss before the next control")
+                    // Let the native viewport finish resizing before asking WebKit
+                    // for new target geometry. Native system controls still need hittability.
+                    RunLoop.current.run(until: Date().addingTimeInterval(0.3))
+                }
             }
         }
         if ["Shopping list", "Profile", "Meals"].contains(label) {
@@ -386,7 +390,7 @@ final class AnalyticsProbe: XCTestCase {
             let p = NSPredicate(format: "label == %@", name)
             print("Analytics iOS picker control: " + name + " total=\(app.buttons.matching(p).count) web=\(app.webViews.buttons.matching(p).count)")
             print("Analytics iOS picker navigation: " + name + " count=\(app.navigationBars.buttons.matching(p).count)")
-            let types = app.descendants(matching: .any).matching(p).allElementsBoundByIndex
+            let types = app.descendants(matching: .any).matching(p).allElementsBoundByAccessibilityElement.filter { $0.exists }
                 .prefix(8).map { String($0.elementType.rawValue) }.joined(separator: ",")
             print("Analytics iOS picker types: " + name + " all=" + types)
         }
@@ -919,7 +923,7 @@ final class AnalyticsProbe: XCTestCase {
             }
             // Describe only known choice nodes if speech remains missing.
             let choices = app.descendants(matching: .any).matching(NSPredicate(format:
-                "label BEGINSWITH %@", "Help improve MyChef")).allElementsBoundByIndex
+                "label BEGINSWITH %@", "Help improve MyChef")).allElementsBoundByAccessibilityElement.filter { $0.exists }
             for node in choices.prefix(8) {
                 let value = node.value as? String
                 let choice = value == "0" ? "off" : value == "1" ? "on" : "other"
@@ -930,7 +934,17 @@ final class AnalyticsProbe: XCTestCase {
             XCTFail("Required app control or error must be spoken by VoiceOver")
             throw Failure.missingControl
         }
-        func focusSpeech(_ element: XCUIElement, _ phrase: String) throws -> String {
+        func focusSpeech(_ phrase: String) throws -> String {
+            // Recreate the same query after VoiceOver enablement and each
+            // native scroll instead of retaining a pre-transition element.
+            func target() -> XCUIElement {
+                if phrase == "Help improve MyChef" { return checkbox() }
+                if ["Save preferences", "Refresh analytics setting"].contains(phrase) {
+                    return app.buttons[phrase].firstMatch
+                }
+                return app.descendants(matching: .any).matching(NSPredicate(format:
+                    "label BEGINSWITH %@", phrase)).firstMatch
+            }
             // Enabling VoiceOver may scroll to its current focus. Use a real
             // visible touch anchor when available; otherwise let VoiceOver's
             // own navigation reach and scroll to the required announcement.
@@ -938,7 +952,16 @@ final class AnalyticsProbe: XCTestCase {
             // Enabling VoiceOver can move its focus and scroll the form away
             // from the control revealed beforehand. Restore only a measured
             // offscreen target with native gestures while VoiceOver stays on.
+            if !hasTapRegion(target()), voice.isEnabled, app.state == .runningForeground,
+               app.alerts.count == 0, !app.keyboards.firstMatch.exists,
+               hasTapRegion(frame: app.frame.insetBy(dx: 2, dy: 2)) {
+                // Explore visible page content before scrolling. This selects
+                // a reading context without activating a control.
+                app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+                RunLoop.current.run(until: Date().addingTimeInterval(0.3))
+            }
             for _ in 0..<6 {
+                let element = target()
                 if hasTapRegion(element) || !element.exists { break }
                 let frame = element.frame, bounds = app.frame
                 guard !frame.isNull, !frame.isInfinite, frame.width > 1, frame.height > 1,
@@ -952,8 +975,23 @@ final class AnalyticsProbe: XCTestCase {
                     XCTFail("Native three-finger scroll must be acknowledged")
                     throw Failure.missingControl
                 }
+                let settled = Date().addingTimeInterval(2)
+                var moved = false
+                while Date() < settled {
+                    let updated = target()
+                    if updated.exists {
+                        let after = updated.frame
+                        moved = !after.isNull && !after.isInfinite
+                            && [after.minY, after.height].allSatisfy({ $0.isFinite })
+                            && abs(after.minY - frame.minY) > 1
+                        if moved || hasTapRegion(updated) { break }
+                    }
+                    RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+                }
+                print("Analytics iOS VoiceOver scroll geometry: moved=\(moved) region=\(hasTapRegion(target()))")
                 RunLoop.current.run(until: Date().addingTimeInterval(0.3))
             }
+            let element = target()
             let region = hasTapRegion(element)
             let ready = region && (!control || tapReady(element, frame: element.frame, nativeElement: false))
             print("Analytics iOS voice anchor: region=\(region) ready=\(ready)")
@@ -1008,7 +1046,7 @@ final class AnalyticsProbe: XCTestCase {
         print("Analytics iOS voice phase: unavailable status")
         // Disabled controls cannot be operated. Its adjacent spoken status
         // must communicate both Off and why; assessed controls are exercised below.
-        _ = try focusSpeech(unavailable, "Analytics is Off while unavailable")
+        _ = try focusSpeech("Analytics is Off while unavailable")
         try voice.disable()
         _ = try control("approved"); relaunch()
         tap("Create an account")
@@ -1016,10 +1054,10 @@ final class AnalyticsProbe: XCTestCase {
         waitFor({ self.checkbox().isEnabled && (self.checkbox().value as? String) == "1" }, "Assessed signup notice must arrive before interaction")
         try enableVoice()
         print("Analytics iOS voice phase: assessed signup choice")
-        XCTAssertEqual(state(try focusSpeech(assessedBox, "Help improve MyChef")), "on")
+        XCTAssertEqual(state(try focusSpeech("Help improve MyChef")), "on")
         app.doubleTap()
         waitFor({ (self.checkbox().value as? String) == "0" }, "VoiceOver signup choice must become Off")
-        XCTAssertEqual(state(try focusSpeech(checkbox(), "Help improve MyChef")), "off")
+        XCTAssertEqual(state(try focusSpeech("Help improve MyChef")), "off")
         XCTAssertEqual(try control("counts")["enabled"] as? Int, 0, "Incomplete signup creates no enrollment")
         try voice.disable()
         tap("Sign in")
@@ -1031,7 +1069,7 @@ final class AnalyticsProbe: XCTestCase {
         reveal(privacyHeading)
         try enableVoice()
         print("Analytics iOS voice phase: profile order")
-        _ = try focusSpeech(privacyHeading, "Privacy and data")
+        _ = try focusSpeech("Privacy and data")
         var checkboxIndex: Int?, statusIndex: Int?, refreshIndex: Int?
         var index = 0
         let traversedOrder = walkSpeech(visit: { utterance in
@@ -1052,10 +1090,10 @@ final class AnalyticsProbe: XCTestCase {
         let enabledBox = checkbox(); reveal(enabledBox)
         try enableVoice()
         print("Analytics iOS voice phase: enabled state")
-        XCTAssertEqual(state(try focusSpeech(enabledBox, "Help improve MyChef")), "off")
+        XCTAssertEqual(state(try focusSpeech("Help improve MyChef")), "off")
         app.doubleTap()
         waitFor({ ((try? self.control("preference")["enabled"]) as? Bool) == true }, "VoiceOver enable receives server acknowledgement")
-        XCTAssertEqual(state(try focusSpeech(checkbox(), "Help improve MyChef")), "on", "VoiceOver must convey enabled participation")
+        XCTAssertEqual(state(try focusSpeech("Help improve MyChef")), "on", "VoiceOver must convey enabled participation")
         XCTAssertEqual(try control("preference")["enabled"] as? Bool, true, "Touch exploration must not change participation")
         // Change the server choice from another session while the focused
         // control remains On, then activate it with the real VoiceOver gesture.
@@ -1069,7 +1107,7 @@ final class AnalyticsProbe: XCTestCase {
         _ = try control("offline")
         print("Analytics iOS voice phase: interrupted off")
         let offlineBox = checkbox(); reveal(offlineBox)
-        try enableVoice(); _ = try focusSpeech(offlineBox, "Help improve MyChef")
+        try enableVoice(); _ = try focusSpeech("Help improve MyChef")
         XCTAssertEqual(try control("preference")["enabled"] as? Bool, true, "Touch exploration preserves On")
         app.doubleTap()
         waitFor({ self.text("Turning off was not confirmed") }, "VoiceOver action must encounter unconfirmed Off")
@@ -1091,23 +1129,23 @@ final class AnalyticsProbe: XCTestCase {
         }
         let save = app.buttons["Save preferences"].firstMatch; reveal(save)
         try enableVoice()
-        _ = try focusSpeech(save, "Save preferences"); app.doubleTap()
+        _ = try focusSpeech("Save preferences"); app.doubleTap()
         waitFor({ ((try? self.control("profile-input", ["target": "updated"])["passed"]) as? Bool) == true }, "VoiceOver Save must persist the requested fixture value")
         waitFor({ ((try? self.control("counts")["queued"]) as? Int) == 1 }, "VoiceOver core action commits one event")
         _ = try control("tick"); _ = try control("backup")
         try voice.disable()
         let erase = checkbox(); reveal(erase)
         try enableVoice()
-        _ = try focusSpeech(erase, "Help improve MyChef"); app.doubleTap()
+        _ = try focusSpeech("Help improve MyChef"); app.doubleTap()
         waitFor({ ((try? self.control("preference")["enabled"]) as? Bool) == false }, "VoiceOver Off must receive server acknowledgement")
-        XCTAssertEqual(state(try focusSpeech(checkbox(), "Help improve MyChef")), "off")
+        XCTAssertEqual(state(try focusSpeech("Help improve MyChef")), "off")
         print("Analytics iOS voice phase: active cleanup")
         _ = try spoken("Active deletion is in progress")
         _ = try control("maintenance")
         try voice.disable()
         let refresh = app.buttons["Refresh analytics setting"].firstMatch; reveal(refresh)
         try enableVoice()
-        _ = try focusSpeech(refresh, "Refresh analytics setting"); app.doubleTap()
+        _ = try focusSpeech("Refresh analytics setting"); app.doubleTap()
         waitFor({ self.text("isolated backup cleanup is pending") }, "Backup cleanup stays pending")
         print("Analytics iOS voice phase: backup cleanup")
         _ = try spoken("isolated backup cleanup is pending", backward: true)
