@@ -162,6 +162,36 @@ def bootstrap(identifier, events, rejected, diagnostic):
                         wait_seconds=180)
 
 
+
+def capture_anonymous_start(identifier):
+    """Optional host capture after anonymous bootstrap and before XCTest input."""
+    path = native.ARTIFACTS / 'analytics-anonymous.png'
+    pending = native.ARTIFACTS / 'analytics-anonymous-pending.png'
+    try:
+        if path.exists():
+            return False  # Never replace the initial image in a later phase.
+        path.parent.mkdir(parents=True, exist_ok=True)
+        native.command('xcrun', 'simctl', 'io', identifier, 'screenshot', str(pending), timeout=20)
+        if not 8 <= pending.stat().st_size <= 2 * 1024 * 1024:
+            raise RuntimeError('Anonymous image outside bounds')
+        with pending.open('rb') as image:
+            if image.read(8) != b'\x89PNG\r\n\x1a\n':
+                raise RuntimeError('Anonymous image format unavailable')
+        pending.chmod(0o600)
+        # Publish validated bytes atomically without replacing an existing
+        # image. Pending media is outside the CI artifact upload allowlist.
+        os.link(pending, path)
+        return True
+    except (OSError, RuntimeError, subprocess.SubprocessError):
+        print('Optional anonymous pre-input image unavailable', flush=True)
+        return False
+    finally:
+        try:
+            pending.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
 def prepare(state, identifier):
     """Compile only the separate probe, optionally while its phone is shut down."""
     root = Path(state)
@@ -299,6 +329,9 @@ def run(state, control, account, identifier, container, layout_only=False, voice
             voice_scrolls = re.findall(r'Analytics iOS VoiceOver scroll: acknowledged=(true|false) code=([0-5])', text)
             if voice_scrolls:
                 detail += '; native three-finger scroll acknowledged/code ' + ','.join('/'.join(row) for row in voice_scrolls[-6:])
+            scroll_modes = re.findall(r'Analytics iOS VoiceOver scroll mode: precise=(true|false)', text)
+            if scroll_modes:
+                detail += '; native scroll precise modes ' + ','.join(scroll_modes[-6:])
             scroll_geometry = re.findall(r'Analytics iOS VoiceOver scroll geometry: moved=(true|false) region=(true|false)', text)
             if scroll_geometry:
                 detail += '; native scroll moved/region ' + ','.join('/'.join(row) for row in scroll_geometry[-6:])
@@ -354,6 +387,10 @@ def run(state, control, account, identifier, container, layout_only=False, voice
     plans[0].write_bytes(plistlib.dumps(plan))
     if before_test is not None:
         before_test()
+        if not layout_only and not voiceover_only:
+            # This is the only capture point, before XCTest can enter data.
+            # Missing optional media never supplies or invalidates an observation.
+            capture_anonymous_start(identifier)
     # A measured full run completed both exports and reached final deletion
     # at 30 minutes. Allow five more only for this full functional path;
     # keep speech/layout budgets and the overall 65-minute job unchanged.

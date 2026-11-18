@@ -18,7 +18,7 @@
 - (void)synthesizeEvent:(id)record completion:(void (^)(BOOL, NSError *))completion;
 @end
 
-NSInteger AnalyticsVoiceOverScroll(CGRect viewport, BOOL upward) {
+static NSInteger AnalyticsVoiceOverGesture(CGRect viewport, BOOL upward, BOOL precise, CGFloat distance) {
 #if TARGET_OS_SIMULATOR
     if (CGRectIsNull(viewport) || CGRectIsInfinite(viewport)
         || !isfinite(CGRectGetMinX(viewport)) || !isfinite(CGRectGetMinY(viewport))
@@ -26,6 +26,8 @@ NSInteger AnalyticsVoiceOverScroll(CGRect viewport, BOOL upward) {
         || viewport.size.width < 200 || viewport.size.height <= viewport.size.width) {
         return 2;
     }
+    if (precise && (!isfinite(distance) || fabs(distance) < 2
+                    || fabs(distance) > viewport.size.height * 0.3)) return 2;
     @try {
         Class paths = NSClassFromString(@"XCPointerEventPath");
         Class records = NSClassFromString(@"XCSynthesizedEventRecord");
@@ -40,20 +42,40 @@ NSInteger AnalyticsVoiceOverScroll(CGRect viewport, BOOL upward) {
         }
         id synthesizer = [XCUIDevice.sharedDevice eventSynthesizer];
         if (![synthesizer respondsToSelector:@selector(synthesizeEvent:completion:)]) return 1;
-        id record = [[records alloc] initWithName:@"Analytics VoiceOver scroll"
+        id record = [[records alloc] initWithName:(precise ? @"Analytics VoiceOver precise scroll" : @"Analytics VoiceOver scroll")
                             interfaceOrientation:UIInterfaceOrientationPortrait];
         if (!record) return 1;
-        // Apple VoiceOver scrolls a page with three simultaneous fingers.
-        // All paths stay inside the measured app window, away from its edges.
-        for (NSInteger finger = 0; finger < 3; finger++) {
-            CGFloat x = CGRectGetMidX(viewport) + (finger - 1) * 28;
-            CGFloat start = CGRectGetMinY(viewport) + viewport.size.height * (upward ? 0.7 : 0.3);
-            CGFloat end = CGRectGetMinY(viewport) + viewport.size.height * (upward ? 0.3 : 0.7);
-            id path = [[paths alloc] initForTouchAtPoint:CGPointMake(x, start) offset:0];
-            if (!path) return 1;
-            [path moveToPoint:CGPointMake(x, end) atOffset:0.45];
-            [path liftUpAtOffset:0.5];
-            [record addPointerEventPath:path];
+        if (precise) {
+            // VoiceOver's documented standard-gesture entry: double-tap,
+            // hold the second contact, then drag while VoiceOver stays on.
+            // https://support.apple.com/en-lamr/guide/iphone/iph3e2e2281/27/ios/27
+            CGFloat x = CGRectGetMinX(viewport) + MAX(24, viewport.size.width * 0.08);
+            CGFloat start = CGRectGetMidY(viewport) - distance / 2;
+            CGFloat end = start + distance;
+            id tap = [[paths alloc] initForTouchAtPoint:CGPointMake(x, start) offset:0];
+            id drag = [[paths alloc] initForTouchAtPoint:CGPointMake(x, start) offset:0.15];
+            if (!tap || !drag) return 1;
+            [tap liftUpAtOffset:0.05];
+            // Hold for 1.25 seconds before dragging; pause before lifting
+            // to avoid converting a measured correction into a flick.
+            [drag moveToPoint:CGPointMake(x, start) atOffset:1.4];
+            [drag moveToPoint:CGPointMake(x, end) atOffset:2.05];
+            [drag liftUpAtOffset:2.25];
+            [record addPointerEventPath:tap];
+            [record addPointerEventPath:drag];
+        } else {
+            // Apple VoiceOver scrolls a page with three simultaneous fingers.
+            // All paths stay inside the measured app window, away from its edges.
+            for (NSInteger finger = 0; finger < 3; finger++) {
+                CGFloat x = CGRectGetMidX(viewport) + (finger - 1) * 28;
+                CGFloat start = CGRectGetMinY(viewport) + viewport.size.height * (upward ? 0.7 : 0.3);
+                CGFloat end = CGRectGetMinY(viewport) + viewport.size.height * (upward ? 0.3 : 0.7);
+                id path = [[paths alloc] initForTouchAtPoint:CGPointMake(x, start) offset:0];
+                if (!path) return 1;
+                [path moveToPoint:CGPointMake(x, end) atOffset:0.45];
+                [path liftUpAtOffset:0.5];
+                [record addPointerEventPath:path];
+            }
         }
         NSLock *lock = [NSLock new];
         __block BOOL finished = NO;
@@ -80,4 +102,12 @@ NSInteger AnalyticsVoiceOverScroll(CGRect viewport, BOOL upward) {
 #else
     return 1;
 #endif
+}
+
+NSInteger AnalyticsVoiceOverScroll(CGRect viewport, BOOL upward) {
+    return AnalyticsVoiceOverGesture(viewport, upward, NO, 0);
+}
+
+NSInteger AnalyticsVoiceOverFineScroll(CGRect viewport, CGFloat distance) {
+    return AnalyticsVoiceOverGesture(viewport, NO, YES, distance);
 }

@@ -156,13 +156,9 @@ final class AnalyticsProbe: XCTestCase {
             }
         }
         if !exists {
-            // Only the empty anonymous screen can be retained. After the first
-            // field is touched, screenshots and arbitrary AX labels stay private.
+            // Retain only fixed role metadata on the untouched anonymous form.
+            // Optional media is captured by the host before XCTest starts.
             if !hasEnteredData, let output = configuration["anonymousScreenshot"] {
-                let image = XCUIScreen.main.screenshot().pngRepresentation
-                if image.count <= 2 * 1024 * 1024 {
-                    try? image.write(to: URL(fileURLWithPath: output), options: .atomic)
-                }
                 let known = ["Create an account", "Sign in to MyChef", "Help improve MyChef", "Privacy", "First name", "Last name", "Username", "Email", "Password", "Create my account", "Create account", "Welcome back."]
                 let rows = known.map { label -> [String: Any] in
                     let matches = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", label)).allElementsBoundByAccessibilityElement.filter { $0.exists }
@@ -487,11 +483,6 @@ final class AnalyticsProbe: XCTestCase {
             XCUIElement.ElementType.textField.rawValue, XCUIElement.ElementType.textView.rawValue)).firstMatch
         let element = secure ? app.secureTextFields[label].firstMatch : ordinary
         reveal(element); tapSettled(element, nativeElement: true)
-        if !hasEnteredData, let path = configuration["anonymousScreenshot"] {
-            // Only the untouched anonymous form is eligible for an image.
-            // Never replace this after any field input or account proof.
-            try? app.screenshot().pngRepresentation.write(to: URL(fileURLWithPath: path), options: .atomic)
-        }
         waitFor({ self.app.keyboards.firstMatch.exists }, "Native text input needs the software keyboard", onTimeout: {
             let frame = element.frame
             print("Analytics iOS tap rect: \(frame.minX),\(frame.minY),\(frame.width),\(frame.height)")
@@ -966,6 +957,7 @@ final class AnalyticsProbe: XCTestCase {
                 app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
                 RunLoop.current.run(until: Date().addingTimeInterval(0.3))
             }
+            var preciseScroll = false
             for _ in 0..<6 {
                 let element = target()
                 if hasTapRegion(element) || !element.exists { break }
@@ -975,10 +967,13 @@ final class AnalyticsProbe: XCTestCase {
                       frame.minY < bounds.minY || frame.maxY > bounds.maxY else { break }
                 guard voice.isEnabled, app.state == .runningForeground, app.alerts.count == 0,
                       !app.keyboards.firstMatch.exists else { break }
-                let result = AnalyticsVoiceOverScroll(bounds, frame.midY > bounds.midY)
+                let distance = min(bounds.height * 0.3, max(-bounds.height * 0.3, bounds.midY - frame.midY))
+                let result = preciseScroll ? AnalyticsVoiceOverFineScroll(bounds, distance)
+                    : AnalyticsVoiceOverScroll(bounds, frame.midY > bounds.midY)
+                print("Analytics iOS VoiceOver scroll mode: precise=\(preciseScroll)")
                 print("Analytics iOS VoiceOver scroll: acknowledged=\(result == 0) code=\(result)")
                 guard result == 0 else {
-                    XCTFail("Native three-finger scroll must be acknowledged")
+                    XCTFail("Native VoiceOver scroll must be acknowledged")
                     throw Failure.missingControl
                 }
                 // Movement begins before a VoiceOver page animation ends.
@@ -1013,6 +1008,10 @@ final class AnalyticsProbe: XCTestCase {
                     ? after.minY < bounds.minY : after.maxY > bounds.maxY)
                 print("Analytics iOS VoiceOver scroll geometry: moved=\(moved) region=\(hasTapRegion(target()))")
                 print("Analytics iOS VoiceOver scroll settling: stable=\(stable >= 3) toward=\(toward) crossed=\(crossed)")
+                // Page scrolling can jump from below to above a small
+                // control. Use a measured standard gesture after observing
+                // that overshoot, within the same six-attempt total bound.
+                if stable >= 3 && crossed { preciseScroll = true }
             }
             let element = target()
             let region = hasTapRegion(element)

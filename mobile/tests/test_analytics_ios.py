@@ -77,7 +77,8 @@ class IOSProbeOrderTest(unittest.TestCase):
                 if fail_warmup:
                     raise RuntimeError('Fictional bootstrap unavailable')
 
-            with patch.object(analytics_ios.subprocess, 'run', side_effect=execute):
+            with patch.object(analytics_ios.subprocess, 'run', side_effect=execute), \
+                 patch.object(analytics_ios, 'capture_anonymous_start', side_effect=lambda _identifier: stages.append('anonymous'), create=True):
                 prepared = analytics_ios.prepare(state, 'fictional-device') if precompile else None
                 if precompile:
                     stages.append('boot')
@@ -109,9 +110,12 @@ class IOSProbeOrderTest(unittest.TestCase):
     def test_failed_bootstrap_prevents_xctest_execution(self):
         self.assertEqual(self.exercise(fail_warmup=True), ['compile', 'bootstrap'])
 
+    def test_failed_primary_bootstrap_cannot_capture_media_or_start_test_actions(self):
+        self.assertEqual(self.exercise(fail_warmup=True, voiceover_only=False), ['compile', 'bootstrap'])
+
     def test_only_the_complete_functional_journey_receives_the_longer_budget(self):
         self.assertEqual(self.exercise(voiceover_only=False, expected_timeout=2100),
-                         ['compile', 'bootstrap', 'test'])
+                         ['compile', 'bootstrap', 'anonymous', 'test'])
         self.assertEqual(self.exercise(layout_only=True, voiceover_only=False),
                          ['compile', 'bootstrap', 'test'])
         self.assertEqual(self.exercise(), ['compile', 'bootstrap', 'test'])
@@ -193,6 +197,84 @@ class VoiceOverOwnedPhoneTest(unittest.TestCase):
                  patch.object(analytics_voiceover.native, 'command', return_value=self.snapshot(identifiers)):
                 with self.assertRaisesRegex(RuntimeError, 'owned booted VoiceOver phone'):
                     analytics_voiceover.require_owned_phone('owned-phone')
+
+
+class AnonymousCaptureTest(unittest.TestCase):
+    def test_bounded_png_is_captured_once_with_a_host_deadline(self):
+        with tempfile.TemporaryDirectory(prefix='anonymous-capture-') as folder:
+            artifacts = Path(folder)
+            image = artifacts / 'analytics-anonymous.png'
+            def capture(*arguments, **options):
+                self.assertEqual(arguments, ('xcrun', 'simctl', 'io', 'owned-phone', 'screenshot', str(artifacts / 'analytics-anonymous-pending.png')))
+                self.assertEqual(options, {'timeout': 20})
+                Path(arguments[-1]).write_bytes(b'\x89PNG\r\n\x1a\nfictional')
+                return ''
+            with patch.object(analytics_ios.native, 'ARTIFACTS', artifacts), \
+                 patch.object(analytics_ios.native, 'command', side_effect=capture) as command:
+                self.assertTrue(analytics_ios.capture_anonymous_start('owned-phone'))
+                self.assertEqual(command.call_count, 1)
+                self.assertEqual(image.read_bytes(), b'\x89PNG\r\n\x1a\nfictional')
+
+    def test_capture_failure_cleans_partial_media_and_hides_error_details(self):
+        with tempfile.TemporaryDirectory(prefix='anonymous-capture-') as folder:
+            artifacts = Path(folder)
+            image = artifacts / 'analytics-anonymous.png'
+            def capture(*arguments, **_options):
+                Path(arguments[-1]).write_bytes(b'partial')
+                raise RuntimeError('fictional-private-capture-details')
+            with patch.object(analytics_ios.native, 'ARTIFACTS', artifacts), \
+                 patch.object(analytics_ios.native, 'command', side_effect=capture), \
+                 patch('builtins.print') as output:
+                self.assertFalse(analytics_ios.capture_anonymous_start('owned-phone'))
+                self.assertFalse(image.exists())
+                self.assertNotIn('fictional-private-capture-details', str(output.call_args_list))
+
+    def test_invalid_or_oversized_media_is_not_retained(self):
+        for data in (b'not a png', b'\x89PNG\r\n\x1a\n' + bytes(2 * 1024 * 1024)):
+            with self.subTest(size=len(data)), tempfile.TemporaryDirectory(prefix='anonymous-capture-') as folder:
+                artifacts = Path(folder)
+                image = artifacts / 'analytics-anonymous.png'
+                with patch.object(analytics_ios.native, 'ARTIFACTS', artifacts), \
+                     patch.object(analytics_ios.native, 'command', side_effect=lambda *args, **_options: Path(args[-1]).write_bytes(data)):
+                    self.assertFalse(analytics_ios.capture_anonymous_start('owned-phone'))
+                    self.assertFalse(image.exists())
+
+
+    def test_failed_cleanup_cannot_publish_unvalidated_media(self):
+        with tempfile.TemporaryDirectory(prefix='anonymous-capture-') as folder:
+            artifacts = Path(folder)
+            image = artifacts / 'analytics-anonymous.png'
+            pending = artifacts / 'analytics-anonymous-pending.png'
+            with patch.object(analytics_ios.native, 'ARTIFACTS', artifacts), \
+                 patch.object(analytics_ios.native, 'command', side_effect=lambda *args, **_options: Path(args[-1]).write_bytes(b'invalid')), \
+                 patch.object(Path, 'unlink', side_effect=PermissionError('fictional cleanup failure')):
+                self.assertFalse(analytics_ios.capture_anonymous_start('owned-phone'))
+                self.assertFalse(image.exists())
+                self.assertTrue(pending.exists())
+
+    def test_capture_cannot_replace_an_image_created_during_the_command(self):
+        with tempfile.TemporaryDirectory(prefix='anonymous-capture-') as folder:
+            artifacts = Path(folder)
+            image = artifacts / 'analytics-anonymous.png'
+            def capture(*arguments, **_options):
+                Path(arguments[-1]).write_bytes(b'\x89PNG\r\n\x1a\nfictional')
+                image.write_bytes(b'original immutable image')
+            with patch.object(analytics_ios.native, 'ARTIFACTS', artifacts), \
+                 patch.object(analytics_ios.native, 'command', side_effect=capture):
+                self.assertFalse(analytics_ios.capture_anonymous_start('owned-phone'))
+                self.assertEqual(image.read_bytes(), b'original immutable image')
+
+    def test_existing_image_cannot_be_overwritten_by_a_later_capture(self):
+        with tempfile.TemporaryDirectory(prefix='anonymous-capture-') as folder:
+            artifacts = Path(folder)
+            image = artifacts / 'analytics-anonymous.png'
+            image.write_bytes(b'original immutable pre-input media')
+            with patch.object(analytics_ios.native, 'ARTIFACTS', artifacts), \
+                 patch.object(analytics_ios.native, 'command') as command:
+                self.assertFalse(analytics_ios.capture_anonymous_start('owned-phone'))
+                self.assertEqual(image.read_bytes(), b'original immutable pre-input media')
+                command.assert_not_called()
+
 
 
 if __name__ == '__main__':

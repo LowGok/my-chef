@@ -4,3 +4,6 @@
 // Separate simulator test bundle only. Codes: 0 acknowledged, 1 unavailable,
 // 2 invalid geometry, 3 rejected, 4 timeout, 5 Objective-C exception.
 NSInteger AnalyticsVoiceOverScroll(CGRect viewport, BOOL upward);
+
+// Standard-gesture correction after an observed page overshoot; <=30% height.
+NSInteger AnalyticsVoiceOverFineScroll(CGRect viewport, CGFloat distance);
