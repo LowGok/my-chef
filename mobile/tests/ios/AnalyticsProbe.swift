@@ -631,6 +631,12 @@ final class AnalyticsProbe: XCTestCase {
             throw Failure.invalidFixture
         }
         if configuration["layoutOnly"] == "true" {
+            // XCTest attachment can outlast the app's launch-relative text
+            // measurement window. Start this untouched layout fixture after
+            // attachment, before its first form interaction.
+            relaunch()
+            waitFor({ self.text("Welcome back.") || self.app.buttons["Create an account"].firstMatch.exists },
+                    "Small layout fixture must finish its fresh native launch", timeout: 90)
             tap("Create an account")
             XCTAssertGreaterThanOrEqual(app.frame.width, 370, "Small supported iPhone width")
             XCTAssertLessThanOrEqual(app.frame.width, 380, "Small supported iPhone width")
@@ -938,7 +944,15 @@ final class AnalyticsProbe: XCTestCase {
                 guard !frame.isNull, !frame.isInfinite, frame.width > 1, frame.height > 1,
                       [frame.minX, frame.minY, frame.maxX, frame.maxY].allSatisfy({ $0.isFinite }),
                       frame.minY < bounds.minY || frame.maxY > bounds.maxY else { break }
-                scrollContent(up: true, toward: frame)
+                guard voice.isEnabled, app.state == .runningForeground, app.alerts.count == 0,
+                      !app.keyboards.firstMatch.exists else { break }
+                let result = AnalyticsVoiceOverScroll(bounds, frame.midY > bounds.midY)
+                print("Analytics iOS VoiceOver scroll: acknowledged=\(result == 0) code=\(result)")
+                guard result == 0 else {
+                    XCTFail("Native three-finger scroll must be acknowledged")
+                    throw Failure.missingControl
+                }
+                RunLoop.current.run(until: Date().addingTimeInterval(0.3))
             }
             let region = hasTapRegion(element)
             let ready = region && (!control || tapReady(element, frame: element.frame, nativeElement: false))

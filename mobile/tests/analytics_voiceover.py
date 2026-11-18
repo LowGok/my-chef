@@ -154,7 +154,8 @@ def main():
         metadata['voiceNavigationMethod'] = 'native forward/backward and container traversal; actual focus order verified'
         expected_supplement = dict(artifact_binding, fixtureConfigSha256=hashlib.sha256(json.dumps({
             'configuration': hashlib.sha256((state / 'analytics-config.json').read_bytes()).hexdigest(),
-            'driver': hashlib.sha256((ROOT / 'mobile/tests/ios/AnalyticsProbe.swift').read_bytes()).hexdigest(),
+            'driver': {name: hashlib.sha256((ROOT / 'mobile/tests/ios' / name).read_bytes()).hexdigest()
+                       for name in analytics_ios.PROBE_SOURCES},
             'overlays': {name: hashlib.sha256((state / name).read_bytes()).hexdigest()
                          for name in ('analytics-runtime-fixture.go', 'analytics-worker-fixture.go')},
             'runtime': metadata['runtime'], 'xcode': version, 'voiceNavigationMethod': 'native-container-traversal',

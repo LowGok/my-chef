@@ -50,7 +50,7 @@ class IOSTextObservationTest(unittest.TestCase):
 
 class IOSProbeOrderTest(unittest.TestCase):
     def exercise(self, fail_warmup=False, precompile=False, *, layout_only=False, voiceover_only=True,
-                 expected_timeout=1500):
+                 expected_timeout=1500, modified_source=None):
         with tempfile.TemporaryDirectory(prefix='analytics-probe-order-') as folder:
             state = Path(folder)
             stages = []
@@ -81,6 +81,8 @@ class IOSProbeOrderTest(unittest.TestCase):
                 prepared = analytics_ios.prepare(state, 'fictional-device') if precompile else None
                 if precompile:
                     stages.append('boot')
+                    if modified_source:
+                        (state / 'ios-analytics-probe' / modified_source).write_text('untrusted change')
                 run = lambda: analytics_ios.run(state, {'url': 'http://127.0.0.1:18137/control', 'token': 'a' * 43},
                                                {'email': 'fictional@example.test', 'password': 'fictional'},
                                                'fictional-device', state / 'container', layout_only=layout_only,
@@ -98,6 +100,11 @@ class IOSProbeOrderTest(unittest.TestCase):
 
     def test_precompiled_probe_is_not_rebuilt_after_the_phone_boots(self):
         self.assertEqual(self.exercise(precompile=True), ['compile', 'boot', 'bootstrap', 'test'])
+
+    def test_precompiled_probe_rejects_modified_swift_and_native_gesture_sources(self):
+        for name in ('AnalyticsProbe.swift', 'AnalyticsTouch.h', 'AnalyticsTouch.m'):
+            with self.subTest(source=name), self.assertRaisesRegex(RuntimeError, 'current isolated XCTest plan'):
+                self.exercise(precompile=True, modified_source=name)
 
     def test_failed_bootstrap_prevents_xctest_execution(self):
         self.assertEqual(self.exercise(fail_warmup=True), ['compile', 'bootstrap'])

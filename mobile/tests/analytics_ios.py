@@ -13,6 +13,8 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'scripts'))
 import test_native_installed as native
 
+PROBE_SOURCES = ('AnalyticsProbe.swift', 'AnalyticsTouch.h', 'AnalyticsTouch.m')
+
 
 def text_observation(identifier):
     """Read actual measurements from the app's current, owned data container."""
@@ -36,8 +38,11 @@ def text_observation(identifier):
                 or not all(value is True for value in scale.values())):
             raise ValueError('Incomplete actual measurements')
         return container, scale
-    except (OSError, ValueError, TypeError):
-        raise RuntimeError('Installed iOS text observation unavailable or invalid') from None
+    except (OSError, ValueError, TypeError) as error:
+        # A fixed category distinguishes an expired/missing measurement from
+        # a rejected measurement without exposing paths or file contents.
+        reason = 'missing' if isinstance(error, FileNotFoundError) else 'invalid'
+        raise RuntimeError('Installed iOS text observation unavailable or invalid; reason=' + reason) from None
 
 
 def safe_diagnostic(text, secrets):
@@ -72,23 +77,28 @@ def voice_environment(text):
 def project(state):
     root = Path(state) / 'ios-analytics-probe'
     root.mkdir(mode=0o700)
-    shutil.copyfile(ROOT / 'mobile/tests/ios/AnalyticsProbe.swift', root / 'AnalyticsProbe.swift')
+    for name in PROBE_SOURCES:
+        shutil.copyfile(ROOT / 'mobile/tests/ios' / name, root / name)
     identifiers = {name: f'A19{index:021X}' for index, name in enumerate((
         'project', 'group', 'products', 'target', 'product', 'source', 'build', 'sources',
-        'frameworks', 'resources', 'projectList', 'projectDebug', 'targetList', 'targetDebug'), 1)}
+        'frameworks', 'resources', 'projectList', 'projectDebug', 'targetList', 'targetDebug',
+        'touchHeader', 'touchSource', 'touchBuild'), 1)}
     objects = {}
     def put(key, **value):
         objects[identifiers[key]] = value
     def ref(name):
         return identifiers[name]
     put('source', isa='PBXFileReference', lastKnownFileType='sourcecode.swift', path='AnalyticsProbe.swift', sourceTree='<group>')
+    put('touchHeader', isa='PBXFileReference', lastKnownFileType='sourcecode.c.h', path='AnalyticsTouch.h', sourceTree='<group>')
+    put('touchSource', isa='PBXFileReference', lastKnownFileType='sourcecode.c.objc', path='AnalyticsTouch.m', sourceTree='<group>')
+    put('touchBuild', isa='PBXBuildFile', fileRef=ref('touchSource'))
     put('product', isa='PBXFileReference', explicitFileType='wrapper.cfbundle', path='AnalyticsProbe.xctest', sourceTree='BUILT_PRODUCTS_DIR')
     put('build', isa='PBXBuildFile', fileRef=ref('source'))
-    put('sources', isa='PBXSourcesBuildPhase', buildActionMask=2147483647, files=[ref('build')], runOnlyForDeploymentPostprocessing=0)
+    put('sources', isa='PBXSourcesBuildPhase', buildActionMask=2147483647, files=[ref('build'), ref('touchBuild')], runOnlyForDeploymentPostprocessing=0)
     for name, kind in (('frameworks', 'PBXFrameworksBuildPhase'), ('resources', 'PBXResourcesBuildPhase')):
         put(name, isa=kind, buildActionMask=2147483647, files=[], runOnlyForDeploymentPostprocessing=0)
     put('products', isa='PBXGroup', children=[ref('product')], name='Products', sourceTree='<group>')
-    put('group', isa='PBXGroup', children=[ref('source'), ref('products')], sourceTree='<group>')
+    put('group', isa='PBXGroup', children=[ref('source'), ref('touchHeader'), ref('touchSource'), ref('products')], sourceTree='<group>')
     put('projectDebug', isa='XCBuildConfiguration', name='Debug', buildSettings=dict(
         SDKROOT='iphonesimulator', IPHONEOS_DEPLOYMENT_TARGET='17.0', SWIFT_VERSION='5.0', CODE_SIGNING_ALLOWED='NO'))
     put('targetDebug', isa='XCBuildConfiguration', name='Debug', buildSettings=dict(
@@ -96,7 +106,8 @@ def project(state):
         GENERATE_INFOPLIST_FILE='YES', SDKROOT='iphonesimulator', SUPPORTED_PLATFORMS='iphonesimulator',
         IPHONEOS_DEPLOYMENT_TARGET='17.0', SWIFT_VERSION='5.0', TARGETED_DEVICE_FAMILY='1',
         CODE_SIGNING_ALLOWED='NO', CODE_SIGN_IDENTITY='', ENABLE_TESTING_SEARCH_PATHS='YES',
-        TEST_TARGET_BUNDLE_IDENTIFIER=native.APP,
+        TEST_TARGET_BUNDLE_IDENTIFIER=native.APP, CLANG_ENABLE_OBJC_ARC='YES', CLANG_ENABLE_MODULES='YES',
+        SWIFT_OBJC_BRIDGING_HEADER='$(SRCROOT)/AnalyticsTouch.h',
         LD_RUNPATH_SEARCH_PATHS=['$(inherited)', '@executable_path/Frameworks', '@loader_path/Frameworks']))
     for name, config in (('projectList', 'projectDebug'), ('targetList', 'targetDebug')):
         put(name, isa='XCConfigurationList', buildConfigurations=[ref(config)], defaultConfigurationIsVisible=0, defaultConfigurationName='Debug')
@@ -168,8 +179,9 @@ def prepare(state, identifier):
         # Compilation has no account input. Still publish only fixed classes
         # and numeric source lines, never raw compiler or runner output.
         text = result.stdout.decode(errors='replace')
-        lines = sorted(set(re.findall(r'AnalyticsProbe\.swift:([0-9]{1,4}):', text)))
-        raise RuntimeError('Isolated iOS analytics probe compilation failed; source lines ' + ','.join(lines[-6:]))
+        sites = sorted(set(re.findall(r'(AnalyticsProbe\.swift|AnalyticsTouch\.[hm]):([0-9]{1,4}):', text)))
+        raise RuntimeError('Isolated iOS analytics probe compilation failed; source lines '
+                           + ','.join(name + ':' + line for name, line in sites[-6:]))
     plans = list((derived / 'Build/Products').glob('*.xctestrun'))
     if len(plans) != 1:
         raise RuntimeError('Expected one isolated XCTest plan')
@@ -284,6 +296,9 @@ def run(state, control, account, identifier, container, layout_only=False, voice
             voice_anchors = re.findall(r'Analytics iOS voice anchor: region=(true|false) ready=(true|false)', text)
             if voice_anchors:
                 detail += '; voice anchor region/ready ' + '/'.join(voice_anchors[-1])
+            voice_scrolls = re.findall(r'Analytics iOS VoiceOver scroll: acknowledged=(true|false) code=([0-5])', text)
+            if voice_scrolls:
+                detail += '; native three-finger scroll acknowledged/code ' + ','.join('/'.join(row) for row in voice_scrolls[-6:])
             voice_frames = re.findall(r'Analytics iOS voice anchor frame: valid=(true|false) above=(true|false) below=(true|false) keyboard=(true|false)', text)
             if voice_frames:
                 detail += '; voice frame valid/above/below/keyboard ' + '/'.join(voice_frames[-1])
@@ -312,8 +327,9 @@ def run(state, control, account, identifier, container, layout_only=False, voice
         prepared_plan = prepare(root, identifier)
     plans = list((root / 'ios-probe-build/Build/Products').glob('*.xctestrun'))
     if (len(plans) != 1 or Path(prepared_plan).resolve() != plans[0].resolve()
-            or (root / 'ios-analytics-probe/AnalyticsProbe.swift').read_bytes()
-               != (ROOT / 'mobile/tests/ios/AnalyticsProbe.swift').read_bytes()):
+            or any(not (root / 'ios-analytics-probe' / name).is_file()
+                   or (root / 'ios-analytics-probe' / name).read_bytes()
+                      != (ROOT / 'mobile/tests/ios' / name).read_bytes() for name in PROBE_SOURCES)):
         raise RuntimeError('Expected the current isolated XCTest plan')
     plan = plistlib.loads(plans[0].read_bytes())
     # Xcode may emit either the modern TestConfigurations form or the legacy

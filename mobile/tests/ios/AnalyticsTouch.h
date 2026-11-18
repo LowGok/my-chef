@@ -1,0 +1,6 @@
+#import <Foundation/Foundation.h>
+#import <CoreGraphics/CoreGraphics.h>
+
+// Separate simulator test bundle only. Codes: 0 acknowledged, 1 unavailable,
+// 2 invalid geometry, 3 rejected, 4 timeout, 5 Objective-C exception.
+NSInteger AnalyticsVoiceOverScroll(CGRect viewport, BOOL upward);
