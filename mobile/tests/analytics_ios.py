@@ -235,7 +235,10 @@ def run(state, control, account, identifier, container, layout_only=False, voice
             known = re.findall(r'Analytics iOS known control: ([A-Za-z ]{1,30}) types: ([0-9,]{0,30})', text)
             if known:
                 detail += '; known roles ' + ', '.join(name + '=' + types for name, types in known[-5:])
-            states = re.findall(r'Analytics iOS screen state: (signed out|profile|shopping|startup|inbox|signup|secure failure|configuration failure|storage failure|shopping failure|device failure) present=(true|false)', text)
+            states = re.findall(r'Analytics iOS screen state: (signed out|profile|shopping|startup|inbox|signup|completion|created|creating|secure failure|configuration failure|storage failure|shopping failure|device failure) present=(true|false)', text)
+            keyboard_states = re.findall(r'Analytics iOS keyboard state: present=(true|false) done=(true|false)', text)
+            if keyboard_states:
+                detail += '; keyboard present/done ' + '/'.join(keyboard_states[-1])
             app_state = re.findall(r'Analytics iOS app state: ([0-9]) webview=([0-9]{1,2}) alert=([0-9]{1,2})', text)
             if app_state:
                 detail += '; app state/webview/alert ' + '/'.join(app_state[-1])
@@ -278,6 +281,9 @@ def run(state, control, account, identifier, container, layout_only=False, voice
             repeats = re.findall(r'Analytics iOS spoken container repeat: kind=(web|privacy|label)', text)
             if repeats:
                 detail += '; container repeats ' + ','.join(repeats[-6:])
+            voice_anchors = re.findall(r'Analytics iOS voice anchor: region=(true|false) ready=(true|false)', text)
+            if voice_anchors:
+                detail += '; voice anchor region/ready ' + '/'.join(voice_anchors[-1])
             voice_errors = re.findall(r'Analytics iOS voice API error: ([0-9]{1,2}|other)', text)
             if voice_errors:
                 detail += '; voice API error codes ' + ','.join(sorted(set(voice_errors)))

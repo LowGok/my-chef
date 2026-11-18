@@ -103,7 +103,7 @@ class SpeechToolSetupTest(unittest.TestCase):
     class ReachedRecognizer(Exception):
         pass
 
-    def prepare(self, payload=None, timeout=False):
+    def prepare(self, payload=None, timeout=False, available=()):
         self.calls = []
         with tempfile.TemporaryDirectory(prefix='analytics-package-test-') as directory:
             root = Path(directory)
@@ -123,6 +123,7 @@ class SpeechToolSetupTest(unittest.TestCase):
             with patch.dict(os.environ, {'GITHUB_EVENT_PATH': str(event), 'NATIVE_PLATFORM': 'android'}), \
                  patch('analytics_installed.authorized', return_value=True), \
                  patch('analytics_speech.tools', return_value=root / 'tools'), \
+                 patch('shutil.which', side_effect=lambda name: '/fictional/bin/' + name if name in available else None), \
                  patch('analytics_speech.subprocess.run', side_effect=run):
                 analytics_speech.prepare()
 
@@ -140,6 +141,28 @@ class SpeechToolSetupTest(unittest.TestCase):
         self.assertIn('--no-upgrade', install)
         self.assertEqual(list(install[install.index('--no-install-recommends') + 1:]),
                          ['ffmpeg', 'cmake', 'g++', 'pulseaudio', 'pulseaudio-utils', 'xvfb', 'xdotool'])
+
+    def test_preinstalled_runner_tools_do_not_trigger_any_package_operation(self):
+        with self.assertRaises(self.ReachedRecognizer):
+            self.prepare(available={'ffmpeg', 'cmake', 'g++', 'pulseaudio', 'pactl', 'Xvfb', 'xdotool'})
+        self.assertEqual(self.calls, [])
+
+    def test_only_missing_tools_request_their_existing_packages(self):
+        with self.assertRaises(self.ReachedRecognizer):
+            self.prepare(available={'ffmpeg', 'cmake', 'g++', 'Xvfb'})
+        install = self.calls[1][0]
+        self.assertEqual(list(install[install.index('--no-install-recommends') + 1:]),
+                         ['pulseaudio', 'pulseaudio-utils', 'xdotool'])
+
+    def test_timeout_progress_reports_only_a_closed_package_phase(self):
+        for progress, phase in [(b'Get:1 https://private.example.test/repo', 'download'),
+                                (b'Setting up private-customer-canary user@example.test', 'configure'),
+                                (b'Processing triggers for private-customer-canary', 'trigger')]:
+            with self.subTest(phase=phase), self.assertRaisesRegex(
+                    RuntimeError, 'stage=install reason=timeout phase=' + phase) as caught:
+                self.prepare(progress, timeout=True)
+            for secret in ['private', 'customer', '@example', 'https:', 'canary']:
+                self.assertNotIn(secret, str(caught.exception))
 
     def test_package_timeout_retains_only_a_closed_network_reason(self):
         payload = b'Failed to fetch https://private.example.test/repo Bearer private-token user@example.test'

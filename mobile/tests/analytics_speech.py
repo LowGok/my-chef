@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import signal
 import subprocess
 import sys
@@ -71,14 +72,21 @@ def tools():
 
 
 def prepare_system_packages(root):
-    packages = ('ffmpeg', 'cmake', 'g++', 'pulseaudio', 'pulseaudio-utils', 'xvfb', 'xdotool')
+    required = (('ffmpeg', 'ffmpeg'), ('cmake', 'cmake'), ('g++', 'g++'),
+                ('pulseaudio', 'pulseaudio'), ('pulseaudio-utils', 'pactl'),
+                ('xvfb', 'Xvfb'), ('xdotool', 'xdotool'))
+    packages = tuple(package for package, command in required if shutil.which(command) is None)
+    print('Runner speech packages: reuse=' + str(len(required) - len(packages))
+          + ' install=' + str(len(packages)), flush=True)
+    if not packages:
+        return
     prefix = ['sudo', '-n', 'env', 'DEBIAN_FRONTEND=noninteractive', 'NEEDRESTART_MODE=l', 'apt-get',
               '-o', 'DPkg::Lock::Timeout=30', '-o', 'Acquire::Retries=2',
               '-o', 'Acquire::http::Timeout=30', '-o', 'Acquire::https::Timeout=30']
     for stage, arguments in (('update', ['-qq']),
-                             ('install', ['-y', '-qq', '--no-upgrade', '--no-install-recommends', *packages])):
+                             ('install', ['-y', '-q', '--no-upgrade', '--no-install-recommends', *packages])):
         # Package output stays in an anonymous runner-local file and is deleted
-        # on exit. Public diagnostics contain only the stage and closed reason.
+        # on exit. Public diagnostics contain only closed stage/reason/phase.
         with tempfile.TemporaryFile(dir=root) as log:
             try:
                 subprocess.run([*prefix, stage, *arguments], cwd=root, check=True,
@@ -86,6 +94,7 @@ def prepare_system_packages(root):
             except (subprocess.TimeoutExpired, subprocess.CalledProcessError) as error:
                 log.seek(0)
                 raw = log.read(65537)
+                phase = 'unknown'
                 if len(raw) > 65536:
                     reason = 'output-limit'
                 else:
@@ -98,7 +107,13 @@ def prepare_system_packages(root):
                         reason = 'configuration'
                     else:
                         reason = 'timeout' if isinstance(error, subprocess.TimeoutExpired) else 'package'
-                raise RuntimeError('Runner speech package setup failed: stage=' + stage + ' reason=' + reason) from None
+                    progress = re.findall(r'^(Get:|Unpacking |Preparing to unpack |Setting up |Processing triggers )',
+                                          text, re.M)
+                    if progress:
+                        phase = {'Get:': 'download', 'Unpacking ': 'unpack', 'Preparing to unpack ': 'unpack',
+                                 'Setting up ': 'configure', 'Processing triggers ': 'trigger'}[progress[-1]]
+                raise RuntimeError('Runner speech package setup failed: stage=' + stage
+                                   + ' reason=' + reason + ' phase=' + phase) from None
 
 
 def prepare():

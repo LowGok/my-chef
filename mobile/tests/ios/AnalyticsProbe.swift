@@ -67,7 +67,10 @@ final class AnalyticsProbe: XCTestCase {
     }
     func screenState() {
         print("Analytics iOS app state: \(app.state.rawValue) webview=\(app.webViews.count) alert=\(app.alerts.count)")
-        for (name, phrase) in [("signed out", "Welcome back."), ("profile", "Your profile."), ("shopping", "Shopping list."), ("startup", "Loading MyChef"), ("inbox", "Check your inbox"), ("signup", "Let’s get started."), ("secure failure", "MyChef couldn’t open securely"), ("configuration failure", "Reference: MYC-01"), ("storage failure", "Reference: MYC-02"), ("shopping failure", "Reference: MYC-03"), ("device failure", "Reference: MYC-04")] {
+        let keyboard = app.keyboards.firstMatch
+        let done = app.buttons.matching(NSPredicate(format: "label == %@", "Done")).firstMatch
+        print("Analytics iOS keyboard state: present=\(keyboard.exists) done=\(done.exists)")
+        for (name, phrase) in [("signed out", "Welcome back."), ("profile", "Your profile."), ("shopping", "Shopping list."), ("startup", "Loading MyChef"), ("inbox", "Check your inbox"), ("signup", "Let’s get started."), ("completion", "Finish signing up"), ("created", "Account created. Sign in to MyChef."), ("creating", "Creating…"), ("secure failure", "MyChef couldn’t open securely"), ("configuration failure", "Reference: MYC-01"), ("storage failure", "Reference: MYC-02"), ("shopping failure", "Reference: MYC-03"), ("device failure", "Reference: MYC-04")] {
             let present = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", phrase)).firstMatch.exists
             print("Analytics iOS screen state: " + name + " present=\(present)")
         }
@@ -87,9 +90,39 @@ final class AnalyticsProbe: XCTestCase {
         screenState()
         XCTFail(message)
     }
-    func scrollContent(up: Bool) {
-        let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: up ? 0.4 : 0.15))
-        let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: up ? 0.15 : 0.4))
+    func scrollContent(up: Bool, toward target: CGRect? = nil) {
+        let bounds = app.frame
+        guard !bounds.isNull, !bounds.isInfinite, bounds.width > 1,
+              [bounds.minX, bounds.minY, bounds.maxX, bounds.maxY].allSatisfy({ $0.isFinite }) else {
+            XCTFail("Native content window must be measurable before scrolling"); return
+        }
+        var bottom = bounds.maxY
+        let keyboard = app.keyboards.firstMatch
+        if keyboard.exists {
+            let frame = keyboard.frame
+            guard !frame.isNull, !frame.isInfinite, frame.width > 1, frame.height > 1,
+                  [frame.minX, frame.minY, frame.maxX, frame.maxY].allSatisfy({ $0.isFinite }) else {
+                XCTFail("Native keyboard must be measurable before content scrolling"); return
+            }
+            if frame.intersects(bounds) { bottom = min(bottom, frame.minY) }
+        }
+        let height = bottom - bounds.minY
+        guard height >= 100 else {
+            XCTFail("Content scrolling needs an unobstructed native region"); return
+        }
+        let direction: Bool
+        if let target = target, !target.isNull, !target.isInfinite,
+           target.width > 1, target.height > 1,
+           [target.minX, target.minY, target.maxX, target.maxY].allSatisfy({ $0.isFinite }) {
+            direction = target.midY > bounds.minY + height / 2
+        } else {
+            direction = up
+        }
+        // The old full-screen fractions could put the gesture on a tall
+        // software keyboard. Measure the actual unobstructed content instead.
+        let origin = app.coordinate(withNormalizedOffset: .zero)
+        let start = origin.withOffset(CGVector(dx: bounds.width * 0.5, dy: height * (direction ? 0.7 : 0.25)))
+        let end = origin.withOffset(CGVector(dx: bounds.width * 0.5, dy: height * (direction ? 0.25 : 0.7)))
         start.press(forDuration: 0.05, thenDragTo: end)
     }
     func hasTapRegion(_ element: XCUIElement) -> Bool {
@@ -139,7 +172,7 @@ final class AnalyticsProbe: XCTestCase {
                 }
             }
             screenState()
-            for word in ["Shopping", "Profile", "Meals", "A few extras", "Extra item"] {
+            for word in ["Shopping", "Profile", "Meals", "A few extras", "Extra item", "Create account", "Finish signing up", "Password", "Confirm password", "Done"] {
                 let matches = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", word)).allElementsBoundByIndex
                 let types = matches.prefix(6).map { String($0.elementType.rawValue) }.joined(separator: ",")
                 print("Analytics iOS known control: " + word + " types: " + types)
@@ -157,7 +190,7 @@ final class AnalyticsProbe: XCTestCase {
             // A restored focus can place the result above the viewport. Use
             // its current native rectangle to choose the scroll direction,
             // keeping the gesture above the software keyboard.
-            scrollContent(up: element.frame.midY > app.frame.midY)
+            scrollContent(up: true, toward: element.frame)
         }
         if !hasTapRegion(element) || !element.isHittable {
             screenState()
@@ -215,7 +248,7 @@ final class AnalyticsProbe: XCTestCase {
             if !ready && adjustments < 3 {
                 // A late WebKit reflow can move a previously revealed control.
                 // Scroll toward its current position, including upward targets.
-                scrollContent(up: frame.midY > app.frame.midY)
+                scrollContent(up: true, toward: frame)
                 adjustments += 1
                 unchanged = 0; previous = .null
                 continue
@@ -968,17 +1001,13 @@ final class AnalyticsProbe: XCTestCase {
                     RunLoop.current.run(until: Date().addingTimeInterval(0.3))
                     if let current = observe({ try voice.currentSpeech().utterance }), matches(current) { return current }
                 }
-                // A spoken label can be a container around the input. Enter
-                // that observed candidate once, retaining the same strict
-                // speech match; never combine separate utterances.
-                if let nested = observe({ try voice.moveIn().utterance }) {
-                    if matches(nested) { return nested }
-                    _ = observe({ try voice.moveOut().utterance })
-                }
+                // Flat navigation can expose a separate label beside its
+                // control. Stay in sequence instead of entering a container
+                // based only on that label. Role/state proof remains spoken.
                 return nil
             }
-            // Search sequentially. Only an observed target-label candidate
-            // can be entered; AX text never substitutes for real speech.
+            // Search the confirmed Flat sequence; never combine utterances
+            // or substitute an accessibility label for actual control speech.
             if let current = observe({ try voice.currentSpeech().utterance }), let found = candidate(current) { return found }
             for reverse in [backward, !backward] {
                 // Reserve time for both directions if the first reaches a
@@ -1015,22 +1044,24 @@ final class AnalyticsProbe: XCTestCase {
             // visible touch anchor when available; otherwise let VoiceOver's
             // own navigation reach and scroll to the required announcement.
             let control = ["Help improve MyChef", "Save preferences", "Refresh analytics setting"].contains(phrase)
-            if hasTapRegion(element) {
+            let region = hasTapRegion(element)
+            let ready = region && (!control || tapReady(element, frame: element.frame, nativeElement: false))
+            print("Analytics iOS voice anchor: region=\(region) ready=\(ready)")
+            if ready {
                 if control {
-                    if element.isHittable {
-                        if phrase == "Help improve MyChef" {
-                            let frame = element.frame
-                            print("Analytics iOS choice frame: width=\(Int(frame.width)) height=\(Int(frame.height))")
-                            // Use the same measured, stable native rectangle
-                            // as other input, rather than a label hit point.
-                            tapSettled(element)
-                        } else { element.tap() }
+                    if phrase == "Help improve MyChef" {
+                        let frame = element.frame
+                        print("Analytics iOS choice frame: width=\(Int(frame.width)) height=\(Int(frame.height))")
                     }
+                    // A single real touch explores the measured control with
+                    // VoiceOver running. Only the later double tap activates it.
+                    // Do not silently omit this anchor because WebKit cannot
+                    // compute an isHittable point for an otherwise valid frame.
+                    tapSettled(element)
                 } else {
-                    // Readable static text has no activation point. A real
-                    // visible touch can anchor VoiceOver without activating it.
                     element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
                 }
+                RunLoop.current.run(until: Date().addingTimeInterval(0.3))
             }
             return try spoken(phrase, backward: control, controlRole: control)
         }
