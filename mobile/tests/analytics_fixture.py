@@ -278,6 +278,11 @@ class Fixture:
                               'Owned native touch helper unavailable': 'touch-helper',
                               'Emulator touchscreen injection failed': 'touch-kernel',
                               'Emulator touchscreen input was not observed': 'touch-input'}.get(str(error), 'refused')
+                    if operation == 'approved':
+                        if str(error) == 'Timed out waiting for restarted disposable Go backend':
+                            reason = 'restart-timeout'
+                        elif str(error).startswith('Disposable app stopped during startup: '):
+                            reason = 'restart-exit'
                     print('Analytics fixture refusal: operation=' + operation + ' reason=' + reason, flush=True)
                     status, body = 409, b'{"error":"fixture_operation_refused"}'
                 self.send_response(status)

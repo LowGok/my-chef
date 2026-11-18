@@ -246,7 +246,7 @@ def run(state, control, account, identifier, container, layout_only=False, voice
                 detail += '; choice width/height ' + '/'.join(choice_frames[-1])
             known = re.findall(r'Analytics iOS known control: ([A-Za-z ]{1,30}) types: ([0-9,]{0,30})', text)
             if known:
-                detail += '; known roles ' + ', '.join(name + '=' + types for name, types in known[-5:])
+                detail += '; known roles ' + ', '.join(name + '=' + types for name, types in known[-12:])
             states = re.findall(r'Analytics iOS screen state: (signed out|profile|shopping|startup|inbox|signup|completion|created|creating|secure failure|configuration failure|storage failure|shopping failure|device failure) present=(true|false)', text)
             keyboard_states = re.findall(r'Analytics iOS keyboard state: present=(true|false) done=(true|false)', text)
             if keyboard_states:

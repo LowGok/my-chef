@@ -172,7 +172,7 @@ final class AnalyticsProbe: XCTestCase {
                 }
             }
             screenState()
-            for word in ["Shopping", "Profile", "Meals", "A few extras", "Extra item", "Create account", "Finish signing up", "Password", "Confirm password", "Done"] {
+            for word in ["Shopping", "Profile", "Meals", "A few extras", "Extra item", "Add extra", "Create account", "Finish signing up", "Password", "Confirm password", "Done"] {
                 let matches = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", word)).allElementsBoundByAccessibilityElement.filter { $0.exists }
                 let types = matches.prefix(6).map { String($0.elementType.rawValue) }.joined(separator: ",")
                 print("Analytics iOS known control: " + word + " types: " + types)
@@ -284,9 +284,9 @@ final class AnalyticsProbe: XCTestCase {
         screenState()
         XCTFail("Native tap target must finish layout before input")
     }
-    func tap(_ label: String) {
+    func tap(_ label: String, dismissKeyboard: Bool = true) {
         print("Analytics iOS control: " + label)
-        if app.keyboards.firstMatch.exists {
+        if dismissKeyboard && app.keyboards.firstMatch.exists {
             let done = app.buttons.matching(NSPredicate(format: "label == %@", "Done")).firstMatch
             if done.waitForExistence(timeout: 5) {
                 waitFor({ !self.app.keyboards.firstMatch.exists || (done.exists && done.isHittable) },
@@ -731,7 +731,12 @@ final class AnalyticsProbe: XCTestCase {
             guard let summary = visible.first else { throw Failure.missingControl }
             summary.tap()
         }
-        fill("Extra item", "Analytics queued oats"); tap("Add extra")
+        fill("Extra item", "Analytics queued oats")
+        // Press the real submit button in the measured region above the
+        // keyboard. Avoid an unnecessary Done/viewport transition between
+        // entering the draft and submitting it. Normal reveal/tap readiness
+        // still requires the complete control outside the keyboard frame.
+        tap("Add extra", dismissKeyboard: false)
         // The lower form and keyboard can leave the progress status outside
         // WebKit's accessibility tree. Reach the actual status before reading it.
         let pending = app.descendants(matching: .any).matching(NSPredicate(format:
@@ -1065,6 +1070,12 @@ final class AnalyticsProbe: XCTestCase {
         // must communicate both Off and why; assessed controls are exercised below.
         _ = try focusSpeech("Analytics is Off while unavailable")
         try voice.disable()
+        // This transition already relaunches the owned app. Stop it before
+        // restarting the fixture backend so its WebView and client activity
+        // do not compete with or reconnect during backend startup.
+        app.terminate()
+        XCTAssertTrue(app.wait(for: .notRunning, timeout: 20), "Owned app stops before fixture restart")
+        print("Analytics iOS phase: owned app stopped before fixture restart")
         _ = try control("approved"); relaunch()
         tap("Create an account")
         let assessedBox = checkbox(); reveal(assessedBox)
