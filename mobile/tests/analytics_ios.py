@@ -302,6 +302,9 @@ def run(state, control, account, identifier, container, layout_only=False, voice
             scroll_geometry = re.findall(r'Analytics iOS VoiceOver scroll geometry: moved=(true|false) region=(true|false)', text)
             if scroll_geometry:
                 detail += '; native scroll moved/region ' + ','.join('/'.join(row) for row in scroll_geometry[-6:])
+            scroll_settling = re.findall(r'Analytics iOS VoiceOver scroll settling: stable=(true|false) toward=(true|false) crossed=(true|false)', text)
+            if scroll_settling:
+                detail += '; native scroll stable/toward/crossed ' + ','.join('/'.join(row) for row in scroll_settling[-6:])
             voice_frames = re.findall(r'Analytics iOS voice anchor frame: valid=(true|false) above=(true|false) below=(true|false) keyboard=(true|false)', text)
             if voice_frames:
                 detail += '; voice frame valid/above/below/keyboard ' + '/'.join(voice_frames[-1])

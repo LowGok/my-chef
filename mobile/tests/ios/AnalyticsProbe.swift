@@ -975,21 +975,38 @@ final class AnalyticsProbe: XCTestCase {
                     XCTFail("Native three-finger scroll must be acknowledged")
                     throw Failure.missingControl
                 }
-                let settled = Date().addingTimeInterval(2)
-                var moved = false
+                // Movement begins before a VoiceOver page animation ends.
+                // Starting another gesture at the first changed frame can
+                // interrupt that animation or choose its opposite direction.
+                let started = Date()
+                let settled = started.addingTimeInterval(3)
+                var previous = CGRect.null
+                var stable = 0
+                var after = CGRect.null
                 while Date() < settled {
                     let updated = target()
                     if updated.exists {
-                        let after = updated.frame
-                        moved = !after.isNull && !after.isInfinite
-                            && [after.minY, after.height].allSatisfy({ $0.isFinite })
-                            && abs(after.minY - frame.minY) > 1
-                        if moved || hasTapRegion(updated) { break }
-                    }
+                        let sample = updated.frame
+                        if !sample.isNull, !sample.isInfinite,
+                           [sample.minX, sample.minY, sample.width, sample.height].allSatisfy({ $0.isFinite }),
+                           sample.width > 1, sample.height > 1 {
+                            stable = !previous.isNull
+                                && abs(sample.minY - previous.minY) <= 1
+                                && abs(sample.height - previous.height) <= 1 ? stable + 1 : 0
+                            previous = sample
+                            after = sample
+                            if stable >= 3 && Date().timeIntervalSince(started) >= 0.8 { break }
+                        } else { stable = 0; previous = .null }
+                    } else { stable = 0; previous = .null }
                     RunLoop.current.run(until: Date().addingTimeInterval(0.2))
                 }
+                let moved = !after.isNull && abs(after.minY - frame.minY) > 1
+                let toward = !after.isNull && (frame.midY > bounds.midY
+                    ? after.minY < frame.minY - 1 : after.minY > frame.minY + 1)
+                let crossed = !after.isNull && (frame.maxY > bounds.maxY
+                    ? after.minY < bounds.minY : after.maxY > bounds.maxY)
                 print("Analytics iOS VoiceOver scroll geometry: moved=\(moved) region=\(hasTapRegion(target()))")
-                RunLoop.current.run(until: Date().addingTimeInterval(0.3))
+                print("Analytics iOS VoiceOver scroll settling: stable=\(stable >= 3) toward=\(toward) crossed=\(crossed)")
             }
             let element = target()
             let region = hasTapRegion(element)
