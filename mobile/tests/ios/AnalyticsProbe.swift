@@ -343,18 +343,18 @@ final class AnalyticsProbe: XCTestCase {
             XCUIElement.ElementType.link.rawValue, XCUIElement.ElementType.disclosureTriangle.rawValue)).firstMatch
         reveal(element); tapSettled(element)
     }
-    func pickerButton(_ label: String) -> XCUIElement? {
+    func pickerButton(_ label: String, requireHittable: Bool = true) -> XCUIElement? {
         let predicate = NSPredicate(format: "label == %@", label)
         // Bind to accessibility identities so an animated picker does not
         // resolve a saved index against a changed result list.
         // UIKit navigation bars give a structural native boundary. Prefer
         // their controls over frame comparisons during sheet animations.
         let navigation = app.navigationBars.buttons.matching(predicate).allElementsBoundByAccessibilityElement
-            .filter { $0.exists && $0.isHittable }
+            .filter { $0.exists && (requireHittable ? $0.isHittable : self.hasTapRegion($0)) }
         if navigation.count == 1 { return navigation[0] }
         let webFrames = app.webViews.buttons.matching(predicate).allElementsBoundByAccessibilityElement.filter { $0.exists }.map { $0.frame }
         let native = app.buttons.matching(predicate).allElementsBoundByAccessibilityElement.filter { element in
-            guard element.exists && element.isHittable else { return false }
+            guard element.exists && (requireHittable ? element.isHittable : self.hasTapRegion(element)) else { return false }
             let frame = element.frame
             return !webFrames.contains { web in
                 abs(web.minX - frame.minX) <= 2 && abs(web.minY - frame.minY) <= 2
@@ -399,8 +399,12 @@ final class AnalyticsProbe: XCTestCase {
         // Save can be present but unavailable before a destination is chosen.
         // Presentation needs a measured native control, not a tappable Save.
         let nativeSave = app.navigationBars.buttons.matching(NSPredicate(format: "label == %@", "Save"))
-        waitFor({ nativeSave.count == 1 && self.hasTapRegion(nativeSave.firstMatch) },
-                "Native export picker must become visibly present", timeout: 30)
+        // Presentation uses the same unique native identity as later actions,
+        // including native controls outside a navigation bar. Save can still
+        // be disabled until a local destination is selected.
+        waitFor({ self.pickerButton("Save", requireHittable: false) != nil },
+                "Native export picker must become visibly present", timeout: 30,
+                onTimeout: { self.pickerState() })
         print("Analytics iOS phase: native picker presented")
         if !save {
             print("Analytics iOS phase: native picker Cancel")
