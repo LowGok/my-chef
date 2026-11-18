@@ -154,33 +154,17 @@ func reserveAppUsername(tx *gorm.DB, username string, owner int64) ([]byte, erro
 }
 
 type verifiedLogin struct {
-	user    store.User
-	upgrade string
+	user        store.User
+	upgrade     string
+	usernameKey []byte
 }
 
-func (m *Manager) verifyLogin(ctx context.Context, address, raw string) (verifiedLogin, error) {
-	normalized, err := normalizePassword(raw)
-	_, emailKey, emailErr := store.EmailIdentity(address)
-	if err != nil || emailErr != nil {
-		return verifiedLogin{}, ErrCredentials
-	}
-	var u store.User
-	err = m.Store.DB.WithContext(ctx).Where("email_key = ? AND isNewsletterOnly=0", emailKey).First(&u).Error
-	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-		return verifiedLogin{}, err
-	}
-	matched, legacy, err := comparePassword(ctx, u.Password, raw, normalized)
+func (m *Manager) verifyLogin(ctx context.Context, identifier, raw string) (verifiedLogin, error) {
+	target, err := m.ResolveLogin(ctx, identifier)
 	if err != nil {
 		return verifiedLogin{}, err
 	}
-	if !matched || u.ID == 0 {
-		return verifiedLogin{}, ErrCredentials
-	}
-	login := verifiedLogin{user: u}
-	if legacy {
-		login.upgrade, err = newPasswordHash(ctx, normalized)
-	}
-	return login, err
+	return verifyResolvedLogin(ctx, target, raw)
 }
 
 // completeLogin binds session creation and any legacy upgrade to the same
@@ -205,6 +189,15 @@ func (m *Manager) completeLogin(ctx context.Context, login verifiedLogin, old st
 		}
 		if err != nil {
 			return err
+		}
+		if login.usernameKey != nil {
+			owner, err := lookupLoginUsername(tx, login.usernameKey)
+			if err != nil {
+				return err
+			}
+			if owner.ID != current.ID {
+				return ErrCredentials
+			}
 		}
 		if login.upgrade != "" {
 			result := tx.Model(&store.User{}).Where("user_id = ? AND password = ?", current.ID, current.Password).Update("password", login.upgrade)
@@ -244,12 +237,12 @@ func (m *Manager) Login(ctx context.Context, email, password string) (store.User
 	return u, err
 }
 
-func (m *Manager) LoginSession(ctx context.Context, email, password, old string) (store.User, string, error) {
-	login, err := m.verifyLogin(ctx, email, password)
+func (m *Manager) LoginSession(ctx context.Context, identifier, password, old string) (store.User, string, error) {
+	target, err := m.ResolveLogin(ctx, identifier)
 	if err != nil {
 		return store.User{}, "", err
 	}
-	return m.completeLogin(ctx, login, old, true)
+	return m.LoginResolvedSession(ctx, target, password, old)
 }
 
 func (m *Manager) RegistrationSession(ctx context.Context, user store.User, old string) (store.User, string, error) {

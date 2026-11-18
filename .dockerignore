@@ -63,6 +63,7 @@ internal/email/mailqueue/**
 !internal/auth/change_password.go
 !internal/auth/email_change.go
 !internal/auth/email_verification.go
+!internal/auth/login_identifier.go
 !internal/auth/manager.go
 !internal/auth/password.go
 !internal/auth/recovery.go
