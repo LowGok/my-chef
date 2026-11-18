@@ -10,6 +10,7 @@
 // Only declarations are shared; no Appium runtime or downloaded dependency is used.
 @interface NSObject (AnalyticsTestTouchSelectors)
 - (id)initForTouchAtPoint:(CGPoint)point offset:(double)offset;
+- (void)pressDownAtOffset:(double)offset;
 - (void)moveToPoint:(CGPoint)point atOffset:(double)offset;
 - (void)liftUpAtOffset:(double)offset;
 - (id)initWithName:(NSString *)name interfaceOrientation:(long long)orientation;
@@ -35,6 +36,7 @@ static NSInteger AnalyticsVoiceOverGesture(CGRect viewport, BOOL upward, BOOL pr
             || ![paths instancesRespondToSelector:@selector(initForTouchAtPoint:offset:)]
             || ![paths instancesRespondToSelector:@selector(moveToPoint:atOffset:)]
             || ![paths instancesRespondToSelector:@selector(liftUpAtOffset:)]
+            || (precise && ![paths instancesRespondToSelector:@selector(pressDownAtOffset:)])
             || ![records instancesRespondToSelector:@selector(initWithName:interfaceOrientation:)]
             || ![records instancesRespondToSelector:@selector(addPointerEventPath:)]
             || ![XCUIDevice.sharedDevice respondsToSelector:@selector(eventSynthesizer)]) {
@@ -52,16 +54,17 @@ static NSInteger AnalyticsVoiceOverGesture(CGRect viewport, BOOL upward, BOOL pr
             CGFloat x = CGRectGetMinX(viewport) + MAX(24, viewport.size.width * 0.08);
             CGFloat start = CGRectGetMidY(viewport) - distance / 2;
             CGFloat end = start + distance;
-            id tap = [[paths alloc] initForTouchAtPoint:CGPointMake(x, start) offset:0];
-            id drag = [[paths alloc] initForTouchAtPoint:CGPointMake(x, start) offset:0.15];
-            if (!tap || !drag) return 1;
-            [tap liftUpAtOffset:0.05];
+            id drag = [[paths alloc] initForTouchAtPoint:CGPointMake(x, start) offset:0];
+            if (!drag) return 1;
+            // Both taps belong to the same finger/path. Separate paths have
+            // distinct pointer identities; the observed two-path gesture did not move content.
+            [drag liftUpAtOffset:0.05];
+            [drag pressDownAtOffset:0.15];
             // Hold for 1.25 seconds before dragging; pause before lifting
             // to avoid converting a measured correction into a flick.
             [drag moveToPoint:CGPointMake(x, start) atOffset:1.4];
             [drag moveToPoint:CGPointMake(x, end) atOffset:2.05];
             [drag liftUpAtOffset:2.25];
-            [record addPointerEventPath:tap];
             [record addPointerEventPath:drag];
         } else {
             // Apple VoiceOver scrolls a page with three simultaneous fingers.

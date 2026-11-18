@@ -301,6 +301,9 @@ def run(state, control, account, identifier, container, layout_only=False, voice
             viewports = re.findall(r'Analytics iOS tap viewport: views=([0-9]{1,2}) roots=([0-9]{1,2}) targets=([0-9]{1,2})', text)
             if viewports:
                 detail += '; tap viewport views/roots/targets ' + '/'.join(viewports[-1])
+            reveal_scrolls = re.findall(r'Analytics iOS reveal scroll: moved=(true|false) stable=(true|false) region=(true|false)', text)
+            if reveal_scrolls:
+                detail += '; reveal scroll moved/stable/region ' + ','.join('/'.join(row) for row in reveal_scrolls[-12:])
             rectangles = re.findall(r'Analytics iOS tap rect: ([0-9.,{} -]{1,100})', text)
             if rectangles:
                 detail += '; tap rect ' + rectangles[-1]

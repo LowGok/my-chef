@@ -111,20 +111,25 @@ final class AnalyticsProbe: XCTestCase {
         guard height >= 100 else {
             XCTFail("Content scrolling needs an unobstructed native region"); return
         }
-        let direction: Bool
+        let center = bounds.minY + height * 0.475
+        var distance = height * (up ? -0.45 : 0.45)
         if let target = target, !target.isNull, !target.isInfinite,
            target.width > 1, target.height > 1,
            [target.minX, target.minY, target.maxX, target.maxY].allSatisfy({ $0.isFinite }) {
-            direction = target.midY > bounds.minY + height / 2
-        } else {
-            direction = up
+            distance = min(height * 0.45, max(-height * 0.45, center - target.midY))
+            if abs(distance) < height * 0.08 {
+                distance = height * (target.midY > center ? -0.08 : 0.08)
+            }
         }
-        // The old full-screen fractions could put the gesture on a tall
-        // software keyboard. Measure the actual unobstructed content instead.
+        // Correct toward the current rectangle without flicking past it.
+        // Keep both contacts in the measured region above the keyboard.
         let origin = app.coordinate(withNormalizedOffset: .zero)
-        let start = origin.withOffset(CGVector(dx: bounds.width * 0.5, dy: height * (direction ? 0.7 : 0.25)))
-        let end = origin.withOffset(CGVector(dx: bounds.width * 0.5, dy: height * (direction ? 0.25 : 0.7)))
-        start.press(forDuration: 0.05, thenDragTo: end)
+        let start = origin.withOffset(CGVector(dx: bounds.width * 0.5,
+            dy: center - bounds.minY - distance / 2))
+        let end = origin.withOffset(CGVector(dx: bounds.width * 0.5,
+            dy: center - bounds.minY + distance / 2))
+        start.press(forDuration: 0.05, thenDragTo: end, withVelocity: .slow,
+                    thenHoldForDuration: 0.2)
     }
     func hasTapRegion(_ element: XCUIElement) -> Bool {
         guard element.exists else { return false }
@@ -190,7 +195,30 @@ final class AnalyticsProbe: XCTestCase {
             // A restored focus can place the result above the viewport. Use
             // its current native rectangle to choose the scroll direction,
             // keeping the gesture above the software keyboard.
-            scrollContent(up: true, toward: element.frame)
+            let before = element.frame
+            scrollContent(up: true, toward: before)
+            // A changing AX frame is not a settled content position. Wait for
+            // stable geometry before choosing the next gesture's direction.
+            let deadline = Date().addingTimeInterval(3)
+            var previous = CGRect.null
+            var stable = 0
+            var after = CGRect.null
+            while Date() < deadline {
+                if element.exists {
+                    let sample = element.frame
+                    if !sample.isNull, !sample.isInfinite,
+                       [sample.minX, sample.minY, sample.width, sample.height].allSatisfy({ $0.isFinite }),
+                       sample.width > 1, sample.height > 1 {
+                        stable = !previous.isNull && abs(sample.minY - previous.minY) <= 1
+                            && abs(sample.height - previous.height) <= 1 ? stable + 1 : 0
+                        previous = sample; after = sample
+                        if stable >= 3 { break }
+                    } else { stable = 0; previous = .null }
+                } else { stable = 0; previous = .null }
+                RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+            }
+            let moved = !after.isNull && abs(after.minY - before.minY) > 1
+            print("Analytics iOS reveal scroll: moved=\(moved) stable=\(stable >= 3) region=\(hasTapRegion(element))")
         }
         if !hasTapRegion(element) || !element.isHittable {
             screenState()
