@@ -57,6 +57,27 @@ four checks to add in the revision that follows that decision:
   account's last attempt. The existing limiter checks and counts one key under
   a mutex (`internal/http/api.go:288-311`).
 
+### Policy-independent sign-in baseline
+
+A temporary Go test overlay exercised the existing HTTP handlers with disposable
+SQLite accounts at `69523dba413b267281af834d51c755bee17f0fd6`. All five probes
+and six existing HTTP tests passed on an uncached run:
+
+| Probe | Observed result |
+| --- | --- |
+| `TestIssue41BaselineEmailSignInAcrossTransports` | Case and surrounding Unicode whitespace variants resolved to the same user ID on web, iOS transport and Android transport. Sign-in invalidated the previous anonymous credentials. |
+| `TestIssue41BaselineGenericCredentialsAndNoSessionMutation` | Wrong passwords, absent mailboxes, invalid email syntax and empty passwords produced the same 401 code and message on both transports, without changing either session. Request IDs remained present. |
+| `TestIssue41BaselineSharedCanonicalEmailAndSourceLimits` | Both transports shared a ten-attempt canonical email limit. After nine attempts, exactly one of two concurrent requests from different sources proceeded; the other received 429. One source could make fifteen attempts across inputs and both transports; the sixteenth returned 429 with `Retry-After: 60`. A separate account and a separate source were unaffected. |
+| `TestIssue41BaselineVerificationAndEmailOnlyRecovery` | An unverified email login returned a restricted session without profile data on both transports. Recovery rejected a plain username without queuing work. After the synthetic user was marked verified, the browser could sign in and load that user's profile. |
+| `TestIssue41BaselineEmailShapeAlwaysUsesMailbox` | A stored username matching someone else's email could not redirect sign-in, and an email-shaped username without a matching mailbox could not sign in. Both accounts could still sign in with their own emails. |
+
+The same focused run also passed seven existing auth and store tests covering
+session rotation and revocation, stale credential rejection, native verification,
+recovery's verified recipient and persistent limits, and email identity migration
+and collision behavior. This evidence describes the unchanged backend. Username
+matching and mixed email/username throttling still require implementation and
+review.
+
 ## Scope
 
 Accept email or a username in the existing API request on both transports. Keep existing email validation, verification, access, login credential upgrade, session rotation and recovery behavior. Define how the read path treats legacy usernames and preserve stored account data.
@@ -117,7 +138,20 @@ None yet. Break the approved slice into failing-test-first storage, credential a
 | **B. Change sign-in only** | Same case matching, no changes to signup or username updates. Existing and future collisions both fall back to email sign-in. | A later signup or rename can disable another user's username sign-in until the collision is removed. |
 | **C. Reserve Unicode aliases** | Same collision protection as A, with Unicode case folding, so `Étage` and `étage` also match without dropping accents. | A different indexed lookup and more migration and multilingual coverage. |
 
-All options preserve existing display spellings, reserve email-shaped input for email sign-in, and return the existing generic error for ambiguous usernames. Stored usernames with legacy surrounding whitespace remain email-only.
+All options keep the existing email parser, key and password recovery. For login
+input, trim outer Unicode whitespace first; a literal `@` reserves the input
+for email and never falls back to a username. The candidate username keeps
+interior whitespace. Stored usernames are neither trimmed nor rewritten, so
+legacy padded names remain available through email only. A matching username
+must identify exactly one app account; no exact-case override breaks a tie.
+
+A and B compare ASCII letters without regard to case and preserve all other
+characters. C uses the existing Go Unicode case-folding library without
+removing accents or adding Unicode normalization: `Étage` and `étage` match,
+`Étage` and `Etage` do not, and `Straße` and `strasse` also become a match.
+These examples were checked with the pinned library. The owner is choosing
+which spellings collide and whether to reserve new aliases against collisions;
+the current behavior has not changed.
 
 **Why this is yours:** This determines whether username sign-in can stop working after another person's signup or rename, and whether accented letters ignore case too.
 
