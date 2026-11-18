@@ -1,7 +1,7 @@
 ---
-status: in-progress
+status: complete
 branch: feat/sign-in-identifier
-status_description: "Implement the accepted backend changes and verify them before requesting review."
+status_description: "All six backend criteria passed independent review; delivery runs normal CI. UI and native owner checks remain separate."
 issue: https://github.com/LowGok/my-chef/issues/41
 goal: "Sign in to the same existing app account through the current API using its email address or a uniquely matching username."
 covers:
@@ -271,12 +271,18 @@ database and account-lifecycle backups under the existing controls
 
 ## Acceptance Criteria
 
-- [ ] AC-01: The existing web and native sign-in requests accept an account's normalized email or uniquely matching Unicode-folded username and reach the same account without changing the request or session contract.
-- [ ] AC-02: Unknown or ambiguous usernames, disallowed legacy aliases and wrong passwords retain the existing generic credentials failure; email-shaped input cannot sign in as a username, and newsletter-only rows cannot sign in.
-- [ ] AC-03: Email and username variants for the same account share one attempt limit across both transports, including concurrent requests, while the separate source limit and response stay unchanged.
-- [ ] AC-04: A stale username resolution cannot commit sign-in or a password upgrade after the account loses that alias or its credential changes. Native may still adopt an already committed valid anchor under its existing checks. Verification and verified-email recovery keep their current requirements.
-- [ ] AC-05: Fresh and upgraded SQLite databases use an indexed username lookup and preserve account data, aliases and prior access. A failed upgrade is retryable, and the prior version can still use a correctly restored pre-upgrade database.
-- [ ] AC-06: New app signup and username changes cannot create a collision under the same Unicode case folding. Requests without live write authority do not reveal whether a name is taken. Existing collisions preserve email sign-in and can be resolved by one user choosing an available username.
+- [x] AC-01: The existing web and native sign-in requests accept an account's normalized email or uniquely matching Unicode-folded username and reach the same account without changing the request or session contract.
+      Evidence: go test -p 1 -count=1 -run '^TestSignIn(Identifier|Compatibility)' ./internal/http and the auth Unicode tests passed, preserving web and both native account IDs and session rotation.
+- [x] AC-02: Unknown or ambiguous usernames, disallowed legacy aliases and wrong passwords retain the existing generic credentials failure; email-shaped input cannot sign in as a username, and newsletter-only rows cannot sign in.
+      Evidence: Auth and HTTP checks passed for ambiguous Unicode names, padded/NUL aliases, email-shaped names, unknown input, wrong passwords, newsletter-only identities and the existing password work envelope.
+- [x] AC-03: Email and username variants for the same account share one attempt limit across both transports, including concurrent requests, while the separate source limit and response stay unchanged.
+      Evidence: The last-slot mixed-transport race and unresolved/known key separation passed; the five compatibility probes retained canonical email/source limits and Retry-After. Focused -race checks passed across auth, HTTP and store.
+- [x] AC-04: A stale username resolution cannot commit sign-in or a password upgrade after the account loses that alias or its credential changes. Native may still adopt an already committed valid anchor under its existing checks. Verification and verified-email recovery keep their current requirements.
+      Evidence: Stale alias, ambiguity, deletion, mailbox and password changes rejected sign-in and pending legacy rehash; post-commit native adoption passed. Verification, password-change, recovery and session-boundary browser checks passed separately with fresh servers.
+- [x] AC-05: Fresh and upgraded SQLite databases use an indexed username lookup and preserve account data, aliases and prior access. A failed upgrade is retryable, and the prior version can still use a correctly restored pre-upgrade database.
+      Evidence: The indexed migration and failure/retry checks, exact prior-binary rollback rehearsal, pinned disposable PostgreSQL import and full existing SQLite upgrade/restore rehearsal passed without changing original account IDs, credentials, sessions or the current lifecycle journal.
+- [x] AC-06: New app signup and username changes cannot create a collision under the same Unicode case folding. Requests without live write authority do not reveal whether a name is taken. Existing collisions preserve email sign-in and can be resolved by one user choosing an available username.
+      Evidence: Focused signup, newsletter promotion, rename, one-winner concurrency, revoked/expired authority, grandfathered edits and resolved legacy collision tests passed.
 
 ## Test Plan
 
@@ -291,11 +297,17 @@ database and account-lifecycle backups under the existing controls
 
 ## Tasks
 
-- [ ] T1 `internal/store/login_identity.go`, `internal/store/login_identity_test.go`, `internal/store/email_identity.go`, `internal/store/models.go`, `internal/store/migrate.go`, `migrations/` - make the disposable schema and query-plan test fail first; then derive and index folded keys for fresh, upgraded, and legacy imported rows without rewriting account data, and pass migration failure/retry checks (AC-01, AC-02, AC-05).
-- [ ] T2 `internal/auth/manager.go`, `internal/auth/registration.go`, `internal/auth/username_policy_test.go` - reproduce conflicting registrations and renames, then require live authority before reserving the same folded key in each write path; verify one winner across signup and rename, proof retry, and resolved legacy collisions (AC-02, AC-06).
-- [ ] T3 `internal/auth/manager.go`, `internal/auth/login_identifier.go`, `internal/auth/login_identifier_test.go` - reproduce missing and stale username sign-in, then implement shared identity selection and the session-commit check; verify generic rejection, password-work paths, email precedence, and native anchor adoption (AC-01, AC-02, AC-04).
-- [ ] T4 `internal/http/api.go`, `internal/http/login_identifier_test.go`, `internal/http/login_compatibility_test.go` - reproduce the missing shared account limit with mixed alias and transport requests, then wire the existing API to the resolved user and verify the last-slot race, source limit, recovery, and all five checked-in compatibility probes (AC-01, AC-02, AC-03, AC-04).
-- [ ] T5 `internal/store/login_identity_test.go`, `internal/importer/import_test.go`, `cmd/mychef-migrate/` - verify the exact new and prior binaries on disposable migration, import, backup, and restore fixtures; prove the old binary can serve the restored account with its original email and confirm the focused Go suite and repository checks (AC-05, AC-06).
+- [x] T1 `internal/store/login_identity.go`, `internal/store/login_identity_test.go`, `internal/store/email_identity.go`, `internal/store/models.go`, `internal/store/migrate.go`, `migrations/` - make the disposable schema and query-plan test fail first; then derive and index folded keys for fresh, upgraded, and legacy imported rows without rewriting account data, and pass migration failure/retry checks (AC-01, AC-02, AC-05).
+      Evidence: The tracked migration test initially failed for a missing key column. Six store checks then passed for the prior schema, indexed Unicode collisions, preserved users and sessions, injected backfill failure and retry, and shared import creation.
+- [x] T2 `internal/auth/manager.go`, `internal/auth/registration.go`, `internal/auth/username_policy_test.go` - reproduce conflicting registrations and renames, then require live authority before reserving the same folded key in each write path; verify one winner across signup and rename, proof retry, and resolved legacy collisions (AC-02, AC-06).
+      Evidence: Before the change, the tracked tests accepted folded duplicates and both concurrent writes succeeded. The focused auth suite now passes compatibility registration, verified signup and promotion with reusable proof, one registration-or-rename winner, unchanged legacy edits, and revoked/expired native authority.
+- [x] T3 `internal/auth/manager.go`, `internal/auth/login_identifier.go`, `internal/auth/login_identifier_test.go` - reproduce missing and stale username sign-in, then implement shared identity selection and the session-commit check; verify generic rejection, password-work paths, email precedence, and native anchor adoption (AC-01, AC-02, AC-04).
+      Evidence: Tracked missing-alias sign-in failed before the fix. Focused tests passed for same-account Unicode folding, generic failures and password-work paths, legacy ambiguity and email fallback, alias loss before commit, and valid native adoption after commit.
+- [x] T4 `internal/http/api.go`, `internal/http/login_identifier_test.go`, `internal/http/login_compatibility_test.go` - reproduce the missing shared account limit with mixed alias and transport requests, then wire the existing API to the resolved user and verify the last-slot race, source limit, recovery, and all five checked-in compatibility probes (AC-01, AC-02, AC-03, AC-04).
+      Evidence: The tracked two-transport race returned two 401 responses before the fix. All nine HTTP checks then passed, including the five compatibility probes, one 401 and one 429 on the last shared attempt, known and unresolved bucket separation, session rotation, and verification restrictions.
+- [x] T5 `internal/store/login_identity_test.go`, `internal/importer/import_test.go`, `cmd/mychef-migrate/` - verify the exact new and prior binaries on disposable migration, import, backup, and restore fixtures; prove the old binary can serve the restored account with its original email and confirm the focused Go suite and repository checks (AC-05, AC-06).
+
+      Evidence: The exact prior 9a40796 binaries and candidate passed scripts/test_sign_in_identifier_upgrade.py with a current lifecycle journal; the prior implementation alone failed its schema-28 assertion. The pinned PostgreSQL fixture imported and signed in to preserved accounts by username, and scripts/test_sqlite_upgrade.py passed upgrade, backup, restore and deletion reconciliation. Full repository tests, 88 Bun tests, Go lint, generated contract checks, focused race tests and isolated account/native browser regressions passed. Older schema assertions still compare all prior fields exactly while permitting only the additive login key and index.
 
 ## Open Questions
 
@@ -311,6 +323,7 @@ are outside this policy.
 | 2026-11-18 | R-2 | spec | `6e3f76b065ebdbdba7d3b5c709d183a95e0ff926` | unknown | procedural | 1 blocking, 2 should-fix |
 | 2026-11-18 | R-3 | spec | `5bc04e63ccf60c1210396101306e0a231bec83b3` | unknown | procedural | No findings |
 | 2026-11-18 | R-3 | spec | `5bc04e63ccf60c1210396101306e0a231bec83b3` | n/a | n/a | accepted by owner |
+| 2026-11-18 | R-4 | implementation | `21beed92747dedead9d2d3823c0fcf2e23987b3f` | unknown | procedural | All six backend criteria met; no findings |
 
 ### R-1
 
@@ -375,6 +388,32 @@ PROPOSAL: Require equivalent probes to be committed as regression tests and name
 ### R-3
 
 NO FINDINGS
+
+### R-4
+
+CRITERION: AC-01 The existing web and native sign-in requests accept an account's normalized email or uniquely matching Unicode-folded username and reach the same account without changing the request or session contract.
+VERDICT: met
+EVIDENCE: Independently executed go test -p 1 -count=1 ./internal/auth ./internal/store ./internal/http ./internal/importer at 21beed92747dedead9d2d3823c0fcf2e23987b3f; all packages passed. Inspected and observed the checked-in compatibility and identifier tests establishing unchanged JSON, identical account IDs, Unicode folding and session replacement on web, iOS transport and Android transport. Additional scratch probes established accent preservation and absence of NFC normalization. Evidence covers the backend API; client UI and physical-device behavior are outside this scope.
+
+CRITERION: AC-02 Unknown or ambiguous usernames, disallowed legacy aliases and wrong passwords retain the existing generic credentials failure; email-shaped input cannot sign in as a username, and newsletter-only rows cannot sign in.
+VERDICT: met
+EVIDENCE: The uncached auth and HTTP suites passed at 21beed92747dedead9d2d3823c0fcf2e23987b3f, including email namespace precedence, ambiguous legacy names, padded and NUL aliases, wrong passwords and password-work boundaries. Independently added and executed scratch-only TestReviewerUsernameGenericFailuresAcrossTransports; ambiguous aliases, newsletter aliases and mailboxes, padded names, NUL input and unknown names returned the exact existing generic 401 code and message on both transports without issuing credentials. A separate scratch probe confirmed a newsletter spelling does not make an otherwise unique app alias ambiguous.
+
+CRITERION: AC-03 Email and username variants for the same account share one attempt limit across both transports, including concurrent requests, while the separate source limit and response stay unchanged.
+VERDICT: met
+EVIDENCE: Independently executed the uncached HTTP suite and go test -race -p 1 -count=1 -run '^(TestSignIn|TestReviewer)' ./internal/auth ./internal/http ./internal/store against 21beed92747dedead9d2d3823c0fcf2e23987b3f; all passed without race reports. Observed the mixed email/username last-slot test produce exactly one credential failure and one 429, the existing Retry-After value, canonical variants sharing limits, separate account and unresolved buckets, and the unchanged fifteen-attempt source limit.
+
+CRITERION: AC-04 A stale username resolution cannot commit sign-in or a password upgrade after the account loses that alias or its credential changes. Native may still adopt an already committed valid anchor under its existing checks. Verification and verified-email recovery keep their current requirements.
+VERDICT: met
+EVIDENCE: Independently executed the uncached auth and HTTP suites at 21beed92747dedead9d2d3823c0fcf2e23987b3f. Tests passed for alias loss, newly ambiguous ownership, deletion, canonical mailbox changes and password changes before commitment, including pending legacy rehash rejection and preservation of anonymous authority. Native adoption after a committed login passed alongside existing native expiry and revocation tests. A scratch-only alias-reassignment probe confirmed the old snapshot cannot authenticate either owner and creates no session. Existing verification restriction, verified-recipient recovery and session-boundary tests passed.
+
+CRITERION: AC-05 Fresh and upgraded SQLite databases use an indexed username lookup and preserve account data, aliases and prior access. A failed upgrade is retryable, and the prior version can still use a correctly restored pre-upgrade database.
+VERDICT: met
+EVIDENCE: Independently executed the store suite at 21beed92747dedead9d2d3823c0fcf2e23987b3f; indexed lookup, preserved collisions and sessions, shared creation, injected migration failure, complete rollback and retry checks passed. Built candidate binaries from an exact git archive and prior binaries from exact prior source 9a40796, then executed scripts/test_sign_in_identifier_upgrade.py; schema 27 to 28 preserved the account and session, username login succeeded, and restored schema 27 retained prior-binary email access with the current lifecycle journal. Independently executed scripts/test_sqlite_upgrade.py with reviewer-built binaries; upgrade, backup, restore, integrity, pre-incarnation rejection and deleted-account reconciliation passed. The pinned disposable PostgreSQL importer integration also passed. All databases and providers were disposable fixtures.
+
+CRITERION: AC-06 New app signup and username changes cannot create a collision under the same Unicode case folding. Requests without live write authority do not reveal whether a name is taken. Existing collisions preserve email sign-in and can be resolved by one user choosing an available username.
+VERDICT: met
+EVIDENCE: Independently executed the uncached auth suite and focused race checks at 21beed92747dedead9d2d3823c0fcf2e23987b3f; registration, verified signup, newsletter promotion, proof retry, rename, expired/revoked authority, grandfathered edits and legacy collision resolution passed. Inspected transactional ordering confirming live authority precedes collision disclosure. An additional scratch-only race using two independently opened SQLite connections produced exactly one successful folded-name registration and one ErrConflict. Newsletter fixtures preserved the existing exact-spelling constraint without reserving a folded app alias. The owning checkout remained clean at the reviewed commit.
 
 ## Sources
 

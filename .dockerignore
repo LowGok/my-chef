@@ -63,6 +63,7 @@ internal/email/mailqueue/**
 !internal/auth/change_password.go
 !internal/auth/email_change.go
 !internal/auth/email_verification.go
+!internal/auth/login_identifier.go
 !internal/auth/manager.go
 !internal/auth/password.go
 !internal/auth/recovery.go
@@ -146,6 +147,7 @@ internal/email/mailqueue/**
 !internal/store/account_personal_export.go
 !internal/store/backup.go
 !internal/store/email_identity.go
+!internal/store/login_identity.go
 !internal/store/email_limits.go
 !internal/store/email_proof.go
 !internal/store/favorites.go
@@ -324,6 +326,7 @@ internal/notifications/**
 !internal/config/newsletter_email.go
 
 !migrations/027_newsletter_identity_minimisation.sql
+!migrations/028_login_username_keys.sql
 !internal/store/account_restore.go
 !internal/store/newsletter_minimisation_schema.go
 !internal/store/newsletter_identity.go

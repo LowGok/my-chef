@@ -90,7 +90,7 @@ VALUES(1,'2026-11-02',3,'{"items":[]}');
 		if name == "meals" {
 			definition = strings.TrimSuffix(definition, ")") + ", personal_source TEXT CHECK(personal_source IS NULL OR json_valid(personal_source)))"
 		}
-		if withoutNewsletterColumn(after.objects[name]) != definition {
+		if withoutLoginUsernameColumn(withoutNewsletterColumn(after.objects[name])) != definition {
 			t.Fatalf("migration changed existing schema object %s", name)
 		}
 		delete(after.objects, name)
@@ -101,7 +101,7 @@ VALUES(1,'2026-11-02',3,'{"items":[]}');
 		}
 		delete(after.objects, name)
 	}
-	for _, name := range []string{"newsletter_sequence", "newsletter_requests", "newsletter_subscriptions", "newsletter_proofs", "newsletter_proof_user", "newsletter_erasures", "newsletter_identity_namespace", "newsletter_identity_matches", "account_incarnation_identity_owner", "newsletter_identity_commits", "newsletter_identity_creations"} {
+	for _, name := range []string{"users_app_login_username_key", "newsletter_sequence", "newsletter_requests", "newsletter_subscriptions", "newsletter_proofs", "newsletter_proof_user", "newsletter_erasures", "newsletter_identity_namespace", "newsletter_identity_matches", "account_incarnation_identity_owner", "newsletter_identity_commits", "newsletter_identity_creations"} {
 		if after.objects[name] == "" {
 			t.Fatalf("missing newsletter schema object %s", name)
 		}

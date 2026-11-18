@@ -451,14 +451,15 @@ func (a *API) login(w http.ResponseWriter, r *http.Request) {
 	if !a.decodeCredentials(w, r, &body) {
 		return
 	}
-	_, accountKey, err := store.EmailIdentity(body.Email)
+	target, err := a.Auth.ResolveLogin(r.Context(), body.Email)
 	if err != nil {
-		accountKey = body.Email
-	}
-	if !a.throttle(w, r, "account:"+auth.Hash(accountKey), 10) {
+		a.err(w, r, err)
 		return
 	}
-	u, token, err := a.Auth.LoginSession(r.Context(), body.Email, body.Password, info(r).Token)
+	if !a.throttle(w, r, target.RateLimitKey(), 10) {
+		return
+	}
+	u, token, err := a.Auth.LoginResolvedSession(r.Context(), target, body.Password, info(r).Token)
 	if err != nil {
 		a.err(w, r, err)
 		return
