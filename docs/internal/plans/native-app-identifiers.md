@@ -1,6 +1,7 @@
 ---
-status: planned
-status_description: "Independently reviewed and accepted; ready for test-first tasks and the implementation claim."
+status: in-progress
+branch: feat/native-app-identity
+status_description: "Implementing both native identities; existing subscription proof and exact live-operation approvals remain separate."
 issue: https://github.com/LowGok/my-chef/issues/42
 goal: "Approved testers can install the same MyChef app identity that will be used for release while their existing MyChef accounts and the current Preview remain usable."
 covers:
