@@ -30,9 +30,10 @@ final class AnalyticsProbe: XCTestCase {
     func control(_ operation: String, _ fields: [String: Any] = [:]) throws -> [String: Any] {
         guard let url = URL(string: configuration["url"] ?? "") else { throw Failure.invalidFixture }
         var input = fields; input["operation"] = operation
-        // The fixture can spend 15 seconds stopping and 35 becoming ready.
-        // This is the private test controller, not a product request budget.
-        let controllerTimeout: TimeInterval = 60
+        // macOS fixture restarts allow 15 seconds to stop and 90 for actual
+        // health readiness while the simulator is running. This private
+        // controller deadline does not change a product request budget.
+        let controllerTimeout: TimeInterval = operation == "approved" ? 120 : 60
         var request = URLRequest(url: url, timeoutInterval: controllerTimeout)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")

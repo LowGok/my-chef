@@ -125,6 +125,12 @@ def main():
         native.command('xcrun', 'simctl', 'ui', identifier, 'content_size', 'accessibility-medium')
         metadata['contentSize'] = 'accessibility-medium'
         container = Path(native.command('xcrun', 'simctl', 'get_app_container', identifier, native.APP, 'data'))
+        # Isolate host restart readiness with the simulator already booted,
+        # before any app interaction or change to the disabled fixture policy.
+        # This supplies no native notice or spoken-output observation.
+        require_owned_phone(identifier)
+        controls['restart']()
+        print('Disabled backend restart passed with the owned simulator booted', flush=True)
         def bootstrap():
             # Probe compilation and selected host readiness preceded boot.
             # Require only the owned phone before actual native session proof.

@@ -320,7 +320,15 @@ def fixture(state, stack, journeys=False, analytics=None, controls=None):
             nonlocal app
             terminate(app)
             app = subprocess.Popen([str(state / 'mychef')], cwd=ROOT, env=app_env, stdout=log, stderr=log)
-            wait_for(ready, 'restarted disposable Go backend', 35)
+            # A live simulator competes with this host process. Preserve the
+            # actual health response requirement, with a bounded startup-only
+            # allowance on macOS; Linux/Android retain their existing limit.
+            seconds = 90 if sys.platform == 'darwin' else 35
+            started = time.monotonic()
+            print('Disposable backend restart deadline: seconds=' + str(seconds), flush=True)
+            wait_for(ready, 'restarted disposable Go backend', seconds)
+            elapsed = min(180, int(time.monotonic() - started))
+            print('Disposable backend restart ready: elapsedSeconds=' + str(elapsed), flush=True)
         controls['restart'] = restart
     events = []
     if analytics is not None:
