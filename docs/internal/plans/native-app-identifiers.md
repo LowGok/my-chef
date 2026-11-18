@@ -1,6 +1,6 @@
 ---
-status: draft
-status_description: "Owner approved implementation; final independent review and branch claim precede code changes."
+status: planned
+status_description: "Independently reviewed and accepted; ready for test-first tasks and the implementation claim."
 issue: https://github.com/LowGok/my-chef/issues/42
 goal: "Approved testers can install the same MyChef app identity that will be used for release while their existing MyChef accounts and the current Preview remain usable."
 covers:
