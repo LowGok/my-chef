@@ -184,6 +184,9 @@ final class AnalyticsProbe: XCTestCase {
                 print("Analytics iOS accessibility type: \(node.elementType.rawValue) state: \(state) enabled: \(node.isEnabled)")
             }
         }
+        // AX can attach the control while failure diagnostics are resolving.
+        // Require its current exact query result, not the earlier cached miss.
+        exists = element.exists
         XCTAssertTrue(exists, "Expected installed app control")
         for _ in 0..<12 {
             if hasTapRegion(element) && element.isHittable { return }
