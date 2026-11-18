@@ -330,7 +330,7 @@ def run(state, control, account, identifier, container, layout_only=False, voice
     if before_test is not None:
         before_test()
     # The full functional path includes two exports and deletion/relaunch.
-    # Keep speech/layout budgets unchanged and stay inside the 55-minute job.
+    # Keep speech/layout budgets unchanged and stay inside the 65-minute job.
     seconds = 1500 if layout_only or voiceover_only else 1800
     execute(['xcodebuild', 'test-without-building', '-xctestrun', str(plans[0]), '-destination', 'id=' + identifier,
              '-parallel-testing-enabled', 'NO', '-maximum-concurrent-test-simulator-destinations', '1'], seconds)
