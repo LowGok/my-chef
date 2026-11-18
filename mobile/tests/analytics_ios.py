@@ -141,10 +141,14 @@ def bootstrap(identifier, events, rejected, diagnostic):
         fresh = events[boundary:]
         return (('GET', 'session', 200) in fresh
                 and (('POST', 'session', 201) in fresh or ('POST', 'refresh', 200) in fresh))
+    # Cold simulator runs returned the real session responses during failure
+    # diagnostics, after the previous 100-second readiness window. Allow that
+    # measured startup delay; old responses still cannot acknowledge this launch.
     native.verify_stage(ready, 'fresh iOS analytics fixture session', events, rejected, diagnostic,
                         launch=lambda: native.command('xcrun', 'simctl', 'launch', identifier, native.APP,
                                                       '--mychef-analytics-native-fixture', timeout=150),
-                        event_start=boundary, tls_start=len(rejected), wait_after_launch_timeout=True)
+                        event_start=boundary, tls_start=len(rejected), wait_after_launch_timeout=True,
+                        wait_seconds=180)
 
 
 def prepare(state, identifier):

@@ -128,6 +128,27 @@ class IOSSessionBootstrapTest(unittest.TestCase):
                       'api=true native=false voices=12 english=2 private'):
             self.assertIsNone(analytics_ios.voice_environment('Analytics iOS voice environment: ' + value))
 
+    def test_cold_native_bootstrap_accepts_late_real_responses_with_a_bounded_deadline(self):
+        for arrival, accepted in ((130, True), (181, False)):
+            events = [('POST', 'session', 201), ('GET', 'session', 200)]
+            elapsed = [0]
+            def sleep(seconds):
+                elapsed[0] += seconds
+                if elapsed[0] == arrival:
+                    events.extend([('POST', 'refresh', 200), ('GET', 'session', 200)])
+            with self.subTest(arrival=arrival), \
+                 patch.object(analytics_ios.native, 'command') as launch, \
+                 patch.object(analytics_ios.native.time, 'monotonic', side_effect=lambda: elapsed[0]), \
+                 patch.object(analytics_ios.native.time, 'sleep', side_effect=sleep):
+                if accepted:
+                    analytics_ios.bootstrap('owned-phone', events, [], lambda: None)
+                    self.assertEqual(elapsed[0], arrival)
+                else:
+                    with self.assertRaisesRegex(RuntimeError, 'fresh iOS analytics fixture session'):
+                        analytics_ios.bootstrap('owned-phone', events, [], lambda: None)
+                self.assertLessEqual(elapsed[0], 180)
+                launch.assert_called_once()
+
     def test_only_fresh_native_session_responses_acknowledge_the_warmed_app(self):
         for responses, accepted in (([], False), ([('GET', 'session', 200)], False),
                 ([('POST', 'session', 201)], False),

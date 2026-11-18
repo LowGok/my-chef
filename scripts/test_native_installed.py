@@ -117,7 +117,7 @@ def wait_owned_android_transport(adb_path, emulator, seconds=180):
 
 
 def verify_stage(check, description, events, rejected_tls, diagnostics, *, launch, event_start=0, tls_start=0,
-                 wait_after_launch_timeout=False):
+                 wait_after_launch_timeout=False, wait_seconds=100):
     try:
         try:
             launch()
@@ -127,7 +127,7 @@ def verify_stage(check, description, events, rejected_tls, diagnostics, *, launc
             # A delayed simctl reply is not session proof. Do not relaunch or
             # change state: require the actual native HTTPS responses below.
             print("Native launch acknowledgement delayed; waiting for actual session proof", flush=True)
-        wait_for(check, description)
+        wait_for(check, description, wait_seconds)
     except (RuntimeError, subprocess.SubprocessError):
         print(f"Synthetic session response statuses: {events[event_start:][-12:]}", flush=True)
         print(f"Fixture TLS rejection reasons: {sorted(set(rejected_tls[tls_start:]))}", flush=True)
