@@ -1,6 +1,7 @@
 ---
-status: planned
-status_description: "Accepted for test-first backend implementation; branch claim pending."
+status: in-progress
+branch: feat/sign-in-identifier
+status_description: "Implement the accepted backend changes and verify them before requesting review."
 issue: https://github.com/LowGok/my-chef/issues/41
 goal: "Sign in to the same existing app account through the current API using its email address or a uniquely matching username."
 covers:
