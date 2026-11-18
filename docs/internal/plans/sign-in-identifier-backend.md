@@ -1,6 +1,6 @@
 ---
 status: draft
-status_description: "Unicode case folding and collision policy recorded; awaiting independent re-review."
+status_description: "Independent review found no issues; awaiting owner acceptance."
 issue: https://github.com/LowGok/my-chef/issues/41
 goal: "Sign in to the same existing app account through the current API using its email address or a uniquely matching username."
 covers:
@@ -34,8 +34,8 @@ is merged or renamed by the upgrade.
 
 The backend will add an indexed comparison key to SQLite. The test plan includes
 a disposable upgrade and backup-based rollback because the prior binary will
-refuse the new schema. A clean spec review and your acceptance are still needed
-before implementation. Merge and rollout require separate authority. The web
+refuse the new schema. The independent spec review found no issues. Owner
+acceptance is still needed before implementation. Merge and rollout require separate authority. The web
 form and the final iOS and Android keyboard, autofill and password-manager
 checks remain later work for #41.
 
@@ -304,6 +304,7 @@ are outside this policy.
 | --- | --- | --- | --- | --- | --- | --- |
 | 2026-11-18 | R-1 | spec | `4df5bcc5d337709899dbe8ad640c3c028c35743d` | unknown | procedural | 1 blocking, 4 should-fix |
 | 2026-11-18 | R-2 | spec | `6e3f76b065ebdbdba7d3b5c709d183a95e0ff926` | unknown | procedural | 1 blocking, 2 should-fix |
+| 2026-11-18 | R-3 | spec | `5bc04e63ccf60c1210396101306e0a231bec83b3` | unknown | procedural | No findings |
 
 ### R-1
 
@@ -364,6 +365,10 @@ SEVERITY: should-fix
 WHERE: Context > Policy-independent sign-in baseline; Test Plan AC-01
 EVIDENCE: The revised plan requires running the policy-independent email probes, but their five named tests were run through a temporary overlay. At `6e3f76b065ebdbdba7d3b5c709d183a95e0ff926`, `git grep TestIssue41Baseline` finds those names only in the feature document. The independent implementation reviewer cannot run those checks from that evidence alone.
 PROPOSAL: Require equivalent probes to be committed as regression tests and name a reproducible invocation for them. Keep the temporary overlay results as baseline evidence only.
+
+### R-3
+
+NO FINDINGS
 
 ## Sources
 
