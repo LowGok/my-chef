@@ -307,6 +307,9 @@ def run(state, control, account, identifier, container, layout_only=False, voice
             rectangles = re.findall(r'Analytics iOS tap rect: ([0-9.,{} -]{1,100})', text)
             if rectangles:
                 detail += '; tap rect ' + rectangles[-1]
+            traversals = re.findall(r'Analytics iOS voice traversal: reverse=(true|false) visited=([0-9]{1,2}) entered=([0-9]{1,2}) initialExits=([0-4]) matched=(true|false)', text)
+            if traversals:
+                detail += '; voice traversal reverse/visited/entered/initialExits/matched ' + ','.join('/'.join(row) for row in traversals[-4:])
             speech = re.findall(r'Analytics iOS spoken control: role=(true|false) disabled=(true|false) state=(on|off|unknown)', text)
             if speech:
                 detail += '; spoken role/disabled/state ' + ', '.join('/'.join(row) for row in speech[-4:])

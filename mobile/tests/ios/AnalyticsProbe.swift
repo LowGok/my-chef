@@ -857,15 +857,24 @@ final class AnalyticsProbe: XCTestCase {
             var output = observe { try voice.currentSpeech().utterance }
             var previous = "", repeated = 0, silent = 0, entries = 0
             var inspected = Set<String>()
+            var initialExits = 0, visited = 0, entered = 0
+            var ascending = false
+            func finish(_ matched: Bool) -> Bool {
+                // Closed counts only, never arbitrary utterances or UI values.
+                print("Analytics iOS voice traversal: reverse=\(reverse) visited=\(visited) entered=\(entered) initialExits=\(initialExits) matched=\(matched)")
+                return matched
+            }
             for _ in 0..<64 {
                 if Date() >= deadline { break }
                 if let value = output {
+                    visited += 1
                     silent = 0
-                    if visit(value) { return true }
+                    if visit(value) { return finish(true) }
                     repeated = value == previous ? repeated + 1 : 0
                     previous = value
-                    if repeated >= 2 && entries > 0 {
-                        entries -= 1; previous = ""; repeated = 0
+                    if repeated >= 2 && (entries > 0 || initialExits < 4) {
+                        if entries > 0 { entries -= 1 } else { initialExits += 1 }
+                        previous = ""; repeated = 0; ascending = true
                         output = observe { try voice.moveOut().utterance }
                         continue
                     }
@@ -873,18 +882,24 @@ final class AnalyticsProbe: XCTestCase {
                                                 options: [.regularExpression, .caseInsensitive]) != nil
                     // A matching label is not evidence of a container.
                     // Enter only a container actually announced by VoiceOver.
-                    if entries < 4 && container && inspected.insert(value).inserted {
+                    // The initial focus can already be nested. After moving
+                    // out at its boundary, advance to a sibling rather than
+                    // immediately entering the same parent again.
+                    let canEnter = !ascending
+                    ascending = false
+                    if canEnter && entries < 4 && container && inspected.insert(value).inserted {
                         // Entry is a real native command, not inferred success.
                         // A silent result never satisfies the visitor; keep the
                         // attempt bounded and return out at a silent boundary.
-                        entries += 1
+                        entries += 1; entered += 1
                         output = observe { try voice.moveIn().utterance }
                         continue
                     }
                 } else {
                     silent += 1
-                    if silent >= 2 && entries > 0 {
-                        entries -= 1; previous = ""; silent = 0
+                    if silent >= 2 && (entries > 0 || initialExits < 4) {
+                        if entries > 0 { entries -= 1 } else { initialExits += 1 }
+                        previous = ""; silent = 0; ascending = true
                         output = observe { try voice.moveOut().utterance }
                         continue
                     }
@@ -892,7 +907,7 @@ final class AnalyticsProbe: XCTestCase {
                 }
                 output = observe { try (reverse ? voice.moveBackward() : voice.moveForward()).utterance }
             }
-            return false
+            return finish(false)
         }
         func spoken(_ phrase: String, backward: Bool = false, controlRole: Bool = false) throws -> String {
             func words(_ value: String) -> String {
@@ -1040,6 +1055,9 @@ final class AnalyticsProbe: XCTestCase {
                 // control. Use a measured standard gesture after observing
                 // that overshoot, within the same six-attempt total bound.
                 if stable >= 3 && crossed { preciseScroll = true }
+                // An acknowledged gesture with settled zero motion did not
+                // scroll. Stop repeating it and use native traversal below.
+                if stable >= 3 && !moved { break }
             }
             let element = target()
             let region = hasTapRegion(element)
