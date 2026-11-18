@@ -120,6 +120,66 @@ None. The owner selected one new identity for both platforms, with the current P
 | Date | Review | Kind | Commit | Model | Isolation | Outcome |
 | --- | --- | --- | --- | --- | --- | --- |
 
+| 2026-11-18 | R-1 | spec | `49876561b72921b80e9082eb02add453fb99a39b` | unknown | procedural | Five blocking and three should-fix findings |
+
+### R-1
+
+FINDING: F-01
+KIND: factual
+SEVERITY: blocking
+WHERE: Owner summary:32; Candidate identity and access:61; Provider separation and retries:73,75; Inputs before implementation and live proof:84,86; AC-05, AC-06; Test Plan AC-05, AC-06; Sources
+EVIDENCE: The owner summary calls for real sandbox pushes, but Apple's [APNs entitlement documentation](https://developer.apple.com/documentation/bundleresources/entitlements/aps-environment.md) identifies production as the default for prerelease distribution. [App Attest](https://developer.apple.com/documentation/devicecheck/preparing-to-use-the-app-attest-service.md) always uses production after TestFlight distribution, while [StoreKit purchases in TestFlight](https://developer.apple.com/help/app-store-connect/test-a-beta-version/testing-subscriptions-and-in-app-purchases-in-testflight) run in sandbox. The plan does not state what combination must pass on the signed build.
+PROPOSAL: Identify the expected APNs, App Attest and StoreKit environments separately, and require readback of the signed entitlements and the corresponding provider and verifier routes. Scope the live Apple calls to the new identity and approved test installations without enabling production commerce.
+
+FINDING: F-02
+KIND: factual
+SEVERITY: blocking
+WHERE: Owner summary:32,34; Scope:46,48; Candidate identity and access:61; Provider separation and retries:75; Inputs before implementation and live proof:83,84,86; AC-06; Test Plan AC-06; Sources
+EVIDENCE: AC-06 requires a real Play subscription purchase while line 75 excludes catalogue activation without qualification. [Play Console subscription setup](https://support.google.com/googleplay/android-developer/answer/140504) requires an active base plan for purchasing, and [Play Billing testing guidance](https://developer.android.com/google/play/billing/test) says ordinary track testers can incur charges. The plan does not give an eligible no-charge path under those limits, or prove that merely having the test build cannot open a paid flow.
+PROPOSAL: Define the minimum separately approved Play catalogue setup, the exact license tester and purchasing account, and how paid checkout and production grant acceptance stay off before, during and after the test. If the required activation is not authorized, leave live Play proof pending and record the constraint for the owner.
+
+FINDING: F-03
+KIND: factual
+SEVERITY: blocking
+WHERE: Owner summary:30,32; Scope:46; Candidate identity and access:61; Provider separation and retries:73,77; Inputs before implementation and live proof:83-86; AC-05, AC-07; Test Plan AC-05, AC-07
+EVIDENCE: The exact-identity rule does not define how a shared backend distinguishes an old client or existing registration from the new identity. `internal/auth/native.go:102-108` binds only platform, `internal/http/notifications.go:68-94` accepts only token and permission from an existing native client, and `migrations/025_weekly_reminders.sql:14-22` has no app identity or environment. `internal/store/notification_settings.go:288-297` can replace another family's token registration. A second Firebase app in the same project does not fix this: `internal/notifications/provider.go:234-240` sends to the project and token without the package restriction documented in the [FCM REST API](https://firebase.google.com/docs/reference/fcm/rest/v1/projects.messages).
+PROPOSAL: Specify how the server binds a registration and its retries to a verified app and environment, handles existing clients and rows during upgrade and rollback, and rejects attempts to use another lane's token, including on a shared FCM project. Prove that misplaced tokens cannot deliver or disturb the legacy registration, and keep the pilot on the disposable backend until that passes.
+
+FINDING: F-04
+KIND: factual
+SEVERITY: blocking
+WHERE: Owner summary:32; Scope:46,48; Candidate identity and access:59; Account continuity and links:67,69; Inputs before implementation and live proof:83,85; AC-04; Test Plan AC-04; Sources
+EVIDENCE: The plan approves only website association files on a public host and cites the existing private account link boundary. `web/src/native-runtime.ts:20-40,85-90` accepts only four exact proof routes on the configured private API origin and rejects other URLs. AC-04 could pass by observing the app launch and then show an invalid-link error. Also, Android supports API 24 (`mobile/android/variables.gradle:2`), but [Android's App Links rules](https://developer.android.com/training/app-links/add-applinks) say Android 14 and earlier ignore path rules in `assetlinks.json`; checking a file and one modern device does not establish that unrelated paths stay in the browser.
+PROPOSAL: Specify the host, permitted path classes, the in-app destination and the useful browser fallback, including whether sensitive account proof URLs stay on their existing private route. Require a bounded Android manifest filter and proof of correct destination and browser fallback on supported older and current Android, with both install orders where handlers could collide.
+
+FINDING: F-05
+KIND: factual
+SEVERITY: blocking
+WHERE: Owner summary:28,30; Candidate identity and access:54-61; Account continuity and links:69; Provider separation and retries:77; Inputs before implementation and live proof:85; AC-04, AC-07; Test Plan AC-04, AC-07
+EVIDENCE: Stopping assignments and changing association files does not say what happens to an already installed candidate. [Apple](https://developer.apple.com/help/app-store-connect/test-a-beta-version/add-internal-testers) says a tester can retain access after a group removal, and [Play](https://support.google.com/googleplay/android-developer/answer/9845334) says a paused track leaves the app installed. [Apple's association cache](https://developer.apple.com/documentation/technotes/tn3155-debugging-universal-links) can outlast the rollback, and [Android 14 and earlier](https://developer.android.com/training/app-links/verify-applinks) typically re-read association changes only on install or update. Apple also [expires TestFlight builds after 90 days](https://developer.apple.com/help/app-store-connect/reference/app-uploads/app-build-statuses), so a legacy group readback alone cannot prove a usable fallback.
+PROPOSAL: Define the outcome for already installed candidates, cached handoffs and delayed provider work during withdrawal, including how an affected tester reaches a safe fallback without deleting unsynced data. Rehearse with both builds installed and stale association data, and verify that the legacy build remains usable for the pilot window before moving testers.
+
+FINDING: F-06
+KIND: factual
+SEVERITY: should-fix
+WHERE: Owner summary:32,34; Scope:46,48; Candidate identity and access:54-63; Inputs before implementation and live proof:83-85; AC-02; Test Plan AC-02; Sources
+EVIDENCE: The existing delivery contract checks `internalOnly === true` and zero external groups in `scripts/mobile-delivery.ts:114-135`. [Apple](https://developer.apple.com/help/app-store-connect/test-a-beta-version/invite-external-testers/) excludes Internal Only builds from external groups, and [TestFlight review](https://developer.apple.com/help/app-store-connect/test-a-beta-version/provide-test-information/) requires additional information for the review. The design names an external path but does not say how reviewers or external testers would reach the private backend, or which exact evidence is required before any submission or notification.
+PROPOSAL: State that internal testing satisfies this spec and defer the external path unless a separate approval defines a distinct externally eligible artifact, review access through a synthetic environment or accepted demo route, and manual invitation with automatic notification off. Preserve the legacy Internal Only delivery policy.
+
+FINDING: F-07
+KIND: factual
+SEVERITY: should-fix
+WHERE: Owner summary:34; Candidate identity and access:59,61,63; Provider separation and retries:77; Inputs before implementation and live proof:83-85; AC-01, AC-02, AC-07; Test Plan AC-01, AC-02, AC-07
+EVIDENCE: The draft asks for exact signing fingerprints and group and track verification before preparing any provider change, although the new records and groups do not exist and [Play](https://support.google.com/googleplay/android-developer/answer/9859152) can generate the app-signing key when setting up the first release. The baseline approval in `scripts/mobile-delivery.ts:19-27,82-90,114-135` binds source and artifact data but has no approved group, store record or track to compare against; the group ID is only checked for presence. The proposed test plan can catch a wrong target after upload or distribution without proving that it was refused before mutation.
+PROPOSAL: Separate planned identifiers and permissions from provider IDs and fingerprints that become observable after creation. Bind each later mutation to the read-back target, roster, operation and artifact, then test that a swapped group, track, record or stale approval is rejected before it can mutate provider state.
+
+FINDING: F-08
+KIND: factual
+SEVERITY: should-fix
+WHERE: Frontmatter covers; Background:38-41; Candidate identity and access:59; Account continuity and links:67,69; Provider separation and retries:73; Test Plan AC-01, AC-03, AC-04, AC-05
+EVIDENCE: [Issue #42](https://github.com/LowGok/my-chef/issues/42) asks for an inventory of identifier-dependent settings. The current references omit live dependencies such as the fixed iOS verification identity in `scripts/mobile-compile.ts:278`, the Android test target in `scripts/native_android_probe.py:11,23-27`, and the iOS Keychain service names in `mobile/ios/App/App/MyChefNativePlugin.swift:19` and `mobile/ios/App/App/ProtectedShopping.swift:14`. The `covers` list also omits `web/src/native-runtime.ts`, `web/src/reminder-device.ts` and `migrations/025_weekly_reminders.sql`, which can change the routing guarantees under review.
+PROPOSAL: Record the remaining identifier-dependent paths and distinguish OS application identity from compile namespace, probe IDs and local storage keys. Add the relevant client and schema paths to `covers`, preserving published migration files and documenting any compatible schema change separately from account migration.
+
 ## Sources
 
 - [Apple app information](https://developer.apple.com/help/app-store-connect/reference/app-information/app-information/): Bundle ID locks after upload.
