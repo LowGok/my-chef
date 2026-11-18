@@ -69,6 +69,8 @@ app retains local changes and offers the fixed browser fallback. Renewing a
 withdrawn identity asks for fresh sign-in without erasing pending shopping data.
 Association declarations are prepared for the new identity; publishing the
 website files and installing signed builds still require separate approval.
+The [app-link artifact handoff](docs/reference/native-app-links.md) describes
+local generation, HTTPS rehearsal and the exact website publication scope.
 
 ## Container
 
