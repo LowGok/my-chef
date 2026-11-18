@@ -134,6 +134,8 @@ None. The owner approved the native identity draft and implementation on 18 Nove
 | --- | --- | --- | --- | --- | --- | --- |
 | 2026-11-18 | R-1 | spec | `49876561b72921b80e9082eb02add453fb99a39b` | unknown | procedural | Five blocking and three should-fix findings |
 | 2026-11-18 | R-2 | spec | `c0be3665a7791408413d56b9f15b5c86f7ccd165` | unknown | procedural | Five blocking findings, one should-fix finding and one nit |
+| 2026-11-18 | R-3 | spec | `ec340e953b411d26a969c2326543b86ff4df570d` | unknown | procedural | No findings |
+| 2026-11-18 | R-3 | spec | `ec340e953b411d26a969c2326543b86ff4df570d` | n/a | n/a | accepted by owner |
 
 ### R-1
 
@@ -243,6 +245,10 @@ SEVERITY: nit
 WHERE: Review Log:131-134
 EVIDENCE: The blank line between the delimiter and the R-1 row separates the row from the table. At `c0be3665a7791408413d56b9f15b5c86f7ccd165` the pinned `vh-adlc fresh` reports `spec_review.reasons: ["no-review"]`, although the R-1 records appear below the table.
 PROPOSAL: Remove the blank line so the binary recognizes the historical row, preserve the returned records verbatim, and check that `fresh` identifies R-1 as a stale review rather than an absent one.
+
+### R-3
+
+NO FINDINGS
 
 ## Sources
 
