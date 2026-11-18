@@ -9,6 +9,7 @@ final class AnalyticsProbe: XCTestCase {
     var configuration: [String: String] = [:]
     var observations: [String: [String: Bool]] = [:]
     var hasEnteredData = false
+    var tapViewportCounts = (views: 0, roots: 0, targets: 0)
 
     override func setUpWithError() throws {
         continueAfterFailure = false
@@ -168,12 +169,27 @@ final class AnalyticsProbe: XCTestCase {
     func tapReady(_ element: XCUIElement, frame: CGRect, nativeElement: Bool) -> Bool {
         guard element.exists, hasTapRegion(frame: frame) else { return false }
         if nativeElement { return element.isHittable }
-        // WebKit can throw from isHittable even after reporting a fully visible
-        // control frame. The app path already sends coordinate input; require
-        // an enabled target inside its single current WebView, with no native
-        // alert or keyboard covering it, before using that measured OS point.
-        guard element.isEnabled, app.alerts.count == 0, app.webViews.count == 1 else { return false }
-        let viewport = app.webViews.firstMatch.frame
+        // WebKit can throw from isHittable despite a valid visible frame. AX
+        // can also expose several nested WebView wrappers for one document.
+        // Require one containing native hierarchy and one exact target in it.
+        tapViewportCounts = (views: 0, roots: 0, targets: 0)
+        guard element.isEnabled, app.alerts.count == 0 else { return false }
+        let views = app.webViews.allElementsBoundByAccessibilityElement
+        tapViewportCounts.views = min(99, views.count)
+        guard !views.isEmpty, views.count <= 8 else { return false }
+        let roots = views.filter { $0.descendants(matching: .webView).count == views.count - 1 }
+        tapViewportCounts.roots = min(99, roots.count)
+        guard roots.count == 1 else { return false }
+        let root = roots[0]
+        let targets = root.descendants(matching: .any).matching(NSPredicate(
+            format: "label == %@ AND elementType == %d", element.label, element.elementType.rawValue))
+        tapViewportCounts.targets = min(99, targets.count)
+        guard targets.count == 1 else { return false }
+        let matched = targets.firstMatch.frame
+        guard [matched.minX - frame.minX, matched.minY - frame.minY,
+               matched.width - frame.width, matched.height - frame.height]
+            .allSatisfy({ $0.isFinite && abs($0) <= 1 }) else { return false }
+        let viewport = root.frame
         return !viewport.isNull && !viewport.isInfinite
             && [viewport.minX, viewport.minY, viewport.maxX, viewport.maxY].allSatisfy({ $0.isFinite })
             && viewport.contains(frame)
@@ -225,6 +241,9 @@ final class AnalyticsProbe: XCTestCase {
         if exists {
             let frame = element.frame
             print("Analytics iOS tap rect: \(frame.minX),\(frame.minY),\(frame.width),\(frame.height)")
+        }
+        if !nativeElement {
+            print("Analytics iOS tap viewport: views=\(tapViewportCounts.views) roots=\(tapViewportCounts.roots) targets=\(tapViewportCounts.targets)")
         }
         screenState()
         XCTFail("Native tap target must finish layout before input")

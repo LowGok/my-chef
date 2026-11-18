@@ -114,7 +114,7 @@ def full_journeys(receipt, artifact):
                 primary_plan.append(analytics_ios.prepare(state, identifier))
                 print('Separate primary iOS probe compiled before phone boot', flush=True)
             metadata, _, _, diagnostic = native.ios(state, stack, ca, artifact,
-                before_boot=prepare_primary)
+                headless=True, before_boot=prepare_primary)
         if native.PLATFORM == 'android':
             native.verify_stage(lambda: ('POST', 'session', 201) in events and ('GET', 'session', 200) in events,
                                 'native analytics fixture session', events, rejected, diagnostic, launch=launch)
@@ -192,7 +192,7 @@ def full_journeys(receipt, artifact):
                 print('Separate small-phone iOS probe compiled before phone boot', flush=True)
             small_metadata, _, _, small_diagnostic = native.ios(small, stack, ca, artifact,
                 model='iPhone SE (3rd generation)', fixture_name='MyChef analytics small fixture',
-                before_boot=prepare_small)
+                headless=True, before_boot=prepare_small)
             devices = json.loads(native.command('xcrun', 'simctl', 'list', 'devices', 'booted', '-j'))['devices']
             identifiers = [d['udid'] for group in devices.values() for d in group if d.get('name') == 'MyChef analytics small fixture']
             if len(identifiers) != 1:

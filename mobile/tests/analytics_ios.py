@@ -253,6 +253,9 @@ def run(state, control, account, identifier, container, layout_only=False, voice
             taps = re.findall(r'Analytics iOS tap state: type=([0-9]{1,3}) exists=(true|false) ready=(true|false) stable=([0-9]{1,3})', text)
             if taps:
                 detail += '; tap type/exists/ready/stable ' + ', '.join('/'.join(row) for row in taps[-3:])
+            viewports = re.findall(r'Analytics iOS tap viewport: views=([0-9]{1,2}) roots=([0-9]{1,2}) targets=([0-9]{1,2})', text)
+            if viewports:
+                detail += '; tap viewport views/roots/targets ' + '/'.join(viewports[-1])
             rectangles = re.findall(r'Analytics iOS tap rect: ([0-9.,{} -]{1,100})', text)
             if rectangles:
                 detail += '; tap rect ' + rectangles[-1]

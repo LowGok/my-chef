@@ -698,8 +698,10 @@ def start_ios_ui(state, stack, arguments, observer=None):
 
 def ios_ui_command(developer, model, identifier, *, headless=False):
     if headless:
-        if model != "iPhone 17":
-            raise ValueError("Command-line UI testing is limited to the VoiceOver fixture")
+        analytics_owned = os.environ.get('NATIVE_ANALYTICS_JOURNEYS') == '1' and model in (
+            'iPhone 16', 'iPhone SE (3rd generation)')
+        if model != "iPhone 17" and not analytics_owned:
+            raise ValueError("Command-line UI testing requires an owned analytics fixture")
         return None
     developer = Path(developer)
     if model == 'iPhone 17':
@@ -723,8 +725,8 @@ def ios(state, stack, ca, package, model="iPhone 16", fixture_name="MyChef fixtu
         ('iPhone 16', 'MyChef fixture'), ('iPhone SE (3rd generation)', 'MyChef analytics small fixture'))
     if before_boot is not None and not (analytics_owned or (model, fixture_name) == ("iPhone 17", "MyChef analytics voice fixture")):
         raise ValueError("Preboot compilation requires an owned analytics fixture")
-    if headless and (model, fixture_name) != ("iPhone 17", "MyChef analytics voice fixture"):
-        raise ValueError("Command-line UI testing is limited to the VoiceOver fixture")
+    if headless and not (analytics_owned or (model, fixture_name) == ("iPhone 17", "MyChef analytics voice fixture")):
+        raise ValueError("Command-line UI testing requires an owned analytics fixture")
     if (model, fixture_name) not in (("iPhone 16", "MyChef fixture"),
                                     ("iPhone SE (3rd generation)", "MyChef analytics small fixture"),
                                     ("iPhone 17", "MyChef analytics voice fixture")):
@@ -784,7 +786,7 @@ def ios(state, stack, ca, package, model="iPhone 16", fixture_name="MyChef fixtu
         if headless:
             # XCTest still controls the real installed phone UI. Avoid the
             # extra desktop host's workload on the standard seven-GB runner.
-            print("Owned VoiceOver simulator uses command-line UI testing", flush=True)
+            print("Owned analytics simulator uses command-line UI testing", flush=True)
         elif ui_command:
             if model == "iPhone 17":
                 start_ios_ui(state, stack, ui_command, observer=ui_observer)

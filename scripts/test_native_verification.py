@@ -764,11 +764,47 @@ class XcodeUIHostTest(unittest.TestCase):
                 self.assertIn(str(installed.ROOT / 'mobile/tests/ios/SimulatorHost.swift'), compile_host.call_args_list[0].args)
 
     def test_modern_command_line_ui_testing_does_not_require_a_desktop_host_bundle(self):
-        with tempfile.TemporaryDirectory(prefix='analytics-headless-xcode-') as folder:
+        with tempfile.TemporaryDirectory(prefix='analytics-headless-xcode-') as folder, \
+             patch.dict(installed.os.environ, {'NATIVE_ANALYTICS_JOURNEYS': '0'}):
             developer = Path(folder) / 'Xcode_27.2.app/Contents/Developer'
             self.assertIsNone(installed.ios_ui_command(developer, 'iPhone 17', 'owned-device', headless=True))
-            with self.assertRaisesRegex(ValueError, 'VoiceOver fixture'):
+            with self.assertRaisesRegex(ValueError, 'analytics fixture'):
                 installed.ios_ui_command(developer, 'iPhone 16', 'owned-device', headless=True)
+
+    def test_only_named_analytics_phones_can_use_command_line_ui_testing(self):
+        class ReachedArchive(Exception):
+            pass
+        phones = [('iPhone 16', 'MyChef fixture'),
+                  ('iPhone SE (3rd generation)', 'MyChef analytics small fixture')]
+        for enabled in ('1', '0'):
+            for model, name in phones:
+                with self.subTest(enabled=enabled, model=model), ExitStack() as stack, \
+                     patch.dict(installed.os.environ, {'NATIVE_ANALYTICS_JOURNEYS': enabled}), \
+                     patch.object(installed, 'command', side_effect=ReachedArchive()) as command:
+                    if enabled == '1':
+                        self.assertIsNone(installed.ios_ui_command(Path('/fictional/Xcode/Developer'),
+                                                                 model, 'owned-phone', headless=True))
+                        with self.assertRaises(ReachedArchive):
+                            installed.ios(Path('/fictional/state'), stack, 'fictional-ca',
+                                          Path('/fictional/app.zip'), model=model,
+                                          fixture_name=name, headless=True)
+                        command.assert_called_once()
+                    else:
+                        with self.assertRaises(ValueError):
+                            installed.ios(Path('/fictional/state'), stack, 'fictional-ca',
+                                          Path('/fictional/app.zip'), model=model,
+                                          fixture_name=name, headless=True)
+                        command.assert_not_called()
+        with ExitStack() as stack, \
+             patch.dict(installed.os.environ, {'NATIVE_ANALYTICS_JOURNEYS': '1'}), \
+             patch.object(installed, 'command') as command:
+            for model, name in [('iPhone 16', 'foreign fixture'),
+                                ('iPhone SE (3rd generation)', 'MyChef fixture')]:
+                with self.subTest(model=model, name=name), self.assertRaises(ValueError):
+                    installed.ios(Path('/fictional/state'), stack, 'fictional-ca',
+                                  Path('/fictional/app.zip'), model=model,
+                                  fixture_name=name, headless=True)
+            command.assert_not_called()
 
     def test_modern_runtime_requires_device_hub_from_the_selected_xcode(self):
         with tempfile.TemporaryDirectory(prefix='analytics-xcode-ui-') as folder:
