@@ -1,7 +1,7 @@
 ---
-status: in-progress
+status: complete
 branch: feat/sign-in-identifier
-status_description: "Implement the accepted backend changes and verify them before requesting review."
+status_description: "All six backend criteria passed independent review; delivery runs normal CI. UI and native owner checks remain separate."
 issue: https://github.com/LowGok/my-chef/issues/41
 goal: "Sign in to the same existing app account through the current API using its email address or a uniquely matching username."
 covers:
