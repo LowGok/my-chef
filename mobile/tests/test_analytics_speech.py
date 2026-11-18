@@ -1,5 +1,8 @@
 """Reject silent or ambiguous speech evidence without starting an emulator."""
 import array
+import json
+import os
+import subprocess
 from contextlib import ExitStack
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -8,6 +11,7 @@ import tempfile
 import unittest
 import wave
 
+import analytics_speech
 from analytics_speech import Speech, audible, matches
 
 
@@ -93,6 +97,63 @@ class SpeechEvidenceTest(unittest.TestCase):
                     sound.setframerate(rate)
                     sound.writeframes(array.array('h', samples).tobytes())
                 self.assertEqual(audible(path), expected)
+
+
+class SpeechToolSetupTest(unittest.TestCase):
+    class ReachedRecognizer(Exception):
+        pass
+
+    def prepare(self, payload=None, timeout=False):
+        self.calls = []
+        with tempfile.TemporaryDirectory(prefix='analytics-package-test-') as directory:
+            root = Path(directory)
+            event = root / 'event.json'; event.write_text('{}')
+            def run(arguments, **options):
+                if 'apt-get' not in arguments:
+                    raise self.ReachedRecognizer()
+                self.calls.append((arguments, options))
+                if 'install' in arguments and payload is not None:
+                    output = options.get('stdout')
+                    if hasattr(output, 'write'):
+                        output.write(payload); output.flush()
+                    if timeout:
+                        raise subprocess.TimeoutExpired(arguments, 240, output=payload)
+                    raise subprocess.CalledProcessError(100, arguments, output=payload)
+                return subprocess.CompletedProcess(arguments, 0)
+            with patch.dict(os.environ, {'GITHUB_EVENT_PATH': str(event), 'NATIVE_PLATFORM': 'android'}), \
+                 patch('analytics_installed.authorized', return_value=True), \
+                 patch('analytics_speech.tools', return_value=root / 'tools'), \
+                 patch('analytics_speech.subprocess.run', side_effect=run):
+                analytics_speech.prepare()
+
+    def test_package_setup_cannot_prompt_and_preserves_existing_dependencies(self):
+        with self.assertRaises(self.ReachedRecognizer):
+            self.prepare()
+        self.assertEqual(len(self.calls), 2)
+        for arguments, options in self.calls:
+            self.assertEqual(list(arguments[:3]), ['sudo', '-n', 'env'])
+            self.assertIn('DEBIAN_FRONTEND=noninteractive', arguments)
+            self.assertIn('NEEDRESTART_MODE=l', arguments)
+            self.assertEqual(options.get('stdin'), subprocess.DEVNULL)
+            self.assertEqual(options['timeout'], 240)
+        install = self.calls[1][0]
+        self.assertIn('--no-upgrade', install)
+        self.assertEqual(list(install[install.index('--no-install-recommends') + 1:]),
+                         ['ffmpeg', 'cmake', 'g++', 'pulseaudio', 'pulseaudio-utils', 'xvfb', 'xdotool'])
+
+    def test_package_timeout_retains_only_a_closed_network_reason(self):
+        payload = b'Failed to fetch https://private.example.test/repo Bearer private-token user@example.test'
+        with self.assertRaisesRegex(RuntimeError, 'stage=install reason=network') as caught:
+            self.prepare(payload, timeout=True)
+        for value in ['private', 'Bearer', '@example', 'https:', 'token']:
+            self.assertNotIn(value, str(caught.exception))
+
+    def test_package_lock_failure_does_not_disclose_paths_or_messages(self):
+        payload = b'Could not get lock /private/customer-canary/lock user@example.test'
+        with self.assertRaisesRegex(RuntimeError, 'stage=install reason=lock') as caught:
+            self.prepare(payload)
+        for value in ['private', 'customer', '@example', '/lock']:
+            self.assertNotIn(value, str(caught.exception))
 
 
 if __name__ == '__main__':

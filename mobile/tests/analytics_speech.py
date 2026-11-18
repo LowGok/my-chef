@@ -7,6 +7,7 @@ import re
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.request
 import wave
@@ -69,6 +70,37 @@ def tools():
     return Path(os.environ['RUNNER_TEMP']) / 'analytics-speech-tools'
 
 
+def prepare_system_packages(root):
+    packages = ('ffmpeg', 'cmake', 'g++', 'pulseaudio', 'pulseaudio-utils', 'xvfb', 'xdotool')
+    prefix = ['sudo', '-n', 'env', 'DEBIAN_FRONTEND=noninteractive', 'NEEDRESTART_MODE=l', 'apt-get',
+              '-o', 'DPkg::Lock::Timeout=30', '-o', 'Acquire::Retries=2',
+              '-o', 'Acquire::http::Timeout=30', '-o', 'Acquire::https::Timeout=30']
+    for stage, arguments in (('update', ['-qq']),
+                             ('install', ['-y', '-qq', '--no-upgrade', '--no-install-recommends', *packages])):
+        # Package output stays in an anonymous runner-local file and is deleted
+        # on exit. Public diagnostics contain only the stage and closed reason.
+        with tempfile.TemporaryFile(dir=root) as log:
+            try:
+                subprocess.run([*prefix, stage, *arguments], cwd=root, check=True,
+                               stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT, timeout=240)
+            except (subprocess.TimeoutExpired, subprocess.CalledProcessError) as error:
+                log.seek(0)
+                raw = log.read(65537)
+                if len(raw) > 65536:
+                    reason = 'output-limit'
+                else:
+                    text = raw.decode('utf-8', errors='replace')
+                    if re.search(r'could not get lock|unable to acquire.*lock|waiting for cache lock', text, re.I):
+                        reason = 'lock'
+                    elif re.search(r'failed to fetch|could not resolve|temporary failure resolving|could not connect|connection timed out|TLS.*failed', text, re.I):
+                        reason = 'network'
+                    elif re.search(r'debconf:|configuration file|dpkg: error', text, re.I):
+                        reason = 'configuration'
+                    else:
+                        reason = 'timeout' if isinstance(error, subprocess.TimeoutExpired) else 'package'
+                raise RuntimeError('Runner speech package setup failed: stage=' + stage + ' reason=' + reason) from None
+
+
 def prepare():
     from analytics_installed import authorized
     event = json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text())
@@ -78,9 +110,7 @@ def prepare():
     root.mkdir(mode=0o700)
     def run(*args):
         subprocess.run(args, cwd=root, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=240)
-    run('sudo', 'apt-get', 'update', '-qq')
-    run('sudo', 'apt-get', 'install', '-y', '-qq', '--no-install-recommends',
-        'ffmpeg', 'cmake', 'g++', 'pulseaudio', 'pulseaudio-utils', 'xvfb', 'xdotool')
+    prepare_system_packages(root)
     source = root / 'recognizer'
     run('git', 'init', str(source))
     run('git', '-C', str(source), 'fetch', '--depth=1', 'https://github.com/ggml-org/whisper.cpp.git', RECOGNIZER_SOURCE)
