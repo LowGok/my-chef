@@ -82,3 +82,6 @@ var ReminderDispatchExpiry string
 
 //go:embed 027_newsletter_identity_minimisation.sql
 var NewsletterIdentityMinimisation string
+
+//go:embed 028_login_username_keys.sql
+var LoginUsernameKeys string
