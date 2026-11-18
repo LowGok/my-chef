@@ -67,7 +67,7 @@ class IOSProbeOrderTest(unittest.TestCase):
                     plan = plistlib.loads((state / 'ios-probe-build/Build/Products/AnalyticsProbe.xctestrun').read_bytes())
                     self.assertEqual(plan['AnalyticsProbe']['UITargetAppBundleIdentifier'], analytics_ios.native.APP)
                     (state / 'analytics-ios-observations.json').write_text(json.dumps({'checks': {}}))
-                return subprocess.CompletedProcess(arguments, 0, b'Analytics iOS VoiceOver navigation: flat selected=true\n')
+                return subprocess.CompletedProcess(arguments, 0, b'Analytics iOS VoiceOver navigation: native traversal verified=true\n')
 
             def warmup():
                 stages.append('bootstrap')
@@ -112,9 +112,10 @@ class IOSProbeOrderTest(unittest.TestCase):
 
 
 class IOSSessionBootstrapTest(unittest.TestCase):
-    def test_only_an_exact_native_flat_navigation_confirmation_is_accepted(self):
-        self.assertTrue(analytics_ios.voice_navigation('Analytics iOS VoiceOver navigation: flat selected=true\n'))
-        for line in ('flat selected=false', 'grouped selected=true', 'flat selected=true private', 'flat selected=1'):
+    def test_only_exact_native_traversal_completion_is_accepted(self):
+        self.assertTrue(analytics_ios.voice_navigation('Analytics iOS VoiceOver navigation: native traversal verified=true\n'))
+        for line in ('flat selected=true', 'grouped selected=true', 'native traversal verified=false',
+                     'native traversal verified=true private', 'native traversal verified=1'):
             self.assertFalse(analytics_ios.voice_navigation('Analytics iOS VoiceOver navigation: ' + line))
 
     def test_voice_environment_summary_keeps_only_closed_flags_and_counts(self):
@@ -173,26 +174,11 @@ class IOSSessionBootstrapTest(unittest.TestCase):
                 self.assertEqual(command.call_count, 1)
 
 
-class VoiceOverHostAttachmentTest(unittest.TestCase):
+class VoiceOverOwnedPhoneTest(unittest.TestCase):
     def snapshot(self, identifiers):
         return json.dumps({'devices': {'runtime': [{'udid': value, 'state': 'Booted'} for value in identifiers]}})
 
-    def test_settings_warmup_targets_only_the_verified_owned_phone(self):
-        with patch.object(analytics_voiceover.native, 'command',
-                          side_effect=[self.snapshot(['owned-phone']), 'launched']) as command:
-            analytics_voiceover.warm_voice_settings('owned-phone')
-            self.assertEqual(command.call_count, 2)
-            self.assertEqual(command.call_args.args,
-                ('xcrun', 'simctl', 'launch', 'owned-phone', 'com.apple.Preferences'))
-
-    def test_foreign_booted_phone_prevents_any_settings_launch(self):
-        with patch.object(analytics_voiceover.native, 'command',
-                          return_value=self.snapshot(['foreign-phone'])) as command:
-            with self.assertRaisesRegex(RuntimeError, 'owned booted VoiceOver phone'):
-                analytics_voiceover.warm_voice_settings('owned-phone')
-            self.assertEqual(command.call_count, 1)
-
-    def test_only_the_exact_owned_booted_phone_can_reach_the_native_warmup(self):
+    def test_only_the_exact_owned_booted_phone_can_reach_native_bootstrap(self):
         with patch.object(analytics_voiceover.native, 'command', return_value=self.snapshot(['owned-phone'])):
             analytics_voiceover.require_owned_phone('owned-phone')
         for identifiers in ([], ['foreign-phone'], ['owned-phone', 'foreign-phone'], ['owned-phone', 'owned-phone']):

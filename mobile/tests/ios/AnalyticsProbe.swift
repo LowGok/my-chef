@@ -774,184 +774,12 @@ final class AnalyticsProbe: XCTestCase {
     func verifyVoiceOver() throws {
         let voice = XCUIDevice.shared.voiceOverService
         if voice.isEnabled { try voice.disable() }
-        print("Analytics iOS voice phase: configure flat navigation")
-        let settings = XCUIApplication(bundleIdentifier: "com.apple.Preferences")
-        // The coordinator warmed this owned simulator's Settings before the
-        // app bootstrap. Preserve that instance instead of cold-launching it.
-        settings.activate()
-        guard settings.wait(for: .runningForeground, timeout: 20) else { throw Failure.missingControl }
-        // Foreground state precedes Settings' first usable accessibility tree.
-        // Use XCTest's bounded readiness wait before querying individual rows.
-        func settingsNavigation(timeout: TimeInterval) -> (bounds: CGRect, bar: CGRect)? {
-            let deadline = Date().addingTimeInterval(timeout)
-            while Date() < deadline {
-                // Capture once and inspect the immutable tree locally. Repeated
-                // matching queries can time out while Settings changes panes.
-                if let snapshot = try? settings.snapshot() {
-                    var pending: [any XCUIElementSnapshot] = [snapshot]
-                    var visited = 0
-                    while let node = pending.popLast(), visited < 2048 {
-                        visited += 1
-                        if node.elementType == .navigationBar {
-                            let bounds = snapshot.frame, bar = node.frame
-                            if !bounds.isNull && !bounds.isInfinite && !bar.isNull && !bar.isInfinite,
-                               bounds.width > 1, bounds.height > 1, bar.width > 1, bar.height > 1,
-                               [bounds.minX, bounds.minY, bounds.maxX, bounds.maxY,
-                                bar.minX, bar.minY, bar.maxX, bar.maxY].allSatisfy({ $0.isFinite }),
-                               bounds.contains(bar) {
-                                return (bounds, bar)
-                            }
-                        }
-                        pending.append(contentsOf: node.children)
-                    }
-                }
-                RunLoop.current.run(until: Date().addingTimeInterval(0.2))
-            }
-            return nil
-        }
-        func settingsState() {
-            guard let snapshot = try? settings.snapshot() else {
-                print("Analytics iOS Settings error: snapshot=unavailable")
-                return
-            }
-            let known = ["Accessibility", "VoiceOver", "Navigation Style", "Flat", "Grouped"]
-            var found = Set<String>()
-            var pending: [any XCUIElementSnapshot] = [snapshot]
-            var visited = 0, bars = 0, alerts = 0
-            while let node = pending.popLast(), visited < 2048 {
-                visited += 1
-                if node.elementType == .navigationBar { bars += 1 }
-                if node.elementType == .alert { alerts += 1 }
-                for name in known where node.label == name || node.identifier == name { found.insert(name) }
-                pending.append(contentsOf: node.children)
-            }
-            // No arbitrary Settings labels, identifiers, values or paths.
-            print("Analytics iOS Settings error: bars=\(min(99, bars)) alerts=\(min(99, alerts)) accessibility=\(found.contains("Accessibility")) voiceover=\(found.contains("VoiceOver")) style=\(found.contains("Navigation Style")) flat=\(found.contains("Flat")) grouped=\(found.contains("Grouped")) truncated=\(visited >= 2048)")
-        }
-        guard let layout = settingsNavigation(timeout: 45) else {
-            settingsState()
-            XCTFail("Native Settings navigation must become ready")
-            throw Failure.missingControl
-        }
-        func openSetting(_ name: String) throws {
-            guard ["Accessibility", "VoiceOver", "Navigation Style", "Flat"].contains(name) else { throw Failure.invalidFixture }
-            print("Analytics iOS voice phase: Settings " + name)
-            let item = settings.staticTexts[name].firstMatch
-            // These owned-phone panes keep the same full-screen window. Reuse
-            // its measured screen bounds without another complete Settings snapshot;
-            // each target and current navigation bar get fresh native geometry.
-            let bounds = layout.bounds.insetBy(dx: 1, dy: 1)
-            var lastFrame = CGRect.null
-            var lastExists = false, lastFrameValid = false, lastBarValid = false, lastVisible = false
-            var lastStable = 0
-            for _ in 0..<16 {
-                // Native AX queries can consume the old two-second window before
-                // three frames can be sampled. Keep actual stability mandatory.
-                let readyDeadline = Date().addingTimeInterval(15)
-                var previous = CGRect.null
-                var stable = 0
-                while Date() < readyDeadline {
-                    lastExists = item.exists
-                    let frame = lastExists ? item.frame : .null
-                    // Large-title and child panes can have different bar heights.
-                    // Read only the current native bar, not another full snapshot.
-                    let bars = settings.navigationBars
-                    let navigation = bars.count == 1 ? bars.firstMatch.frame : .null
-                    lastBarValid = !navigation.isNull && !navigation.isInfinite
-                        && navigation.width > 1 && navigation.height > 1
-                        && [navigation.minX, navigation.minY, navigation.maxX, navigation.maxY].allSatisfy({ $0.isFinite })
-                        && layout.bounds.contains(navigation)
-                    lastFrameValid = !frame.isNull && !frame.isInfinite && frame.width > 1 && frame.height > 1
-                        && [frame.minX, frame.minY, frame.maxX, frame.maxY].allSatisfy({ $0.isFinite })
-                    let visible = lastFrameValid && lastBarValid
-                        && bounds.contains(frame) && frame.minY > navigation.maxY
-                    let unchanged = !previous.isNull && abs(frame.minX - previous.minX) <= 1
-                        && abs(frame.minY - previous.minY) <= 1 && abs(frame.width - previous.width) <= 1
-                        && abs(frame.height - previous.height) <= 1
-                    stable = visible && unchanged ? stable + 1 : 0
-                    lastFrame = frame; lastVisible = visible; lastStable = stable
-                    if stable >= 2 {
-                        settings.coordinate(withNormalizedOffset: .zero).withOffset(
-                            CGVector(dx: frame.midX - layout.bounds.minX,
-                                     dy: frame.midY - layout.bounds.minY)).tap()
-                        // Give the real pane transition time to finish before
-                        // the next AX query; a busy Settings main loop cannot
-                        // supply a reliable selection snapshot.
-                        RunLoop.current.run(until: Date().addingTimeInterval(1))
-                        // Next native row and final actual Flat selection still
-                        // confirm progression; no inferred mode or synthetic input.
-                        return
-                    }
-                    previous = frame
-                    RunLoop.current.run(until: Date().addingTimeInterval(0.2))
-                }
-                // Never gesture without a current native navigation boundary.
-                if !lastBarValid { break }
-                let up = !lastFrameValid || lastFrame.midY > bounds.midY
-                let start = settings.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: up ? 0.7 : 0.35))
-                let end = settings.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: up ? 0.35 : 0.7))
-                start.press(forDuration: 0.2, thenDragTo: end)
-            }
-            print("Analytics iOS Settings row: exists=\(lastExists) frame=\(lastFrameValid) bar=\(lastBarValid) visible=\(lastVisible) stable=\(min(99, lastStable))")
-            settingsState()
-            XCTFail("Required native VoiceOver setting must be reachable")
-            throw Failure.missingControl
-        }
-        try openSetting("Accessibility")
-        try openSetting("VoiceOver")
-        func flatSelected() -> Bool {
-            // Prefer the setting's actual current value on the parent pane.
-            // Do not search every possible Flat control before reading it.
-            let parents = [settings.cells.containing(.staticText, identifier: "Navigation Style").firstMatch,
-                           settings.buttons.containing(.staticText, identifier: "Navigation Style").firstMatch]
-            if parents.contains(where: { $0.exists && (($0.value as? String) == "Flat" || $0.staticTexts["Flat"].exists) }) {
-                return true
-            }
-            let label = settings.staticTexts["Flat"].firstMatch
-            let row = settings.cells.containing(.staticText, identifier: "Flat").firstMatch
-            let button = settings.buttons["Flat"].firstMatch
-            // On the choices pane, require the actual selected trait.
-            return label.exists && label.isSelected || row.exists && row.isSelected || button.exists && button.isSelected
-        }
-        // Read the actual native value first. An already-confirmed Flat
-        // setting needs no mutation; its label alone never confirms the mode.
-        var selectedFlat = flatSelected()
-        if !selectedFlat {
-            try openSetting("Navigation Style")
-            try openSetting("Flat")
-            selectedFlat = flatSelected()
-            if !selectedFlat {
-                // A checked option need not expose a selected trait. Return to
-                // the parent screen to inspect this setting's current value.
-                let back = settings.navigationBars.buttons.matching(NSPredicate(format:
-                    "label == %@ OR label == %@", "VoiceOver", "Back")).firstMatch
-                if back.wait(for: \.isHittable, toEqual: true, timeout: 5) {
-                    back.tap()
-                }
-            }
-        }
-        let selectionDeadline = Date().addingTimeInterval(15)
-        while !selectedFlat && Date() < selectionDeadline {
-            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
-            selectedFlat = flatSelected()
-        }
-        guard selectedFlat else {
-            settingsState()
-            let label = settings.staticTexts["Flat"].firstMatch
-            let row = settings.cells.containing(.staticText, identifier: "Flat").firstMatch
-            let button = settings.buttons["Flat"].firstMatch
-            print("Analytics iOS Flat selection: label=\(label.exists && label.isSelected) cell=\(row.exists && row.isSelected) button=\(button.exists && button.isSelected)")
-            XCTFail("Native Settings must confirm flat VoiceOver navigation")
-            throw Failure.missingControl
-        }
-        print("Analytics iOS VoiceOver navigation: flat selected=true")
-        settings.terminate()
-        // Settings configuration can suspend the initial fixture for minutes.
-        // Start the measured app journey in a fresh foreground instance; the
-        // real notice response below must still arrive before speech counts.
-        print("Analytics iOS voice phase: app relaunch after Settings")
-        relaunch()
-        waitFor({ self.text("Welcome back.") }, "Fresh app must reach sign in after native Settings")
+        // Exercise the owned phone's native navigation without changing a
+        // global Settings preference. Actual speech and order establish proof.
+        print("Analytics iOS voice phase: native navigation")
+        app.activate()
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 20))
+        waitFor({ self.text("Welcome back.") }, "Owned app must reach sign in before VoiceOver")
         func enableVoice() throws {
             try voice.enable()
             XCTAssertTrue(voice.isEnabled)
@@ -965,6 +793,59 @@ final class AnalyticsProbe: XCTestCase {
             // Availability and flags diagnose missing speech; they never set
             // a spoken-output observation or synthesize a replacement voice.
             print("Analytics iOS voice environment: api=\(voice.isEnabled) native=\(nativeEnabled) voices=\(min(999, voices.count)) english=\(min(999, english))")
+        }
+        func observe(_ operation: () throws -> String) -> String? {
+            do { return try operation() }
+            catch {
+                let code = (error as NSError).code
+                let category = code == XCUIVoiceOverService.Error.Code.noSpeech.rawValue ? "no-speech"
+                    : code == XCUIVoiceOverService.Error.Code.notRunning.rawValue ? "not-running" : "other"
+                print("Analytics iOS voice error category: " + category)
+                print("Analytics iOS voice API error: " + ((0...10).contains(code) ? String(code) : "other"))
+                return nil
+            }
+        }
+        func walkSpeech(reverse: Bool = false, enterIf: (String) -> Bool = { _ in false },
+                        visit: (String) -> Bool) -> Bool {
+            let deadline = Date().addingTimeInterval(45)
+            var output = observe { try voice.currentSpeech().utterance }
+            var previous = "", repeated = 0, silent = 0, entries = 0
+            var inspected = Set<String>()
+            for _ in 0..<64 {
+                if Date() >= deadline { break }
+                if let value = output {
+                    silent = 0
+                    if visit(value) { return true }
+                    repeated = value == previous ? repeated + 1 : 0
+                    previous = value
+                    if repeated >= 2 && entries > 0 {
+                        entries -= 1; previous = ""; repeated = 0
+                        output = observe { try voice.moveOut().utterance }
+                        continue
+                    }
+                    let container = value.range(of: "\\b(web content|group|container)\\b",
+                                                options: [.regularExpression, .caseInsensitive]) != nil
+                    if entries < 4 && (container || enterIf(value))
+                            && inspected.insert(value).inserted {
+                        // Entry is a real native command, not inferred success.
+                        // A silent result never satisfies the visitor; keep the
+                        // attempt bounded and return out at a silent boundary.
+                        entries += 1
+                        output = observe { try voice.moveIn().utterance }
+                        continue
+                    }
+                } else {
+                    silent += 1
+                    if silent >= 2 && entries > 0 {
+                        entries -= 1; previous = ""; silent = 0
+                        output = observe { try voice.moveOut().utterance }
+                        continue
+                    }
+                    RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+                }
+                output = observe { try (reverse ? voice.moveBackward() : voice.moveForward()).utterance }
+            }
+            return false
         }
         func spoken(_ phrase: String, backward: Bool = false, controlRole: Bool = false) throws -> String {
             func words(_ value: String) -> String {
@@ -993,17 +874,6 @@ final class AnalyticsProbe: XCTestCase {
                 }
                 return !controlRole || role
             }
-            func observe(_ operation: () throws -> String) -> String? {
-                do { return try operation() }
-                catch {
-                    let code = (error as NSError).code
-                    let category = code == XCUIVoiceOverService.Error.Code.noSpeech.rawValue ? "no-speech"
-                        : code == XCUIVoiceOverService.Error.Code.notRunning.rawValue ? "not-running" : "other"
-                    print("Analytics iOS voice error category: " + category)
-                    print("Analytics iOS voice API error: " + ((0...10).contains(code) ? String(code) : "other"))
-                    return nil
-                }
-            }
             var inspectedLabelCandidate = false
             func candidate(_ output: String) -> String? {
                 if matches(output) { return output }
@@ -1015,30 +885,21 @@ final class AnalyticsProbe: XCTestCase {
                     RunLoop.current.run(until: Date().addingTimeInterval(0.3))
                     if let current = observe({ try voice.currentSpeech().utterance }), matches(current) { return current }
                 }
-                // Flat navigation can expose a separate label beside its
-                // control. Stay in sequence instead of entering a container
-                // based only on that label. Role/state proof remains spoken.
+                // A label alone is insufficient. Native container traversal
+                // may reach its control, whose own speech must include its role.
                 return nil
             }
-            // Search the confirmed Flat sequence; never combine utterances
-            // or substitute an accessibility label for actual control speech.
-            if let current = observe({ try voice.currentSpeech().utterance }), let found = candidate(current) { return found }
+            // Every accepted result is one actual utterance. Native container
+            // commands handle the current hierarchy without assuming its mode.
             for reverse in [backward, !backward] {
-                // Reserve time for both directions if the first reaches a
-                // boundary without throwing or changing its announcement.
-                let deadline = Date().addingTimeInterval(45)
-                for _ in 0..<64 {
-                    if Date() >= deadline { break }
-                    let output = observe { try (reverse ? voice.moveBackward() : voice.moveForward()).utterance }
-                    guard let output = output else {
-                        // A navigation target can be silent. Keep searching
-                        // within the bounded budget instead of abandoning the
-                        // direction after the first NoSpeech response.
-                        RunLoop.current.run(until: Date().addingTimeInterval(0.2))
-                        continue
-                    }
-                    if let found = candidate(output) { return found }
-                }
+                var found: String?
+                let reached = walkSpeech(reverse: reverse, enterIf: {
+                    controlRole && words($0).contains(expected)
+                }, visit: { output in
+                    if let result = candidate(output) { found = result; return true }
+                    return false
+                })
+                if reached, let result = found { return result }
             }
             // Describe only known choice nodes if speech remains missing.
             let choices = app.descendants(matching: .any).matching(NSPredicate(format:
@@ -1129,14 +990,21 @@ final class AnalyticsProbe: XCTestCase {
         print("Analytics iOS voice phase: profile order")
         _ = try focusSpeech(privacyHeading, "Privacy and data")
         var checkboxIndex: Int?, statusIndex: Int?, refreshIndex: Int?
-        for index in 0..<24 {
-            let utterance = try voice.moveForward().utterance
+        var index = 0
+        let traversedOrder = walkSpeech(enterIf: { value in
+            value.localizedCaseInsensitiveContains("Help improve MyChef")
+                && value.range(of: "switch|check.?box|tick.?box|button",
+                               options: [.regularExpression, .caseInsensitive]) == nil
+        }, visit: { utterance in
+            defer { index += 1 }
             let role = utterance.range(of: "switch|check.?box|tick.?box|button", options: [.regularExpression, .caseInsensitive]) != nil
             if utterance.localizedCaseInsensitiveContains("Help improve MyChef"), role, checkboxIndex == nil { checkboxIndex = index }
             if let controlIndex = checkboxIndex, index > controlIndex,
                utterance.lowercased().trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("off"), statusIndex == nil { statusIndex = index }
-            if utterance.localizedCaseInsensitiveContains("Refresh analytics setting") { refreshIndex = index; break }
-        }
+            if utterance.localizedCaseInsensitiveContains("Refresh analytics setting") { refreshIndex = index; return true }
+            return false
+        })
+        XCTAssertTrue(traversedOrder, "Native traversal must reach Refresh after the control and status")
         XCTAssertNotNil(checkboxIndex); XCTAssertNotNil(statusIndex); XCTAssertNotNil(refreshIndex)
         XCTAssertLessThan(checkboxIndex ?? 100, statusIndex ?? -1)
         XCTAssertLessThan(statusIndex ?? 100, refreshIndex ?? -1)
@@ -1205,6 +1073,7 @@ final class AnalyticsProbe: XCTestCase {
         print("Analytics iOS voice phase: backup cleanup")
         _ = try spoken("isolated backup cleanup is pending", backward: true)
         mark("accessibility", "platformScreenReader", "spokenStatesAndErrors")
+        print("Analytics iOS VoiceOver navigation: native traversal verified=true")
     }
     #endif
 

@@ -99,6 +99,53 @@ class SpeechEvidenceTest(unittest.TestCase):
                 self.assertEqual(audible(path), expected)
 
 
+
+class SpeechMirrorPolicyTest(unittest.TestCase):
+    def test_prefers_only_the_existing_official_archive_and_preserves_endpoints(self):
+        for cloud in ('azure.archive.ubuntu.com', 'us-east-2.ec2.archive.ubuntu.com'):
+            original = ('http://' + cloud + '/ubuntu/\tpriority:1\n'
+                        'https://archive.ubuntu.com/ubuntu/\tpriority:2\n'
+                        'https://security.ubuntu.com/ubuntu/\tpriority:3\n')
+            actual = analytics_speech.archive_first_mirrors(original)
+            self.assertEqual(actual, original.replace('priority:1', 'priority:0').replace(
+                'priority:2', 'priority:1').replace('priority:0', 'priority:2'))
+            self.assertEqual([line.split()[0] for line in actual.splitlines()],
+                             [line.split()[0] for line in original.splitlines()])
+            self.assertEqual(analytics_speech.archive_first_mirrors(actual), actual)
+
+    def test_unknown_or_credential_bearing_mirror_lists_are_left_alone(self):
+        original = ('http://azure.archive.ubuntu.com/ubuntu/\tpriority:1\n'
+                    'https://archive.ubuntu.com/ubuntu/\tpriority:2\n'
+                    'https://security.ubuntu.com/ubuntu/\tpriority:3\n')
+        for value in ('', 'x' * 4097, original + 'https://other.example.test/ priority:4\n',
+                      original.replace('archive.ubuntu.com/ubuntu/\tpriority:2',
+                                       'secret@archive.ubuntu.com/ubuntu/\tpriority:2'),
+                      original.replace('priority:2', 'priority:0')):
+            with self.subTest(size=len(value)):
+                self.assertIsNone(analytics_speech.archive_first_mirrors(value))
+
+
+
+    def test_only_a_known_existing_list_can_request_a_bounded_privileged_write(self):
+        with tempfile.TemporaryDirectory(prefix='analytics-mirror-') as directory:
+            path = Path(directory) / 'mirrors'
+            with patch('analytics_speech.subprocess.run') as run:
+                analytics_speech.prefer_archive_mirror(path)
+                path.write_text('private unknown mirror canary')
+                analytics_speech.prefer_archive_mirror(path)
+                run.assert_not_called()
+                original = ('http://azure.archive.ubuntu.com/ubuntu/\tpriority:1\n'
+                            'https://archive.ubuntu.com/ubuntu/\tpriority:2\n'
+                            'https://security.ubuntu.com/ubuntu/\tpriority:3\n')
+                path.write_text(original)
+                analytics_speech.prefer_archive_mirror(path)
+                run.assert_called_once_with(['sudo', '-n', 'tee', '--', str(path)],
+                    input=analytics_speech.archive_first_mirrors(original).encode(),
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                    check=True, timeout=10)
+                self.assertEqual(path.read_text(), original, 'The test must not execute sudo')
+
+
 class SpeechToolSetupTest(unittest.TestCase):
     class ReachedRecognizer(Exception):
         pass
@@ -123,6 +170,7 @@ class SpeechToolSetupTest(unittest.TestCase):
             with patch.dict(os.environ, {'GITHUB_EVENT_PATH': str(event), 'NATIVE_PLATFORM': 'android'}), \
                  patch('analytics_installed.authorized', return_value=True), \
                  patch('analytics_speech.tools', return_value=root / 'tools'), \
+                 patch('analytics_speech.prefer_archive_mirror') as self.mirror, \
                  patch('shutil.which', side_effect=lambda name: '/fictional/bin/' + name if name in available else None), \
                  patch('analytics_speech.subprocess.run', side_effect=run):
                 analytics_speech.prepare()
@@ -150,6 +198,7 @@ class SpeechToolSetupTest(unittest.TestCase):
         with self.assertRaises(self.ReachedRecognizer):
             self.prepare(available={'ffmpeg', 'cmake', 'g++', 'pulseaudio', 'pactl', 'Xvfb', 'xdotool'})
         self.assertEqual(self.calls, [])
+        self.mirror.assert_not_called()
 
     def test_only_missing_tools_request_their_existing_packages(self):
         with self.assertRaises(self.ReachedRecognizer):
@@ -157,6 +206,7 @@ class SpeechToolSetupTest(unittest.TestCase):
         install = self.calls[1][0]
         self.assertEqual(list(install[install.index('--no-install-recommends') + 1:]),
                          ['pulseaudio', 'pulseaudio-utils', 'xdotool'])
+        self.mirror.assert_called_once_with()
 
     def test_timeout_progress_reports_only_a_closed_package_phase(self):
         for progress, phase in [(b'Get:1 https://private.example.test/repo', 'download'),

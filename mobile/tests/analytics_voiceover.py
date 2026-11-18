@@ -64,11 +64,6 @@ def require_owned_phone(identifier):
         raise RuntimeError('Expected one owned booted VoiceOver phone')
 
 
-def warm_voice_settings(identifier):
-    require_owned_phone(identifier)
-    native.command('xcrun', 'simctl', 'launch', identifier, 'com.apple.Preferences', timeout=90)
-
-
 def main():
     os.umask(0o077)
     event = json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text())
@@ -129,8 +124,6 @@ def main():
         identifier = identifiers[0]
         native.command('xcrun', 'simctl', 'ui', identifier, 'content_size', 'accessibility-medium')
         metadata['contentSize'] = 'accessibility-medium'
-        warm_voice_settings(identifier)
-        print('Owned Settings warm launch requested before native bootstrap', flush=True)
         container = Path(native.command('xcrun', 'simctl', 'get_app_container', identifier, native.APP, 'data'))
         def bootstrap():
             # Probe compilation and selected host readiness preceded boot.
@@ -156,15 +149,15 @@ def main():
             raise RuntimeError('VoiceOver requires both actual signup notice responses')
         analytics_ios.text_observation(identifier)
         navigation = json.loads((state / 'analytics-voice-navigation.json').read_text())
-        if navigation != {'style': 'flat', 'nativeSelectionObserved': True}:
-            raise RuntimeError('Native VoiceOver navigation setting was not confirmed')
-        metadata['voiceNavigationStyle'] = 'flat; native Settings selection confirmed'
+        if navigation != {'method': 'native-container-traversal', 'focusOrderObserved': True}:
+            raise RuntimeError('Native VoiceOver traversal was not verified')
+        metadata['voiceNavigationMethod'] = 'native forward/backward and container traversal; actual focus order verified'
         expected_supplement = dict(artifact_binding, fixtureConfigSha256=hashlib.sha256(json.dumps({
             'configuration': hashlib.sha256((state / 'analytics-config.json').read_bytes()).hexdigest(),
             'driver': hashlib.sha256((ROOT / 'mobile/tests/ios/AnalyticsProbe.swift').read_bytes()).hexdigest(),
             'overlays': {name: hashlib.sha256((state / name).read_bytes()).hexdigest()
                          for name in ('analytics-runtime-fixture.go', 'analytics-worker-fixture.go')},
-            'runtime': metadata['runtime'], 'xcode': version, 'voiceNavigationStyle': 'flat',
+            'runtime': metadata['runtime'], 'xcode': version, 'voiceNavigationMethod': 'native-container-traversal',
         }, sort_keys=True).encode()).hexdigest())
         supplement = dict(schemaVersion=1, binding=expected_supplement,
                           checks={name: checks['accessibility'][name] for name in SPEECH})

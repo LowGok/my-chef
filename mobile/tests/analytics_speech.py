@@ -71,6 +71,49 @@ def tools():
     return Path(os.environ['RUNNER_TEMP']) / 'analytics-speech-tools'
 
 
+def archive_first_mirrors(document):
+    """Reprioritize only the existing, exact hosted-runner default endpoints."""
+    if type(document) is not str or len(document) > 4096:
+        return None
+    lines = document.splitlines()
+    entries = [line.split() for line in lines]
+    if len(entries) != 3 or any(len(item) != 2 for item in entries):
+        return None
+    cloud, archive, security = entries
+    if (cloud[0] not in ('http://azure.archive.ubuntu.com/ubuntu/',
+                         'http://us-east-2.ec2.archive.ubuntu.com/ubuntu/')
+            or archive[0] != 'https://archive.ubuntu.com/ubuntu/'
+            or security != ['https://security.ubuntu.com/ubuntu/', 'priority:3']):
+        return None
+    if (cloud[1], archive[1]) == ('priority:2', 'priority:1'):
+        return document
+    if (cloud[1], archive[1]) != ('priority:1', 'priority:2'):
+        return None
+    lines[0] = lines[0].replace('priority:1', 'priority:2')
+    lines[1] = lines[1].replace('priority:2', 'priority:1')
+    return '\n'.join(lines) + ('\n' if document.endswith('\n') else '')
+
+
+def prefer_archive_mirror(path=Path('/etc/apt/apt-mirrors.txt')):
+    # A trickling cloud mirror does not trip APT's idle timeout (#14823).
+    # Prefer the official HTTPS fallback already configured by runner-images.
+    # Unknown/custom lists are untouched; no endpoint or trust key is added.
+    try:
+        with path.open() as stream:
+            document = stream.read(4097)
+    except (OSError, UnicodeError):
+        print('Runner speech mirror preference: unavailable', flush=True)
+        return
+    preferred = archive_first_mirrors(document)
+    if preferred is None or preferred == document:
+        print('Runner speech mirror preference: unchanged', flush=True)
+        return
+    subprocess.run(['sudo', '-n', 'tee', '--', str(path)], input=preferred.encode(),
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                   check=True, timeout=10)
+    print('Runner speech mirror preference: existing-official-archive', flush=True)
+
+
 def prepare_system_packages(root):
     required = (('ffmpeg', 'ffmpeg'), ('cmake', 'cmake'), ('g++', 'g++'),
                 ('pulseaudio', 'pulseaudio'), ('pulseaudio-utils', 'pactl'),
@@ -80,6 +123,7 @@ def prepare_system_packages(root):
           + ' install=' + str(len(packages)), flush=True)
     if not packages:
         return
+    prefer_archive_mirror()
     # Use the hosted runner's short mirror-failover policy instead of
     # overriding it with longer retries. Package authenticity stays enforced.
     # actions/runner-images: images/ubuntu/scripts/build/configure-apt.sh

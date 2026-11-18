@@ -54,7 +54,7 @@ def safe_diagnostic(text, secrets):
 
 
 def voice_navigation(text):
-    return re.search(r'^Analytics iOS VoiceOver navigation: flat selected=true$', text, re.M) is not None
+    return re.search(r'^Analytics iOS VoiceOver navigation: native traversal verified=true$', text, re.M) is not None
 
 
 def voice_environment(text):
@@ -302,9 +302,9 @@ def run(state, control, account, identifier, container, layout_only=False, voice
             raise RuntimeError('Isolated iOS analytics probe failed: ' + detail)
         if voiceover_only:
             if not voice_navigation(result.stdout.decode(errors='replace')):
-                raise RuntimeError('Native VoiceOver navigation setting was not confirmed')
+                raise RuntimeError('Native VoiceOver traversal was not verified')
             (root / 'analytics-voice-navigation.json').write_text(json.dumps(
-                {'style': 'flat', 'nativeSelectionObserved': True}))
+                {'method': 'native-container-traversal', 'focusOrderObserved': True}))
     if prepared_plan is None:
         prepared_plan = prepare(root, identifier)
     plans = list((root / 'ios-probe-build/Build/Products').glob('*.xctestrun'))
