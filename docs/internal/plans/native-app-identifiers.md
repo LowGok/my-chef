@@ -130,8 +130,8 @@ None. The owner selected one new identity for both platforms, with the current P
 
 | Date | Review | Kind | Commit | Model | Isolation | Outcome |
 | --- | --- | --- | --- | --- | --- | --- |
-
 | 2026-11-18 | R-1 | spec | `49876561b72921b80e9082eb02add453fb99a39b` | unknown | procedural | Five blocking and three should-fix findings |
+| 2026-11-18 | R-2 | spec | `c0be3665a7791408413d56b9f15b5c86f7ccd165` | unknown | procedural | Five blocking findings, one should-fix finding and one nit |
 
 ### R-1
 
@@ -190,6 +190,57 @@ SEVERITY: should-fix
 WHERE: Frontmatter covers; Background:38-41; Candidate identity and access:59; Account continuity and links:67,69; Provider separation and retries:73; Test Plan AC-01, AC-03, AC-04, AC-05
 EVIDENCE: [Issue #42](https://github.com/LowGok/my-chef/issues/42) asks for an inventory of identifier-dependent settings. The current references omit live dependencies such as the fixed iOS verification identity in `scripts/mobile-compile.ts:278`, the Android test target in `scripts/native_android_probe.py:11,23-27`, and the iOS Keychain service names in `mobile/ios/App/App/MyChefNativePlugin.swift:19` and `mobile/ios/App/App/ProtectedShopping.swift:14`. The `covers` list also omits `web/src/native-runtime.ts`, `web/src/reminder-device.ts` and `migrations/025_weekly_reminders.sql`, which can change the routing guarantees under review.
 PROPOSAL: Record the remaining identifier-dependent paths and distinguish OS application identity from compile namespace, probe IDs and local storage keys. Add the relevant client and schema paths to `covers`, preserving published migration files and documenting any compatible schema change separately from account migration.
+
+### R-2
+
+FINDING: F-01
+KIND: judgement
+SEVERITY: blocking
+WHERE: Owner summary:36,38; Scope:51,53; Account continuity and links:76,78; Inputs before implementation and live proof:94,96; AC-04; Test Plan AC-04; Open Questions:127
+EVIDENCE: The revision makes a new public page at `mychef.dev/app/open` and a link to Meals mandatory. The owner chose the native identifier and retained the Preview; the dispatch gave no owner decision about adding this public route to the website. The pinned `conventions/feature-documents.md:137-160` requires owner decisions for trade-offs settled in a spec. A later approval to publish the page does not settle whether the feature should require it.
+PROPOSAL: Raise a short Open Question for the owner to select the public handoff and fallback or defer public association and scope proof to the private test. Record the selected route and website work dependency before requesting spec acceptance.
+
+FINDING: F-02
+KIND: factual
+SEVERITY: blocking
+WHERE: Owner summary:36; Account continuity and links:76,78; AC-04; Test Plan AC-04; Sources
+EVIDENCE: The revision requires the proposed public URL to open the new app when the app is installed, without saying where the link must be opened from. [Apple's universal link diagnostics](https://developer.apple.com/documentation/technotes/tn3155-debugging-universal-links) say that Safari stays in the browser on same-domain navigation or address-bar entry, and that users can choose browser handling. A cold-open test from another app can pass while the same link on the MyChef site never opens the app.
+PROPOSAL: Specify the supported link sources and device settings, and say which cases should remain in the browser. Verify the actual launch source and same-domain fallback alongside the cross-app cold open and warm navigation, while preserving active account proofs and the existing unsaved-edit guard in `web/src/App.tsx:190-208`.
+
+FINDING: F-03
+KIND: factual
+SEVERITY: blocking
+WHERE: Candidate identity and access:66,68; Account continuity and links:78; Inputs before implementation and live proof:94-96; AC-02, AC-04; Test Plan AC-02, AC-04; Sources
+EVIDENCE: The revised link design calls for one Play app-signing certificate, and the signed test can use Android 15 as its newer target. [Play App Signing](https://support.google.com/googleplay/android-developer/answer/9842756?hl=en-GB) says new apps default to hybrid signing, distinguishes the three signing fingerprints for pre-17 and 17+ devices, and directs developers to add the applicable fingerprints to `assetlinks.json`. The specified test can pass on Android 14 and 15 while the Play-installed app on Android 17 fails association.
+PROPOSAL: Require the complete applicable set of Play app-signing fingerprints from authenticated readback, separate from the upload certificate. Prove link handling on Play-installed builds across both the Android 14/15 path rule boundary and the Android 16/17 signing boundary, or record an owner-approved limitation.
+
+FINDING: F-04
+KIND: factual
+SEVERITY: blocking
+WHERE: Scope:53; Account continuity and links:74,78; Provider separation and retries:82,84,88; AC-03, AC-05, AC-06, AC-07; Test Plan AC-03, AC-05, AC-06, AC-07
+EVIDENCE: The revised lane rule covers creation, refresh and reminder changes, but does not define what happens to previously issued access credentials on a different or paused ingress. `internal/http/native.go:37-55` authorizes bearer requests independently of refresh; `internal/http/native.go:141-158` also replaces the family after sign-in. The specified refresh and registration tests could pass while sign-in loses the lane or a still-valid access family keeps reaching ordinary or billing routes beyond the candidate's permitted sync window.
+PROPOSAL: Define which trusted ingress value creates the lane, how the lane survives family replacement, and where existing bearer requests are checked against the lane and withdrawal state. Prove that an already-issued candidate family cannot use the legacy ingress or reach disabled routes, that any approved sync allowance expires, and that the legacy family still operates.
+
+FINDING: F-05
+KIND: factual
+SEVERITY: blocking
+WHERE: Owner summary:32,34,36; Provider separation and retries:84,86,88; AC-05, AC-07; Test Plan AC-05, AC-07; Sources
+EVIDENCE: The revised withdrawal scenario says candidate push stops after routing is disabled, but `internal/store/notification_dispatch.go:350-382` can already have claimed a send and be waiting on the provider or writing a retry after the change. [APNs](https://developer.apple.com/documentation/usernotifications/sending-notification-requests-to-apns) and [FCM](https://firebase.google.com/docs/cloud-messaging/customize-messages/setting-message-lifespan) can deliver previously accepted messages later. The revision also does not say what happens when a verified billing callback is already in progress when its route closes.
+PROPOSAL: Define the cutover for claimed, accepted and retried push work, the safe behavior of a late tap, and the outcome for in-progress or replayed billing callbacks. Exercise withdrawal with work already in flight and distinguish stopping new submissions and grants from device deliveries that the provider already accepted.
+
+FINDING: F-06
+KIND: factual
+SEVERITY: should-fix
+WHERE: Candidate identity and access:66,68; Inputs before implementation and live proof:94,95; Test Plan AC-02, AC-07
+EVIDENCE: The revision separates creation of the top-level record from later writes, then requires signing fingerprints, a group ID or track, and a roster for each later write. A group creation can only return its own group ID after it succeeds, and [Play](https://support.google.com/googleplay/android-developer/answer/9842756?hl=en) documents signing enrollment during initial app setup and upload. The current wording can make the first preparation operation depend on its own result.
+PROPOSAL: Define the preconditions and expected readback separately for each creation-stage mutation, including creating a group and the first Play upload. Require provider-generated identifiers and fingerprints on downstream operations once they exist and before making a build available.
+
+FINDING: F-07
+KIND: factual
+SEVERITY: nit
+WHERE: Review Log:131-134
+EVIDENCE: The blank line between the delimiter and the R-1 row separates the row from the table. At `c0be3665a7791408413d56b9f15b5c86f7ccd165` the pinned `vh-adlc fresh` reports `spec_review.reasons: ["no-review"]`, although the R-1 records appear below the table.
+PROPOSAL: Remove the blank line so the binary recognizes the historical row, preserve the returned records verbatim, and check that `fresh` identifies R-1 as a stale review rather than an absent one.
 
 ## Sources
 
