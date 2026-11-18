@@ -1,5 +1,8 @@
 """Authorization tests do not launch an emulator or impersonate a CI run."""
 import copy
+from contextlib import ExitStack
+import json
+from unittest.mock import patch
 import importlib.util
 from pathlib import Path
 import sqlite3
@@ -19,6 +22,56 @@ class AnalyticsLaneTest(unittest.TestCase):
         self.event = dict(repository=dict(id=1454481532, private=False, full_name='LowGok/my-chef'), deleted=False,
                           sender=dict(login='LowGok'), after='a' * 40,
                           ref='refs/heads/ci/analytics-installed-b9e9699')
+
+    def test_ios_preserves_one_fresh_bootstrap_after_text_setup_before_xctest(self):
+        class StopJourney(Exception):
+            pass
+        for ready in (True, False):
+            stages = []
+            def fixture(state, _stack, **options):
+                (state / 'analytics-config.json').write_text('{}')
+                options['controls']['restart'] = lambda: None
+                return 'fictional-ca', [], []
+            def compile_probe(*_):
+                stages.append('compile')
+                return Path('owned.xctestrun')
+            def ios(state, _stack, _ca, _artifact, **options):
+                options['before_boot']('owned-phone')
+                stages.append('boot')
+                return {}, lambda: stages.append('extra-launch'), lambda: stages.append('stop'), lambda: None
+            def command(*arguments, **_):
+                if arguments[2:5] == ('list', 'devices', 'booted'):
+                    return json.dumps({'devices': {'runtime': [
+                        {'name': 'MyChef fixture', 'udid': 'owned-phone'}]}})
+                if arguments[2] == 'ui':
+                    stages.append('text-size')
+                    return ''
+                return '/fictional/owned/container'
+            def bootstrap(*_):
+                stages.append('bootstrap')
+                if not ready:
+                    raise StopJourney()
+            def run(*_, **options):
+                options['before_test']()
+                stages.append('xctest')
+                raise StopJourney()
+            with self.subTest(ready=ready), ExitStack() as mocks:
+                mocks.enter_context(patch.object(lane.native, 'PLATFORM', 'ios-simulator'))
+                mocks.enter_context(patch.object(lane.native, 'fixture', side_effect=fixture))
+                actor = mocks.enter_context(patch.object(lane, 'Fixture')).return_value
+                actor.operate.return_value = {}
+                actor.serve.return_value = {}
+                mocks.enter_context(patch.object(lane.native, 'ios', side_effect=ios))
+                mocks.enter_context(patch.object(lane.native, 'command', side_effect=command))
+                mocks.enter_context(patch.object(lane.native, 'verify_stage',
+                    side_effect=lambda *_, **options: options['launch']()))
+                mocks.enter_context(patch.object(lane.analytics_ios, 'prepare', side_effect=compile_probe))
+                mocks.enter_context(patch.object(lane.analytics_ios, 'bootstrap', side_effect=bootstrap))
+                mocks.enter_context(patch.object(lane.analytics_ios, 'run', side_effect=run))
+                with self.assertRaises(StopJourney):
+                    lane.full_journeys({}, Path('fictional.app.zip'))
+            self.assertEqual(stages, ['compile', 'boot', 'text-size', 'bootstrap']
+                             + (['xctest'] if ready else []))
 
     def test_exact_run_allows_only_the_two_unsigned_platforms(self):
         for platform in ('android', 'ios-simulator'):

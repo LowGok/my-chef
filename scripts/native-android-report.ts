@@ -164,6 +164,12 @@ export function androidCrashFacts(raw: string, expectedPid?: string) {
     ["art-gc", /art::gc::|Heap::CollectGarbage|MarkCompact::/],
     ["art-jit", /art::jit::|JitCompileTask|JitCompiler/],
     ["ui-automation", /UiAutomationConnection|UiAutomation::/],
+    ["input-event", /android_view_(?:InputEvent|MotionEvent)|NativeInputEventReceiver|finishInputEvent/],
+    ["accessibility", /android_view_accessibility|AccessibilityInteractionClient|AccessibilityInteractionController|AccessibilityNodeInfo|AccessibilityRecord/],
+    ["binder", /android_os_Binder|IPCThreadState|BBinder|BpBinder/],
+    ["jni-call", /Call(?:Static)?(?:Void|Object|Boolean|Int)Method/],
+    ["test-probe", /com[/.]gkldevelopment[/.]mychef[/.]testing[/.]NativeJourneyProbe[.$/]/],
+    ["app-bridge", /com[/.]gkldevelopment[/.]mychef[/.]preview[/.](?:MyChefNativePlugin|ProtectedRefresh|ProtectedShopping|NativeRuntime)[.$/]/],
   ] as const).filter(([, pattern]) => pattern.test(nativeFrames)).map(([kind]) => kind);
   return { targetProcess: true, javaCrash: block.includes("FATAL EXCEPTION:"),
     nativeCrash: /signal [0-9]{1,2} \(SIG(?:ABRT|SEGV|BUS|ILL)\)/.test(block),

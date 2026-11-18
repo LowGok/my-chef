@@ -252,3 +252,23 @@ Abort message: art::jit::JitCompileTask private@example.test
   for (const secret of ["private", "customer", "@example", "JitCompileTask"])
     expect(JSON.stringify(result)).not.toContain(secret);
 });
+
+test("native crash frames distinguish framework entry families without exposing symbols", () => {
+  const raw = `pid: 200, tid: 201, name: private-worker >>> com.gkldevelopment.mychef.preview <<<
+signal 11 (SIGSEGV), code 1
+    #00 pc abc /private/customer/libandroid_runtime.so (android::NativeInputEventReceiver::consumeEvents+77)
+    #01 pc def /private/customer/libandroid_runtime.so (android_view_accessibility_AccessibilityNodeInfo+42)
+    #02 pc abc /private/customer/libbinder.so (android::IPCThreadState::transact+33)
+    #03 pc def /private/customer/libart.so (art::JNI::CallVoidMethod+12)
+    #04 pc abc /private/customer/base.odex (com.gkldevelopment.mychef.testing.NativeJourneyProbe.activate+22)
+    #05 pc def /private/customer/base.odex (com.gkldevelopment.mychef.preview.MyChefNativePlugin.clearShopping+99)`;
+  const result = report.androidCrashFacts(raw, "200");
+  expect(result.nativeFrameCategories).toEqual([
+    "input-event", "accessibility", "binder", "jni-call", "test-probe", "app-bridge",
+  ]);
+  for (const secret of ["private", "customer", "consumeEvents", "transact", "CallVoidMethod",
+                        "NativeJourneyProbe", "MyChefNativePlugin", "clearShopping", "200", "201"])
+    expect(JSON.stringify(result)).not.toContain(secret);
+  expect(report.androidCrashFacts(raw.replaceAll(/#[0-9]{2} pc/g, "message"), "200")
+    .nativeFrameCategories).toEqual([]);
+});

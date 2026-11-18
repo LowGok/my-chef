@@ -113,12 +113,11 @@ def full_journeys(receipt, artifact):
             def prepare_primary(identifier):
                 primary_plan.append(analytics_ios.prepare(state, identifier))
                 print('Separate primary iOS probe compiled before phone boot', flush=True)
-            metadata, launch, stop, diagnostic = native.ios(state, stack, ca, artifact,
+            metadata, _, _, diagnostic = native.ios(state, stack, ca, artifact,
                 before_boot=prepare_primary)
-        native.verify_stage(lambda: ('POST', 'session', 201) in events and ('GET', 'session', 200) in events,
-                            'native analytics fixture session', events, rejected, diagnostic, launch=launch,
-                            wait_after_launch_timeout=native.PLATFORM == 'ios-simulator')
         if native.PLATFORM == 'android':
+            native.verify_stage(lambda: ('POST', 'session', 201) in events and ('GET', 'session', 200) in events,
+                                'native analytics fixture session', events, rejected, diagnostic, launch=launch)
             install_android_probe(state, artifact)
             (state / 'native-android-account.json').write_text(json.dumps(account))
             for key in ('GITHUB_ACTIONS', 'GITHUB_REPOSITORY', 'NATIVE_PLATFORM'):
@@ -148,7 +147,9 @@ def full_journeys(receipt, artifact):
             identifier = identifiers[0]
             native.command('xcrun', 'simctl', 'ui', identifier, 'content_size', 'accessibility-medium')
             container = Path(native.command('xcrun', 'simctl', 'get_app_container', identifier, native.APP, 'data'))
-            stop()
+            # The precompiled probe needs one fresh native bootstrap with text
+            # settings already applied. Avoid a redundant anonymous launch and
+            # termination before that same required HTTPS proof.
             if len(primary_plan) != 1:
                 raise RuntimeError('Expected one precompiled primary iOS probe')
             try:
