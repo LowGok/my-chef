@@ -715,6 +715,11 @@ final class AnalyticsProbe: XCTestCase {
             summary.tap()
         }
         fill("Extra item", "Analytics queued oats"); tap("Add extra")
+        // The lower form and keyboard can leave the progress status outside
+        // WebKit's accessibility tree. Reach the actual status before reading it.
+        let pending = app.descendants(matching: .any).matching(NSPredicate(format:
+            "label BEGINSWITH %@", "Pending sync")).firstMatch
+        reveal(pending)
         waitFor({ self.text("Pending sync") }, "Offline edit must enter durable queue")
         _ = try control("other-session-choice", ["enabled": false]); _ = try control("maintenance")
         _ = try control("other-session-choice", ["enabled": true]); _ = try control("online")
