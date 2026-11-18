@@ -248,7 +248,7 @@
     "/api/native/v1/planning-reminders/installation": {
       "put": {
         "operationId": "registerPlanningReminderDevice",
-        "description": "Register the live native installation only after opt-in and OS permission.",
+        "description": "Register the live native installation only after opt-in and OS permission. The server derives identity and provider environment from the authenticated installation and private configuration. Clients cannot submit a routing lane; a known token registered to another lane or environment is refused without changing that registration.",
         "requestBody": {
           "required": true,
           "content": {

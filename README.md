@@ -50,6 +50,13 @@ does not reopen the candidate; reactivation requires fresh sign-in. The Preview
 route remains available. These controls do not create store records, publish
 links, sign builds or move testers.
 
+Push configuration keeps the existing top-level Apple/Google Preview settings.
+An optional `App` section contains separate settings for `dev.mychef.app`; it
+never falls back to the Preview sender. The Google configuration for this new
+section must name the exact `Package`. Each registration and queued copy keeps
+its server-selected lane and environment, and sends restrict both the APNs topic
+and FCM Android package. Provider files and signing material remain private.
+
 ## Container
 
 Run `docker build -t my-chef:local .`. The image contains the app and

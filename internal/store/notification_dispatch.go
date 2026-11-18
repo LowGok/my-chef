@@ -23,23 +23,29 @@ type reminderOccurrence struct {
 }
 
 type reminderDispatch struct {
-	Reference  string
-	Occurrence string
-	FamilyID   string
-	Attempts   int
+	IdentityLane     string
+	Environment      string
+	IdentityRevision int64
+	Reference        string
+	Occurrence       string
+	FamilyID         string
+	Attempts         int
 }
 
 type reminderRegistration struct {
-	Provider    string
-	TokenTag    []byte
-	TokenCipher []byte
+	IdentityLane     string
+	Environment      string
+	IdentityRevision int64
+	Provider         string
+	TokenTag         []byte
+	TokenCipher      []byte
 }
 
 const reminderFamilyActive = ` FROM reminder_installations i
 JOIN native_families f ON f.id=i.family_id
 JOIN sessions a ON a.hash=f.anchor_hash
 JOIN account_incarnations o ON o.incarnation=i.incarnation AND o.user_id=a.user_id
-WHERE i.incarnation=? AND f.platform=i.platform AND f.expires_unix>? AND a.expires_unix>? AND i.refreshed_unix>?`
+WHERE i.identity_lane=f.identity_lane AND i.identity_revision=f.identity_revision AND i.incarnation=? AND f.platform=i.platform AND f.expires_unix>? AND a.expires_unix>? AND i.refreshed_unix>?`
 
 func (s *ReminderSettings) evaluateReminderPreferences(ctx context.Context) error {
 	return s.store.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -152,12 +158,12 @@ SELECT id FROM reminder_occurrences WHERE deadline<? LIMIT 256)`, at.Add(-14*24*
 			}
 			candidate.Attempts++
 			dispatch = candidate
-			delivery = notifications.Delivery{Provider: registration.Provider, Token: string(token), Reference: candidate.Reference, Deadline: time.Unix(o.Deadline, 0)}
+			delivery = notifications.Delivery{IdentityLane: registration.IdentityLane, Environment: registration.Environment, Provider: registration.Provider, Token: string(token), Reference: candidate.Reference, Deadline: time.Unix(o.Deadline, 0)}
 			tokenTag = registration.TokenTag
 			return nil
 		}
 		var due []reminderDispatch
-		if err := tx.Raw(`SELECT d.reference,d.occurrence,d.family_id,d.attempts FROM reminder_dispatches d JOIN reminder_occurrences o ON o.id=d.occurrence
+		if err := tx.Raw(`SELECT d.reference,d.occurrence,d.family_id,d.attempts,d.identity_lane,d.environment,d.identity_revision FROM reminder_dispatches d JOIN reminder_occurrences o ON o.id=d.occurrence
 WHERE d.state='pending' AND d.next_attempt<=? AND o.deadline>? ORDER BY d.schedule_checked,d.next_attempt,d.family_id,d.reference LIMIT 64`,
 			at.Unix(), at.Unix()).Scan(&due).Error; err != nil {
 			return err
@@ -181,8 +187,8 @@ WHERE d.state='pending' AND d.next_attempt<=? AND o.deadline>? ORDER BY d.schedu
 			}
 			var registration reminderRegistration
 			if active {
-				err = tx.Raw("SELECT i.provider,i.token_tag,i.token_cipher"+reminderFamilyActive+" AND i.family_id=?",
-					o.Incarnation, at.Unix(), at.Unix(), at.Add(-reminderRegistrationMaxAge).Unix(), candidate.FamilyID).Row().Scan(&registration.Provider, &registration.TokenTag, &registration.TokenCipher)
+				err = tx.Raw("SELECT i.provider,i.token_tag,i.token_cipher,i.identity_lane,i.environment,i.identity_revision"+reminderFamilyActive+" AND i.family_id=? AND i.identity_lane=? AND i.environment=? AND i.identity_revision=?",
+					o.Incarnation, at.Unix(), at.Unix(), at.Add(-reminderRegistrationMaxAge).Unix(), candidate.FamilyID, candidate.IdentityLane, candidate.Environment, candidate.IdentityRevision).Row().Scan(&registration.Provider, &registration.TokenTag, &registration.TokenCipher, &registration.IdentityLane, &registration.Environment, &registration.IdentityRevision)
 				if errors.Is(err, sql.ErrNoRows) {
 					active = false
 				} else if err != nil {
@@ -190,7 +196,7 @@ WHERE d.state='pending' AND d.next_attempt<=? AND o.deadline>? ORDER BY d.schedu
 				}
 			}
 			var token []byte
-			if active && !s.providerEnabled(registration.Provider) {
+			if active && !s.identityProviderEnabled(registration.IdentityLane, registration.Environment, registration.Provider) {
 				active = false
 			}
 			if active {
@@ -230,17 +236,20 @@ ORDER BY o.next_check,o.scheduled,o.id LIMIT 64`, at.Unix(), at.Unix(), at.Unix(
 			var token []byte
 			if active {
 				var registrations []struct {
-					FamilyID    string
-					Provider    string
-					TokenTag    []byte
-					TokenCipher []byte
+					IdentityLane     string
+					Environment      string
+					IdentityRevision int64
+					FamilyID         string
+					Provider         string
+					TokenTag         []byte
+					TokenCipher      []byte
 				}
-				if err := tx.Raw("SELECT i.family_id,i.provider,i.token_tag,i.token_cipher"+reminderFamilyActive+" ORDER BY i.family_id",
+				if err := tx.Raw("SELECT i.family_id,i.provider,i.token_tag,i.token_cipher,i.identity_lane,i.environment,i.identity_revision"+reminderFamilyActive+" ORDER BY i.family_id",
 					o.Incarnation, at.Unix(), at.Unix(), at.Add(-reminderRegistrationMaxAge).Unix()).Scan(&registrations).Error; err != nil {
 					return err
 				}
 				for _, device := range registrations {
-					if !s.providerEnabled(device.Provider) {
+					if !s.identityProviderEnabled(device.IdentityLane, device.Environment, device.Provider) {
 						continue
 					}
 					secret, err := s.vault.Open(nil, nil, device.TokenCipher, []byte(o.Incarnation+":"+device.FamilyID+":"+device.Provider))
@@ -249,13 +258,13 @@ ORDER BY o.next_check,o.scheduled,o.id LIMIT 64`, at.Unix(), at.Unix(), at.Unix(
 					}
 					defer clear(secret)
 					var reference string
-					if err := tx.Raw("INSERT INTO reminder_dispatches(reference,occurrence,family_id,state,next_attempt) VALUES(lower(hex(randomblob(16))),?,?,'pending',?) RETURNING reference",
-						o.ID, device.FamilyID, at.Unix()).Row().Scan(&reference); err != nil {
+					if err := tx.Raw("INSERT INTO reminder_dispatches(reference,occurrence,family_id,state,next_attempt,identity_lane,environment,identity_revision) VALUES(lower(hex(randomblob(16))),?,?,'pending',?,?,?,?) RETURNING reference",
+						o.ID, device.FamilyID, at.Unix(), device.IdentityLane, device.Environment, device.IdentityRevision).Row().Scan(&reference); err != nil {
 						return err
 					}
 					if first.Reference == "" {
-						first = reminderDispatch{Reference: reference, Occurrence: o.ID, FamilyID: device.FamilyID}
-						registration, token = reminderRegistration{Provider: device.Provider, TokenTag: device.TokenTag, TokenCipher: device.TokenCipher}, secret
+						first = reminderDispatch{IdentityLane: device.IdentityLane, Environment: device.Environment, IdentityRevision: device.IdentityRevision, Reference: reference, Occurrence: o.ID, FamilyID: device.FamilyID}
+						registration, token = reminderRegistration{IdentityLane: device.IdentityLane, Environment: device.Environment, IdentityRevision: device.IdentityRevision, Provider: device.Provider, TokenTag: device.TokenTag, TokenCipher: device.TokenCipher}, secret
 					} else {
 						clear(secret)
 					}

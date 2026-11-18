@@ -33,14 +33,16 @@ type ApplePush struct {
 
 type GooglePush struct {
 	Project, Email, PrivateKey string
+	Package                    string
 }
 
 type PushSender struct {
-	topic, project, appleHost string
-	client                    *http.Client
-	credential                func(context.Context, string) (string, error)
-	now                       func() time.Time
-	apple, google             bool
+	identityLane, environment, androidPackage string
+	topic, project, appleHost                 string
+	client                                    *http.Client
+	credential                                func(context.Context, string) (string, error)
+	now                                       func() time.Time
+	apple, google                             bool
 }
 
 type cachedPushCredential struct {
@@ -56,6 +58,25 @@ var pushToken = regexp.MustCompile(`^[A-Za-z0-9_:-]{32,512}$`)
 var errPushConfig = errors.New("invalid push sender configuration")
 
 func NewPushSender(apple *ApplePush, google *GooglePush) (*PushSender, error) {
+	return NewIdentityPushSender("preview", apple, google)
+}
+
+func pushApplicationID(lane string) string {
+	switch lane {
+	case "preview":
+		return "com.gkldevelopment.mychef.preview"
+	case "app":
+		return "dev.mychef.app"
+	default:
+		return ""
+	}
+}
+
+func NewIdentityPushSender(lane string, apple *ApplePush, google *GooglePush) (*PushSender, error) {
+	appID := pushApplicationID(lane)
+	if appID == "" || apple != nil && apple.Topic != appID || google != nil && google.Package != appID && (google.Package != "" || lane != "preview") {
+		return nil, errPushConfig
+	}
 	if apple == nil && google == nil {
 		return nil, errPushConfig
 	}
@@ -68,7 +89,7 @@ func NewPushSender(apple *ApplePush, google *GooglePush) (*PushSender, error) {
 		},
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
-	s := &PushSender{client: client, now: time.Now}
+	s := &PushSender{client: client, now: time.Now, identityLane: lane, environment: "production", androidPackage: appID}
 	var appleKey *ecdsa.PrivateKey
 	var googleKey *rsa.PrivateKey
 	if apple != nil {
@@ -77,6 +98,7 @@ func NewPushSender(apple *ApplePush, google *GooglePush) (*PushSender, error) {
 		}
 		s.appleHost = "https://api.push.apple.com"
 		if apple.Environment == "development" {
+			s.environment = "development"
 			s.appleHost = "https://api.sandbox.push.apple.com"
 		} else if apple.Environment != "production" {
 			return nil, errPushConfig
@@ -128,6 +150,8 @@ func NewPushSender(apple *ApplePush, google *GooglePush) (*PushSender, error) {
 	}
 	return s, nil
 }
+
+func (s *PushSender) Environment() string { return s.environment }
 
 func parsePushKey(value string) (crypto.PrivateKey, error) {
 	if len(value) > 16<<10 {
@@ -209,6 +233,23 @@ func (s *PushSender) Supports(provider string) bool {
 }
 
 func (s *PushSender) Send(ctx context.Context, d Delivery) Result {
+	lane, environment := d.IdentityLane, d.Environment
+	if lane == "" {
+		lane = "preview"
+	}
+	if environment == "" {
+		environment = "production"
+	}
+	configuredLane, configuredEnvironment := s.identityLane, s.environment
+	if configuredLane == "" {
+		configuredLane = "preview"
+	}
+	if configuredEnvironment == "" {
+		configuredEnvironment = "production"
+	}
+	if lane != configuredLane || environment != configuredEnvironment {
+		return Result{State: Permanent}
+	}
 	if !pushReference.MatchString(d.Reference) || !pushToken.MatchString(d.Token) || !s.now().Before(d.Deadline) {
 		return Result{State: Permanent}
 	}
@@ -232,11 +273,15 @@ func (s *PushSender) Send(ctx context.Context, d Delivery) Result {
 		endpoint = host + "/3/device/" + d.Token
 		body = map[string]any{"aps": map[string]any{"alert": map[string]string{"title": pushTitle, "body": pushMessage}, "sound": "default"}, "reminder": d.Reference}
 	case "fcm":
+		androidPackage := s.androidPackage
+		if androidPackage == "" {
+			androidPackage = pushApplicationID(configuredLane)
+		}
 		endpoint = "https://fcm.googleapis.com/v1/projects/" + s.project + "/messages:send"
 		body = map[string]any{"message": map[string]any{
 			"token": d.Token, "notification": map[string]string{"title": pushTitle, "body": pushMessage},
 			"data":    map[string]string{"reminder": d.Reference},
-			"android": map[string]any{"ttl": strconv.FormatInt(ttl, 10) + "s", "notification": map[string]string{"tag": d.Reference, "channel_id": "mychef-planning"}},
+			"android": map[string]any{"restricted_package_name": androidPackage, "ttl": strconv.FormatInt(ttl, 10) + "s", "notification": map[string]string{"tag": d.Reference, "channel_id": "mychef-planning"}},
 		}}
 	default:
 		return Result{State: Permanent}
