@@ -242,7 +242,8 @@ public class MyChefNativePlugin: CAPPlugin, CAPBridgedPlugin, URLSessionDataDele
                   !path.contains("\r"), !path.contains("\n"),
                   !path.split(separator: "?", maxSplits: 1)[0].contains("%"),
                   !path.split(separator: "?", maxSplits: 1)[0].split(separator: "/").contains(where: { $0 == "." || $0 == ".." }),
-                  let target = URL(string: origin + path),
+                  let routed = NativeAppIdentity.apiPath(lane: getConfig().getString("identityLane") ?? "preview", logicalPath: path),
+                  let target = URL(string: origin + routed),
                   let requestId = call.getString("requestId"), UUID(uuidString: requestId) != nil,
                   let method = call.getString("method"), ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"].contains(method)
             else { throw NativeFailure.invalid }
@@ -339,7 +340,7 @@ public class MyChefNativePlugin: CAPPlugin, CAPBridgedPlugin, URLSessionDataDele
     }
     @objc func cancelMedia(_ call: CAPPluginCall) {
         lock.lock()
-        let tasks = pending.values.filter { $0.image || $0.task.currentRequest?.url?.path.hasPrefix("/api/native/v1/personal-photos/") == true }.map { $0.task }
+        let tasks = pending.values.filter { $0.image || $0.task.currentRequest?.url?.path.hasPrefix("/api/native/v1/personal-photos/") == true || $0.task.currentRequest?.url?.path.hasPrefix("/api/native/app/v1/personal-photos/") == true }.map { $0.task }
         lock.unlock(); tasks.forEach { $0.cancel() }
         DispatchQueue.main.async { [self] in
             do {

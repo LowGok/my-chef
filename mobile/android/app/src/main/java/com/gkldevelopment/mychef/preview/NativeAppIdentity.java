@@ -13,4 +13,10 @@ public final class NativeAppIdentity {
             throw new IllegalArgumentException("Native package differs from its prepared identity");
         }
     }
+    public static String apiPath(String lane, String logicalPath) {
+        packageFor(lane);
+        String prefix = "/api/native/v1/";
+        if (!logicalPath.startsWith(prefix)) throw new IllegalArgumentException("Unsupported native API path");
+        return "app".equals(lane) ? "/api/native/app/v1/" + logicalPath.substring(prefix.length()) : logicalPath;
+    }
 }

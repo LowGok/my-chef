@@ -83,6 +83,11 @@ func main() {
 		logger.Error("invalid configuration", "error", err)
 		os.Exit(1)
 	}
+	nativeAppIngress, err := nativeIdentityIngress(os.Getenv("MYCHEF_NATIVE_APP_INGRESS"))
+	if err != nil {
+		logger.Error("invalid native identity configuration")
+		os.Exit(1)
+	}
 	emailCfg, err := config.LoadEmail()
 	if err != nil {
 		logger.Error("invalid email configuration", "error", err)
@@ -395,7 +400,8 @@ func main() {
 		recoveryWorkers.Go(func() { runPushWorker(emailCtx, reminders, pushSender, logger) })
 	}
 	api := httpapi.New(s, service, httpapi.Config{
-		Newsletter: newsletterService, NewsletterSettings: newsletterSettings, NewsletterReady: func(ctx context.Context) bool {
+		NativeAppIngress: nativeAppIngress,
+		Newsletter:       newsletterService, NewsletterSettings: newsletterSettings, NewsletterReady: func(ctx context.Context) bool {
 			return newsletterReady(newsletterSettings, !lifecycleFailed.Load() && journal.CheckReady(ctx) == nil && s.SQL.PingContext(ctx) == nil, mailService.Ready(ctx), proofKeys != nil && len(proofSettings.RateKey) == 32, newsletterFailed.Load())
 		},
 		NewsletterChecks: func(ctx context.Context) map[string]bool {

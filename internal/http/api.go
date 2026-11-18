@@ -31,6 +31,7 @@ type Generator interface {
 	Status(context.Context, int64, int64) (domain.Operation, error)
 }
 type Config struct {
+	NativeAppIngress     bool
 	NewsletterChecks     func(context.Context) map[string]bool
 	Newsletter           *newsletter.Service
 	NewsletterSettings   config.Newsletter
@@ -213,13 +214,22 @@ func (a *API) wrap(mux http.Handler) http.Handler {
 		}()
 		// Normalize before lifecycle lock selection, including the deletion
 		// route which takes its own exclusive account-work lock.
-		if strings.HasPrefix(r.URL.Path, nativePrefix) {
-			suffix := strings.TrimPrefix(r.URL.Path, nativePrefix)
+		if strings.HasPrefix(r.URL.Path, nativePrefix) || strings.HasPrefix(r.URL.Path, nativeAppPrefix) {
+			prefix := nativePrefix
+			if strings.HasPrefix(r.URL.Path, nativeAppPrefix) {
+				prefix = nativeAppPrefix
+			}
+			suffix := strings.TrimPrefix(r.URL.Path, prefix)
 			if strings.HasPrefix(suffix, "fixture/") || strings.HasPrefix(suffix, "webhooks/") || strings.HasPrefix(suffix, "newsletter/") {
 				a.fail(w, r, http.StatusNotFound, "not_found", "That resource was not found.")
 				return
 			}
-			r = nativeRequest(r)
+			next, release, allowed := a.admitNativeIdentity(w, r)
+			defer release()
+			if !allowed {
+				return
+			}
+			r = next
 		}
 		if len(r.URL.Path) >= 5 && r.URL.Path[:5] == "/api/" && a.Config.AccountReady != nil && !a.Config.AccountReady(r.Context()) {
 			a.fail(w, r, 503, "account_service_unavailable", "Account services are temporarily unavailable.")

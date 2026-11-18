@@ -216,7 +216,8 @@ public class MyChefNativePlugin extends Plugin {
         traceNativeCheck(path, method, "bridge");
         try {
             if (origin == null || !requestId.matches("[a-f0-9-]{36}") || calls.size() >= 32) throw new IllegalArgumentException();
-            URI target = NativeBoundary.target(origin, path);
+            NativeBoundary.target(origin, path);
+            URI target = new URI(origin + NativeAppIdentity.apiPath(getConfig().getString("identityLane", "preview"), path));
             if (!Arrays.asList("GET", "HEAD", "POST", "PUT", "PATCH", "DELETE").contains(method)) throw new IllegalArgumentException();
             JSObject input = call.getObject("headers", new JSObject());
             Map<String, String> raw = new HashMap<>();
@@ -387,7 +388,7 @@ public class MyChefNativePlugin extends Plugin {
     @PluginMethod public void cancelMedia(PluginCall call) {
         mediaEpoch++; PluginCall pending = mediaPending; mediaPending = null; clearExport();
         if (pending != null) pending.reject("The account changed", "native_cancelled");
-        for (Call operation : calls.values()) if ("media".equals(operation.request().tag()) || operation.request().url().encodedPath().startsWith("/api/native/v1/personal-photos/")) operation.cancel();
+        for (Call operation : calls.values()) if ("media".equals(operation.request().tag()) || (operation.request().url().encodedPath().startsWith("/api/native/v1/personal-photos/") || operation.request().url().encodedPath().startsWith("/api/native/app/v1/personal-photos/"))) operation.cancel();
         reply(call);
     }
     // Private files, source URIs and export bytes are never activity-restorable.

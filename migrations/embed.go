@@ -88,3 +88,6 @@ var LoginUsernameKeys string
 
 //go:embed 029_native_identity_lanes.sql
 var NativeIdentityLanes string
+
+//go:embed 030_native_identity_policy.sql
+var NativeIdentityPolicy string

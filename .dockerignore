@@ -340,3 +340,8 @@ internal/notifications/**
 !internal/newsletter/minimisation.go
 !internal/newsletter/maintenance.go
 !internal/email/mailqueue/account_expiry.go
+
+!migrations/030_native_identity_policy.sql
+!internal/store/native_identity_policy.go
+!internal/http/native_identity.go
+!cmd/mychef/native_identity.go

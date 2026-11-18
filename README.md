@@ -37,6 +37,19 @@ They publish JSON receipts for the exact source and artifact, without publishing
 the packages or using store credentials. Simulator results do not cover an
 iPhone installation through TestFlight.
 
+Build selection distinguishes the existing `com.gkldevelopment.mychef.preview`
+from `dev.mychef.app`; Java and Swift compile namespaces remain stable. Both use
+a separately configured private API origin. The package manifest binds the
+selected identity and the native bridge chooses its fixed API ingress.
+
+`MYCHEF_NATIVE_APP_INGRESS=1` mounts the candidate route, which still defaults to
+a persisted paused state. The operator must separately authorize activation.
+Withdrawal fences admitted requests and can allow only existing signed-in
+families to finish shopping sync until an exact deadline. Restarting the server
+does not reopen the candidate; reactivation requires fresh sign-in. The Preview
+route remains available. These controls do not create store records, publish
+links, sign builds or move testers.
+
 ## Container
 
 Run `docker build -t my-chef:local .`. The image contains the app and

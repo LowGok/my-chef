@@ -93,6 +93,9 @@ test("the actual JVM package guard rejects a copied config from the sibling app"
   await writeFile(harness, `import com.gkldevelopment.mychef.preview.NativeAppIdentity;
 public class IdentityContract {
   public static void main(String[] args) {
+    if (!NativeAppIdentity.apiPath("app", "/api/native/v1/shopping/2026-11-16?x=a%20b").equals("/api/native/app/v1/shopping/2026-11-16?x=a%20b")) throw new AssertionError("Candidate uses wrong ingress");
+    if (!NativeAppIdentity.apiPath("preview", "/api/native/v1/profile").equals("/api/native/v1/profile")) throw new AssertionError("Preview ingress changed");
+    try { NativeAppIdentity.apiPath("app", "/api/native/app/v1/profile"); throw new AssertionError("Arbitrary bridge route accepted"); } catch (IllegalArgumentException expected) {}
     NativeAppIdentity.require("dev.mychef.app", "app");
     NativeAppIdentity.require("com.gkldevelopment.mychef.preview", "preview");
     for (String[] pair: new String[][]{

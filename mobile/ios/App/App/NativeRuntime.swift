@@ -110,6 +110,11 @@ final class NativeRuntime {
 
 // The OS application identity is separate from display and Keychain service names.
 enum NativeAppIdentity {
+    static func apiPath(lane: String, logicalPath: String) -> String? {
+        let prefix = "/api/native/v1/"
+        guard logicalPath.hasPrefix(prefix), lane == "preview" || lane == "app" else { return nil }
+        return lane == "app" ? "/api/native/app/v1/" + String(logicalPath.dropFirst(prefix.count)) : logicalPath
+    }
     static func matches(bundle: String?, lane: String) -> Bool {
         switch lane {
         case "preview": return bundle == "com.gkldevelopment.mychef.preview"

@@ -14,11 +14,12 @@ const nativePrefix = "/api/native/v1/"
 
 // Only the server's route establishes the transport. Client platform/header
 // metadata never changes the authority of a browser request.
-func nativeRequest(r *http.Request) *http.Request {
+func nativeRequest(r *http.Request, prefix, lane string) *http.Request {
 	current := info(r)
 	current.Native = true
-	next := r.Clone(context.WithValue(r.Context(), contextKey{}, current))
-	next.URL.Path = "/api/v1/" + strings.TrimPrefix(r.URL.Path, nativePrefix)
+	ctx := auth.WithNativeIdentity(r.Context(), lane)
+	next := r.Clone(context.WithValue(ctx, contextKey{}, current))
+	next.URL.Path = "/api/v1/" + strings.TrimPrefix(r.URL.Path, prefix)
 	next.URL.RawPath = ""
 	return next
 }
