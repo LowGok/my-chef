@@ -222,6 +222,10 @@ def run(state, control, account, identifier, container, layout_only=False, voice
             selections = re.findall(r'Analytics iOS Flat selection: label=(true|false) cell=(true|false) button=(true|false)', text)
             if selections:
                 detail += '; Flat label/cell/button selected ' + '/'.join(selections[-1])
+            settings_rows = re.findall(r'Analytics iOS Settings row: exists=(true|false) frame=(true|false) '
+                                       r'bar=(true|false) visible=(true|false) stable=([0-9]{1,2})', text)
+            if settings_rows:
+                detail += '; Settings row exists/frame/bar/visible/stable ' + '/'.join(settings_rows[-1])
             roles = re.findall(r'Analytics iOS accessibility type: ([0-9]{1,3}) state: (off|on|other) enabled: (true|false)', text)
             if roles:
                 detail += '; observed roles ' + ', '.join('/'.join(role) for role in roles[-8:])
@@ -246,9 +250,9 @@ def run(state, control, account, identifier, container, layout_only=False, voice
             navigation = re.findall(r'Analytics iOS picker navigation: (Cancel|Close|Done|Save|Browse|Locations|On My iPhone|Downloads) count=([0-9]{1,2})', text)
             if navigation:
                 detail += '; picker navigation ' + ','.join(name + '=' + count for name, count in navigation[-8:])
-            taps = re.findall(r'Analytics iOS tap state: type=([0-9]{1,3}) exists=(true|false) hittable=(true|false) stable=([0-9]{1,3})', text)
+            taps = re.findall(r'Analytics iOS tap state: type=([0-9]{1,3}) exists=(true|false) ready=(true|false) stable=([0-9]{1,3})', text)
             if taps:
-                detail += '; tap type/exists/hittable/stable ' + ', '.join('/'.join(row) for row in taps[-3:])
+                detail += '; tap type/exists/ready/stable ' + ', '.join('/'.join(row) for row in taps[-3:])
             rectangles = re.findall(r'Analytics iOS tap rect: ([0-9.,{} -]{1,100})', text)
             if rectangles:
                 detail += '; tap rect ' + rectangles[-1]

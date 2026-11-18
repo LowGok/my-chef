@@ -165,8 +165,23 @@ final class AnalyticsProbe: XCTestCase {
         }
         XCTAssertTrue(hasTapRegion(element) && element.isHittable, "Control must be reachable at OS text size")
     }
+    func tapReady(_ element: XCUIElement, frame: CGRect, nativeElement: Bool) -> Bool {
+        guard element.exists, hasTapRegion(frame: frame) else { return false }
+        if nativeElement { return element.isHittable }
+        // WebKit can throw from isHittable even after reporting a fully visible
+        // control frame. The app path already sends coordinate input; require
+        // an enabled target inside its single current WebView, with no native
+        // alert or keyboard covering it, before using that measured OS point.
+        guard element.isEnabled, app.alerts.count == 0, app.webViews.count == 1 else { return false }
+        let viewport = app.webViews.firstMatch.frame
+        return !viewport.isNull && !viewport.isInfinite
+            && [viewport.minX, viewport.minY, viewport.maxX, viewport.maxY].allSatisfy({ $0.isFinite })
+            && viewport.contains(frame)
+    }
     func tapSettled(_ element: XCUIElement, nativeElement: Bool = false) {
-        if !hasTapRegion(element) || !element.isHittable { reveal(element) }
+        if !tapReady(element, frame: element.exists ? element.frame : .null, nativeElement: nativeElement) {
+            reveal(element)
+        }
         let end = Date().addingTimeInterval(20)
         var previous = CGRect.null
         var unchanged = 0
@@ -178,9 +193,9 @@ final class AnalyticsProbe: XCTestCase {
                 continue
             }
             let frame = element.frame
-            // Reuse one native geometry and hit-test observation per sample.
+            // Resolve a fresh native control and viewport measurement per sample.
             // Every next sample still resolves fresh measurements.
-            let ready = hasTapRegion(frame: frame) && element.isHittable
+            let ready = tapReady(element, frame: frame, nativeElement: nativeElement)
             if !ready && adjustments < 3 {
                 // A late WebKit reflow can move a previously revealed control.
                 // Scroll toward its current position, including upward targets.
@@ -195,14 +210,18 @@ final class AnalyticsProbe: XCTestCase {
             unchanged = ready && stable ? unchanged + 1 : 0
             if unchanged >= 2 {
                 if nativeElement { element.tap() }
-                else { element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap() }
+                else {
+                    let bounds = app.frame
+                    app.coordinate(withNormalizedOffset: .zero).withOffset(
+                        CGVector(dx: frame.midX - bounds.minX, dy: frame.midY - bounds.minY)).tap()
+                }
                 return
             }
             previous = frame
             RunLoop.current.run(until: Date().addingTimeInterval(0.2))
         }
         let exists = element.exists
-        print("Analytics iOS tap state: type=\(element.elementType.rawValue) exists=\(exists) hittable=\(exists && hasTapRegion(element) && element.isHittable) stable=\(unchanged)")
+        print("Analytics iOS tap state: type=\(element.elementType.rawValue) exists=\(exists) ready=\(exists && tapReady(element, frame: element.frame, nativeElement: nativeElement)) stable=\(unchanged)")
         if exists {
             let frame = element.frame
             print("Analytics iOS tap rect: \(frame.minX),\(frame.minY),\(frame.width),\(frame.height)")
@@ -218,7 +237,7 @@ final class AnalyticsProbe: XCTestCase {
                 done.tap()
                 waitFor({ !self.app.keyboards.firstMatch.exists }, "Software keyboard must dismiss before the next control")
                 // Let the native viewport finish resizing before asking WebKit
-                // for a new activation point. Hittability stays mandatory.
+                // for new target geometry. Native system controls still need hittability.
                 RunLoop.current.run(until: Date().addingTimeInterval(0.3))
             }
         }
@@ -767,41 +786,57 @@ final class AnalyticsProbe: XCTestCase {
             print("Analytics iOS voice phase: Settings " + name)
             let item = settings.staticTexts[name].firstMatch
             // These owned-phone panes keep the same full-screen window. Reuse
-            // its measured bounds instead of requiring another complete Settings
-            // snapshot; each target still needs fresh, stable visible geometry.
+            // its measured screen bounds without another complete Settings snapshot;
+            // each target and current navigation bar get fresh native geometry.
             let bounds = layout.bounds.insetBy(dx: 1, dy: 1)
-            let navigation = layout.bar
+            var lastFrame = CGRect.null
+            var lastExists = false, lastFrameValid = false, lastBarValid = false, lastVisible = false
+            var lastStable = 0
             for _ in 0..<16 {
-                // Settings exposes these row labels as StaticText. XCTest
-                // can reject their activation point even while their measured
-                // rectangle is visible. Use actual stable geometry for OS input;
-                // never ask a noninteractive label for a computed hit point.
-                let readyDeadline = Date().addingTimeInterval(2)
+                // Native AX queries can consume the old two-second window before
+                // three frames can be sampled. Keep actual stability mandatory.
+                let readyDeadline = Date().addingTimeInterval(15)
                 var previous = CGRect.null
                 var stable = 0
-                while Date() < readyDeadline && item.exists {
-                    let frame = item.frame
-                    let visible = !frame.isNull && !frame.isInfinite && frame.width > 1 && frame.height > 1
+                while Date() < readyDeadline {
+                    lastExists = item.exists
+                    let frame = lastExists ? item.frame : .null
+                    // Large-title and child panes can have different bar heights.
+                    // Read only the current native bar, not another full snapshot.
+                    let bars = settings.navigationBars
+                    let navigation = bars.count == 1 ? bars.firstMatch.frame : .null
+                    lastBarValid = !navigation.isNull && !navigation.isInfinite
+                        && navigation.width > 1 && navigation.height > 1
+                        && [navigation.minX, navigation.minY, navigation.maxX, navigation.maxY].allSatisfy({ $0.isFinite })
+                        && layout.bounds.contains(navigation)
+                    lastFrameValid = !frame.isNull && !frame.isInfinite && frame.width > 1 && frame.height > 1
                         && [frame.minX, frame.minY, frame.maxX, frame.maxY].allSatisfy({ $0.isFinite })
+                    let visible = lastFrameValid && lastBarValid
                         && bounds.contains(frame) && frame.minY > navigation.maxY
                     let unchanged = !previous.isNull && abs(frame.minX - previous.minX) <= 1
                         && abs(frame.minY - previous.minY) <= 1 && abs(frame.width - previous.width) <= 1
                         && abs(frame.height - previous.height) <= 1
                     stable = visible && unchanged ? stable + 1 : 0
+                    lastFrame = frame; lastVisible = visible; lastStable = stable
                     if stable >= 2 {
-                        item.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
-                        // The next required native row confirms progression;
-                        // navigation-bar labels are not a portable page identity.
-                        // Flat selection is still independently required below.
+                        settings.coordinate(withNormalizedOffset: .zero).withOffset(
+                            CGVector(dx: frame.midX - layout.bounds.minX,
+                                     dy: frame.midY - layout.bounds.minY)).tap()
+                        // Next native row and final actual Flat selection still
+                        // confirm progression; no inferred mode or synthetic input.
                         return
                     }
                     previous = frame
                     RunLoop.current.run(until: Date().addingTimeInterval(0.2))
                 }
-                let start = settings.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7))
-                let end = settings.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.35))
+                // Never gesture without a current native navigation boundary.
+                if !lastBarValid { break }
+                let up = !lastFrameValid || lastFrame.midY > bounds.midY
+                let start = settings.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: up ? 0.7 : 0.35))
+                let end = settings.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: up ? 0.35 : 0.7))
                 start.press(forDuration: 0.2, thenDragTo: end)
             }
+            print("Analytics iOS Settings row: exists=\(lastExists) frame=\(lastFrameValid) bar=\(lastBarValid) visible=\(lastVisible) stable=\(min(99, lastStable))")
             settingsState()
             XCTFail("Required native VoiceOver setting must be reachable")
             throw Failure.missingControl
