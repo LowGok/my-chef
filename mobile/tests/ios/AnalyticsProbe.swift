@@ -309,9 +309,9 @@ final class AnalyticsProbe: XCTestCase {
         screenState()
         XCTFail("Native tap target must finish layout before input")
     }
-    func tap(_ label: String, dismissKeyboard: Bool = true) {
+    func tap(_ label: String) {
         print("Analytics iOS control: " + label)
-        if dismissKeyboard && app.keyboards.firstMatch.exists {
+        if app.keyboards.firstMatch.exists {
             let done = app.buttons.matching(NSPredicate(format: "label == %@", "Done")).firstMatch
             if done.waitForExistence(timeout: 5) {
                 waitFor({ !self.app.keyboards.firstMatch.exists || (done.exists && done.isHittable) },
@@ -752,11 +752,11 @@ final class AnalyticsProbe: XCTestCase {
             summary.tap()
         }
         fill("Extra item", "Analytics queued oats")
-        // Press the real submit button in the measured region above the
-        // keyboard. Avoid an unnecessary Done/viewport transition between
-        // entering the draft and submitting it. Normal reveal/tap readiness
-        // still requires the complete control outside the keyboard frame.
-        tap("Add extra", dismissKeyboard: false)
+        // Finish native keyboard editing before revealing the submit button.
+        // With the keyboard open its target kept moving despite being visible.
+        // The normal path requires actual dismissal, then measured stable
+        // geometry before a single real tap.
+        tap("Add extra")
         // The lower form and keyboard can leave the progress status outside
         // WebKit's accessibility tree. Reach the actual status before reading it.
         let pending = app.descendants(matching: .any).matching(NSPredicate(format:

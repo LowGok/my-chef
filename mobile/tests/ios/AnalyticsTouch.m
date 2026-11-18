@@ -51,19 +51,25 @@ static NSInteger AnalyticsVoiceOverGesture(CGRect viewport, BOOL upward, BOOL pr
             // VoiceOver's documented standard-gesture entry: double-tap,
             // hold the second contact, then drag while VoiceOver stays on.
             // https://support.apple.com/en-lamr/guide/iphone/iph3e2e2281/27/ios/27
-            CGFloat x = CGRectGetMinX(viewport) + MAX(24, viewport.size.width * 0.08);
+            // The signup content has 24-point horizontal padding. Keep the
+            // held contact in its trailing gutter, clear of text and controls.
+            CGFloat x = CGRectGetMaxX(viewport) - MAX(12, MIN(16, viewport.size.width * 0.04));
             CGFloat start = CGRectGetMidY(viewport) - distance / 2;
-            CGFloat end = start + distance;
             id drag = [[paths alloc] initForTouchAtPoint:CGPointMake(x, start) offset:0];
             if (!drag) return 1;
-            // Both taps belong to the same finger/path. Separate paths have
-            // distinct pointer identities; the observed two-path gesture did not move content.
+            // Preserve the same native pointer for both contacts.
             [drag liftUpAtOffset:0.05];
             [drag pressDownAtOffset:0.15];
             // Hold for 1.25 seconds before dragging; pause before lifting
             // to avoid converting a measured correction into a flick.
             [drag moveToPoint:CGPointMake(x, start) atOffset:1.4];
-            [drag moveToPoint:CGPointMake(x, end) atOffset:2.05];
+            // Supply continued movement after the pan threshold, followed by
+            // a stationary release. Only measured content motion can verify it.
+            for (NSInteger step = 1; step <= 10; step++) {
+                CGFloat fraction = (CGFloat)step / 10;
+                [drag moveToPoint:CGPointMake(x, start + distance * fraction)
+                        atOffset:1.4 + 0.65 * fraction];
+            }
             [drag liftUpAtOffset:2.25];
             [record addPointerEventPath:drag];
         } else {
