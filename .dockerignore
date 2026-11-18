@@ -233,8 +233,10 @@ internal/email/mailqueue/**
 !web/src/validation.ts
 !web/tsconfig.json
 !internal/auth/native.go
+!internal/auth/native_identity.go
 !internal/http/native.go
 !internal/store/native_schema.go
+!internal/store/native_identity.go
 !migrations/017_native_sessions.sql
 !web/src/PhotoInput.tsx
 !web/src/RecipeImage.tsx
@@ -327,6 +329,7 @@ internal/notifications/**
 
 !migrations/027_newsletter_identity_minimisation.sql
 !migrations/028_login_username_keys.sql
+!migrations/029_native_identity_lanes.sql
 !internal/store/account_restore.go
 !internal/store/newsletter_minimisation_schema.go
 !internal/store/newsletter_identity.go
