@@ -925,6 +925,17 @@ final class AnalyticsProbe: XCTestCase {
             // visible touch anchor when available; otherwise let VoiceOver's
             // own navigation reach and scroll to the required announcement.
             let control = ["Help improve MyChef", "Save preferences", "Refresh analytics setting"].contains(phrase)
+            // Enabling VoiceOver can move its focus and scroll the form away
+            // from the control revealed beforehand. Restore only a measured
+            // offscreen target with native gestures while VoiceOver stays on.
+            for _ in 0..<6 {
+                if hasTapRegion(element) || !element.exists { break }
+                let frame = element.frame, bounds = app.frame
+                guard !frame.isNull, !frame.isInfinite, frame.width > 1, frame.height > 1,
+                      [frame.minX, frame.minY, frame.maxX, frame.maxY].allSatisfy({ $0.isFinite }),
+                      frame.minY < bounds.minY || frame.maxY > bounds.maxY else { break }
+                scrollContent(up: true, toward: frame)
+            }
             let region = hasTapRegion(element)
             let ready = region && (!control || tapReady(element, frame: element.frame, nativeElement: false))
             print("Analytics iOS voice anchor: region=\(region) ready=\(ready)")
