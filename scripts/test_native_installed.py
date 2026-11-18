@@ -296,6 +296,7 @@ def fixture(state, stack, journeys=False, analytics=None, controls=None):
     app = subprocess.Popen([str(state / "mychef")], cwd=ROOT, env=app_env, stdout=log, stderr=log)
     stack.callback(lambda: terminate(app))
 
+    health = {'status': 0, 'transport': 'not-checked'}
     def ready():
         if app.poll() is not None:
             messages = []
@@ -311,8 +312,11 @@ def fixture(state, stack, journeys=False, analytics=None, controls=None):
         try:
             with closing(http.client.HTTPConnection("127.0.0.1", 18137, timeout=2)) as client:
                 client.request("GET", "/healthz")
-                return client.getresponse().status == 200
-        except OSError:
+                status = client.getresponse().status
+                health.update(status=status if 100 <= status <= 599 else 0, transport='response')
+                return status == 200
+        except OSError as error:
+            health.update(status=0, transport='timeout' if isinstance(error, TimeoutError) else 'unavailable')
             return False
     wait_for(ready, "disposable Go backend", 35)
     if controls is not None:
@@ -325,8 +329,17 @@ def fixture(state, stack, journeys=False, analytics=None, controls=None):
             # allowance on macOS; Linux/Android retain their existing limit.
             seconds = 90 if sys.platform == 'darwin' else 35
             started = time.monotonic()
+            health.update(status=0, transport='not-checked')
             print('Disposable backend restart deadline: seconds=' + str(seconds), flush=True)
-            wait_for(ready, 'restarted disposable Go backend', seconds)
+            try:
+                wait_for(ready, 'restarted disposable Go backend', seconds)
+            except RuntimeError:
+                # Fixed coarse facts only: no response body, process ID,
+                # private path, request value or server error is exposed.
+                facts = dict(processRunning=app.poll() is None,
+                             httpStatus=health['status'], transport=health['transport'])
+                print('Disposable backend restart failure: ' + json.dumps(facts, sort_keys=True), flush=True)
+                raise
             elapsed = min(180, int(time.monotonic() - started))
             print('Disposable backend restart ready: elapsedSeconds=' + str(elapsed), flush=True)
         controls['restart'] = restart

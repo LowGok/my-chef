@@ -1071,12 +1071,6 @@ final class AnalyticsProbe: XCTestCase {
         // must communicate both Off and why; assessed controls are exercised below.
         _ = try focusSpeech("Analytics is Off while unavailable")
         try voice.disable()
-        // This transition already relaunches the owned app. Stop it before
-        // restarting the fixture backend so its WebView and client activity
-        // do not compete with or reconnect during backend startup.
-        app.terminate()
-        XCTAssertTrue(app.wait(for: .notRunning, timeout: 20), "Owned app stops before fixture restart")
-        print("Analytics iOS phase: owned app stopped before fixture restart")
         _ = try control("approved"); relaunch()
         tap("Create an account")
         let assessedBox = checkbox(); reveal(assessedBox)
