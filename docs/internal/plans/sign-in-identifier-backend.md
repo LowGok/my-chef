@@ -29,6 +29,34 @@ The owner authorized development of the backend slice, with merge and rollout se
 - Usernames are currently stored under exact uniqueness, and app registration and profile edits already reject surrounding whitespace and cap usernames at 80 bytes (`migrations/001_initial.sql:1-5`, `internal/auth/manager.go:107-124`, `internal/auth/manager.go:243-249`). This does not prevent ASCII case variants from coexisting.
 - Current lookup excludes newsletter-only rows. Session completion rechecks the matched user ID, password and canonical email in the write transaction, and response handling preserves verification restrictions (`internal/auth/manager.go:136-203`, `internal/http/api.go:468-483`). Recovery validates email independently (`internal/auth/recovery.go:31-51`).
 
+### Review preparation
+
+The baseline passed `go test -p 1 ./internal/auth ./internal/store ./internal/http`
+at `69523dba413b267281af834d51c755bee17f0fd6`, before any app code for this
+feature. A separate in-memory SQLite fixture exercised the proposed ASCII
+comparison and found the index in the query plan. These checks did not exercise
+the new sign-in path.
+
+The first independent review left one product decision below. It also identified
+four checks to add in the revision that follows that decision:
+
+- Rehearse applying and rolling back the index on a disposable copy. The old
+  binary checks for its exact schema revision at startup
+  (`cmd/mychef/main.go:140`; `internal/store/migrate.go:78-101`).
+  Test recovery to a compatible database with matching lifecycle state before
+  any separately approved release.
+- Test username ownership both before committing the sign-in transaction and at
+  the handoff to native session creation. Native sign-in adopts the committed
+  session separately (`internal/auth/manager.go:163-210`;
+  `internal/auth/native.go:72-99`; `internal/http/native.go:141-158`).
+- Test the generic response on both rejected syntax and a valid-looking but
+  unmatched identifier. Password padding should cover eligible lookups without
+  sending rejected syntax through the password-work queue
+  (`internal/auth/manager.go:136-147`; `internal/auth/password.go:153-177`).
+- Race an email request and a username request from different sources for the
+  account's last attempt. The existing limiter checks and counts one key under
+  a mutex (`internal/http/api.go:288-311`).
+
 ## Scope
 
 Accept email or a username in the existing API request on both transports. Keep existing email validation, verification, access, login credential upgrade, session rotation and recovery behavior. Define how the read path treats legacy usernames and preserve stored account data.
