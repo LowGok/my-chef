@@ -117,3 +117,9 @@ func TestSignInIdentifierSharedCreateDerivesKeysWithoutDiscardingImports(t *test
 		t.Fatalf("unsupported or newsletter row received a folded key: %d %v", count, err)
 	}
 }
+
+// Existing migration tests compare all prior columns and constraints exactly;
+// only the additive column from schema 28 is excluded from that old baseline.
+func withoutLoginUsernameColumn(schema string) string {
+	return strings.Replace(schema, ", login_username_key BLOB", "", 1)
+}

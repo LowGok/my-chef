@@ -3,9 +3,11 @@ package auth
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/LowGok/my-chef/internal/store"
+	"golang.org/x/crypto/bcrypt"
 )
 
 func TestSignInIdentifierUnicodeAliasReachesSameAccount(t *testing.T) {
@@ -128,6 +130,81 @@ func TestSignInIdentifierUnresolvedWorkUsesTheExistingPasswordEnvelope(t *testin
 		}
 		if _, err := verifyResolvedLogin(canceled, target, fixture.password); !errors.Is(err, fixture.want) {
 			t.Fatalf("credential path did not use the expected work boundary: got %v; want %v", err, fixture.want)
+		}
+	}
+}
+
+func TestSignInIdentifierRejectsAuthorityChangesBeforeLegacyRehash(t *testing.T) {
+	ctx := t.Context()
+	for _, change := range []string{"new ambiguity", "deleted", "changed mailbox", "changed password"} {
+		t.Run(change, func(t *testing.T) {
+			s := openPasswordTestStore(t)
+			m := New(s)
+			const password = "legacy pantry test password"
+			u := addLegacyUser(t, s, "legacy-cook", password, bcrypt.MinCost)
+			anonymous, err := m.Rotate(ctx, nil, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			verified, err := m.verifyLogin(ctx, "  LEGACY-COOK ", password)
+			if err != nil || verified.upgrade == "" {
+				t.Fatalf("fixture did not produce a pending legacy rehash: %v", err)
+			}
+			wantPassword := u.Password
+			switch change {
+			case "new ambiguity":
+				err = s.DB.Create(&store.User{Email: "other-cook@example.test", Username: "LEGACY-COOK", FirstName: "Other", LastName: "Cook", Password: u.Password}).Error
+			case "deleted":
+				err = s.DB.Delete(&u).Error
+			case "changed mailbox":
+				err = s.DB.Model(&u).Updates(map[string]any{"email": "moved@example.test", "email_key": "moved@example.test"}).Error
+			case "changed password":
+				wantPassword, err = newPasswordHash(ctx, "new pantry test password")
+				if err == nil {
+					err = s.DB.Model(&u).Update("password", wantPassword).Error
+				}
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, token, err := m.completeLogin(ctx, verified, anonymous, true); !errors.Is(err, ErrCredentials) || token != "" {
+				t.Fatal("stale alias verification granted a session")
+			}
+			if session, err := m.Load(ctx, anonymous); err != nil || session.UserID != nil {
+				t.Fatal("stale verification rotated anonymous authority")
+			}
+			var anchors int64
+			if err := s.DB.Model(&store.Session{}).Where("user_id=?", u.ID).Count(&anchors).Error; err != nil || anchors != 0 {
+				t.Fatal("stale verification left an authenticated anchor")
+			}
+			if change != "deleted" {
+				var found store.User
+				if err := s.DB.First(&found, u.ID).Error; err != nil || found.Password != wantPassword {
+					t.Fatal("stale verification changed the live password")
+				}
+			}
+		})
+	}
+}
+
+func TestSignInIdentifierRejectsPaddedAndNulLegacyAliases(t *testing.T) {
+	m := New(openPasswordTestStore(t))
+	const password = "legacy pantry test password"
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.MinCost)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, name := range []string{" Padded ", "Nul\x00name", "invalid@"} {
+		user := store.User{Email: fmt.Sprintf("legacy-%d@example.test", i), Username: name, Password: string(hash), FirstName: "Legacy", LastName: "Cook"}
+		if err := m.Store.DB.Create(&user).Error; err != nil {
+			t.Fatal(err)
+		}
+		if _, err := m.Login(t.Context(), name, password); !errors.Is(err, ErrCredentials) {
+			t.Fatal("disallowed legacy username worked", err)
+		}
+		got, err := m.Login(t.Context(), user.Email, password)
+		if err != nil || got.ID != user.ID {
+			t.Fatal("email could not reach the same legacy account", err)
 		}
 	}
 }
