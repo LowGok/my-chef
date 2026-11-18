@@ -265,7 +265,7 @@ database and account-lifecycle backups under the existing controls
 
 ### Issue #41 closeout
 
-- [x] Backend: review and test the API slice. Publication, merge and rollout are separate decisions.
+- [ ] Backend: review and test the API slice. Publication, merge and rollout are separate decisions.
 - [ ] Web: change only the sign-in field to **Email or username**, allow a username without email-format validation, and retain explicit username/current-password autofill semantics. Keep recovery email-only.
 - [ ] Final roadmap review: verify on iOS and Android that both identifiers sign in, the keyboard accepts either, native autofill and password managers can fill and update sign-in, and recovery still uses verified email. Record target builds and automated evidence plus any owner device evidence. Do not mark #41 complete until both clients pass this checkpoint.
 
