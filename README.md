@@ -61,6 +61,15 @@ results. Already accepted delivery may still arrive. Native taps require the
 issuing lane and current authorization. Provider files and signing material
 remain private.
 
+The candidate handles only `https://mychef.dev/app/open`. It opens Meals after
+sign-in and uses the existing unsaved-recipe guard; a private account-proof
+screen keeps control until it finishes. Candidate startup and foreground resume
+check current server authorization before showing account content. A paused
+app retains local changes and offers the fixed browser fallback. Renewing a
+withdrawn identity asks for fresh sign-in without erasing pending shopping data.
+Association declarations are prepared for the new identity; publishing the
+website files and installing signed builds still require separate approval.
+
 ## Container
 
 Run `docker build -t my-chef:local .`. The image contains the app and

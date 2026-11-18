@@ -236,6 +236,9 @@ export class NativeTransport implements PlatformTransport {
       throw stale();
     }
     if (!response.ok) {
+      if (refresh && response.status===403 && (await response.clone().json().catch(()=>null))?.error?.code==="native_identity_reauthenticate") {
+        await this.#serial(async()=>{this.#check(epoch);await this.#write(null);this.#access=null;this.#deadline=0;});
+      }
       if (response.status === 401) await this.forget(false);
       throw new NativeResponse(response);
     }

@@ -262,6 +262,8 @@ func (a *API) fail(w http.ResponseWriter, r *http.Request, status int, code, mes
 }
 func (a *API) err(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
+	case errors.Is(err, auth.ErrNativeIdentityPolicy):
+		a.fail(w, r, 403, "native_identity_reauthenticate", "Sign in again to this MyChef app. Pending shopping changes remain on this device.")
 	case errors.Is(err, gorm.ErrRecordNotFound):
 		a.fail(w, r, 404, "not_found", "That resource was not found.")
 	case errors.Is(err, auth.ErrSession), errors.Is(err, store.ErrAccountAccess):

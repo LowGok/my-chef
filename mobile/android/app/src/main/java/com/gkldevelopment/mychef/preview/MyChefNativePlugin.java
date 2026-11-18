@@ -87,7 +87,10 @@ public class MyChefNativePlugin extends Plugin {
             result.put("back",activity.runtime.takeBack());
             String link = activity.runtime.takeLink(SystemClock.elapsedRealtime());
             if (link != null) {
-                try { result.put("link",NativeBoundary.accountLink(origin,link)); }
+                try {
+                    if (NativeAppIdentity.appOpeningLink(getConfig().getString("identityLane", "preview"), link)) result.put("link",link);
+                    else result.put("link",NativeBoundary.accountLink(origin,link));
+                }
                 catch (Exception ignored) { result.put("invalidLink",true); }
             }
             String reminder = ReminderNotifications.take(SystemClock.elapsedRealtime());
@@ -181,7 +184,7 @@ public class MyChefNativePlugin extends Plugin {
     }
     @PluginMethod public void configuration(PluginCall call) {
         if (origin == null) { call.reject("Private API configuration is unavailable", "native_configuration"); return; }
-        JSObject value = new JSObject(); value.put("platform", "android"); value.put("apiOrigin", origin.toString()); reply(call, value);
+        JSObject value = new JSObject(); value.put("platform", "android"); value.put("apiOrigin", origin.toString()); value.put("identityLane", getConfig().getString("identityLane", "preview")); reply(call, value);
     }
     @PluginMethod public void readRefresh(PluginCall call) {
         try { String value = refresh.read(); JSObject result = new JSObject(); result.put("value", value == null ? org.json.JSONObject.NULL : value); reply(call, result); }

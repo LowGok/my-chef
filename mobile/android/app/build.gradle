@@ -17,6 +17,8 @@ if (!identity || runtimeIdentity.appId != identity.appId ||
     throw new GradleException('Native runtime and Android package identity differ')
 }
 
+android.sourceSets.main.manifest.srcFile(identityLane == 'app' ? 'src/appIdentity/AndroidManifest.xml' : 'src/main/AndroidManifest.xml')
+
 def pushPreview = providers.gradleProperty('mychefPushPreview').map { it == 'true' }.orElse(false).get()
 if (pushPreview) {
     def fileName = providers.gradleProperty('mychefFirebaseResources').orNull

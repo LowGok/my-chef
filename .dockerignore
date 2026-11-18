@@ -348,3 +348,5 @@ internal/notifications/**
 !internal/store/notification_identity.go
 !migrations/031_notification_identity.sql
 !internal/notifications/submission.go
+!web/src/native-app-identity.ts
+!web/src/NativeIdentityBoundary.tsx

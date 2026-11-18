@@ -174,6 +174,9 @@ func (m *Manager) NativeLoad(ctx context.Context, token string) (NativeSession, 
 	if err != nil {
 		return NativeSession{}, err
 	}
+	if p, checked := identityPolicy(ctx); checked && p.revision != row.IdentityRevision {
+		return NativeSession{}, ErrNativeIdentityPolicy
+	}
 	if !identityPermits(ctx, row.IdentityRevision, row.UserID) {
 		return NativeSession{}, ErrSession
 	}
@@ -186,6 +189,7 @@ func (m *Manager) NativeRefresh(ctx context.Context, token string) (NativeTokens
 	}
 	var result NativeTokens
 	rejected := false
+	policyRejected := false
 	err := m.Store.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		now := time.Now().UTC()
 		var credential store.NativeRefresh
@@ -208,6 +212,10 @@ func (m *Manager) NativeRefresh(ctx context.Context, token string) (NativeTokens
 		var anchor store.Session
 		if err := tx.Where("hash=?", family.AnchorHash).Take(&anchor).Error; err != nil {
 			return err
+		}
+		if p, checked := identityPolicy(ctx); checked && p.revision != family.IdentityRevision {
+			policyRejected = true
+			return nil
 		}
 		if !identityPermits(ctx, family.IdentityRevision, anchor.UserID) {
 			rejected = true
@@ -234,6 +242,9 @@ func (m *Manager) NativeRefresh(ctx context.Context, token string) (NativeTokens
 	})
 	if err != nil {
 		return NativeTokens{}, err
+	}
+	if policyRejected {
+		return NativeTokens{}, ErrNativeIdentityPolicy
 	}
 	if rejected {
 		return NativeTokens{}, ErrSession

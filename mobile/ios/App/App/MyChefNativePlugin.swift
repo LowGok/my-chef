@@ -137,7 +137,7 @@ public class MyChefNativePlugin: CAPPlugin, CAPBridgedPlugin, URLSessionDataDele
     @objc func readRuntime(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [self] in
             guard let origin = origin else { call.reject("App state is unavailable", "native_runtime"); return }
-            var snapshot = NativeRuntime.shared.snapshot(origin: origin)
+            var snapshot = NativeRuntime.shared.snapshot(origin: origin, lane: getConfig().getString("identityLane") ?? "preview")
             let traits = bridge?.webView?.traitCollection
             let scaled = UIFontMetrics(forTextStyle: .body).scaledValue(for: 16, compatibleWith: traits)
             snapshot["textScale"] = Double(scaled / 16)
@@ -215,7 +215,7 @@ public class MyChefNativePlugin: CAPPlugin, CAPBridgedPlugin, URLSessionDataDele
 
     @objc func configuration(_ call: CAPPluginCall) {
         guard let origin = origin else { call.reject("Private API configuration is unavailable", "native_configuration"); return }
-        nativeReply(call, ["platform": "ios", "apiOrigin": origin])
+        nativeReply(call, ["platform": "ios", "apiOrigin": origin, "identityLane": getConfig().getString("identityLane") ?? "preview"])
     }
     @objc func readRefresh(_ call: CAPPluginCall) {
         storageQueue.async { [self] in

@@ -19,6 +19,9 @@ func nativeRequest(r *http.Request, prefix, lane string) *http.Request {
 	current.Native = true
 	ctx := auth.WithNativeIdentity(r.Context(), lane)
 	next := r.Clone(context.WithValue(ctx, contextKey{}, current))
+	for _, name := range []string{"X-MyChef-Identity", "X-MyChef-Identity-Lane", "X-MyChef-Native-Lane", "X-MyChef-App-ID"} {
+		next.Header.Del(name)
+	}
 	next.URL.Path = "/api/v1/" + strings.TrimPrefix(r.URL.Path, prefix)
 	next.URL.RawPath = ""
 	return next

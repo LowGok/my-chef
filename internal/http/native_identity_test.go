@@ -21,6 +21,23 @@ func callAppNative(h http.Handler, method, path, body, access string) *httptest.
 	return w
 }
 
+func TestNativeIdentityRoutingHeadersDoNotReachHandlers(t *testing.T) {
+	a, _ := testAPI(t)
+	h := a.wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		for _, name := range []string{"X-MyChef-Identity", "X-MyChef-Identity-Lane", "X-MyChef-Native-Lane", "X-MyChef-App-ID"} {
+			if r.Header.Get(name) != "" {
+				t.Error("client routing metadata reached handler")
+			}
+		}
+		w.WriteHeader(204)
+	}))
+	r := httptest.NewRequest("GET", "/api/native/v1/fixture-operation", nil)
+	for _, name := range []string{"X-MyChef-Identity", "X-MyChef-Identity-Lane", "X-MyChef-Native-Lane", "X-MyChef-App-ID"} {
+		r.Header.Set(name, "app")
+	}
+	h.ServeHTTP(httptest.NewRecorder(), r)
+}
+
 func TestNativeIdentityIngressAndPersistedWithdrawal(t *testing.T) {
 	a, legacy := testAPI(t)
 	old := nativeFixtureLogin(t, a, legacy)
@@ -81,7 +98,7 @@ func TestNativeIdentityIngressAndPersistedWithdrawal(t *testing.T) {
 	if _, err := a.Store.SetNativeIdentityPolicy(t.Context(), paused.Revision, true, 0, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	if callAppNative(restarted, "GET", "/profile", "", refreshed.AccessToken).Code != 401 {
+	if callAppNative(restarted, "GET", "/profile", "", refreshed.AccessToken).Code != 403 {
 		t.Fatal("re-enable revived pre-cutoff family")
 	}
 	if callNative(restarted, "GET", "/profile", "", old.AccessToken).Code != 200 {

@@ -84,6 +84,7 @@ export function nativeBuildPlan(
       `CURRENT_PROJECT_VERSION=${version.build}`,
       `PRODUCT_BUNDLE_IDENTIFIER=${identity.appId}`,
       `MYCHEF_DISPLAY_NAME=${identity.appName}`,
+      ...(lane === "app" ? ["CODE_SIGN_ENTITLEMENTS=App/AppIdentity.entitlements"] : []),
       "build",
     ];
   if (platform === "android")

@@ -2,8 +2,11 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"time"
 )
+
+var ErrNativeIdentityPolicy = errors.New("native identity requires fresh sign-in")
 
 type nativeIdentityKey struct{}
 

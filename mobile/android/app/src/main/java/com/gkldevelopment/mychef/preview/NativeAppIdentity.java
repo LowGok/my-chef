@@ -19,4 +19,7 @@ public final class NativeAppIdentity {
         if (!logicalPath.startsWith(prefix)) throw new IllegalArgumentException("Unsupported native API path");
         return "app".equals(lane) ? "/api/native/app/v1/" + logicalPath.substring(prefix.length()) : logicalPath;
     }
+    public static boolean appOpeningLink(String lane, String value) {
+        return "app".equals(lane) && "https://mychef.dev/app/open".equals(value);
+    }
 }

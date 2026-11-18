@@ -82,6 +82,8 @@ test("native build commands bind package identity independently of the compile n
     expect(nativeBuildPlan("ios-simulator", version, lane)).toContain(`PRODUCT_BUNDLE_IDENTIFIER=${id}`);
     expect(compilePlan("ios-device", false, undefined, lane)).toContain(`PRODUCT_BUNDLE_IDENTIFIER=${id}`);
     expect(compilePlan("android", false, undefined, lane)).toContain(`-PmychefIdentityLane=${lane}`);
+    if(lane==="app")expect(compilePlan("ios-device",false,undefined,lane)).toContain("CODE_SIGN_ENTITLEMENTS=App/AppIdentity.entitlements");
+    else expect(compilePlan("ios-device",false,undefined,lane)).not.toContain("CODE_SIGN_ENTITLEMENTS=App/AppIdentity.entitlements");
   }
 });
 
@@ -93,6 +95,9 @@ test("the actual JVM package guard rejects a copied config from the sibling app"
   await writeFile(harness, `import com.gkldevelopment.mychef.preview.NativeAppIdentity;
 public class IdentityContract {
   public static void main(String[] args) {
+    if (!NativeAppIdentity.appOpeningLink("app","https://mychef.dev/app/open")) throw new AssertionError("Missing exact app link");
+    for (String value: new String[]{"https://mychef.dev/app/open?x=1","https://mychef.dev/app/open#x","https://mychef.dev:443/app/open","https://mychef.dev/app/%6fpen"}) if (NativeAppIdentity.appOpeningLink("app",value)) throw new AssertionError("Non-exact app link accepted");
+    if (NativeAppIdentity.appOpeningLink("preview","https://mychef.dev/app/open")) throw new AssertionError("Preview claims app link");
     if (!NativeAppIdentity.apiPath("app", "/api/native/v1/shopping/2026-11-16?x=a%20b").equals("/api/native/app/v1/shopping/2026-11-16?x=a%20b")) throw new AssertionError("Candidate uses wrong ingress");
     if (!NativeAppIdentity.apiPath("preview", "/api/native/v1/profile").equals("/api/native/v1/profile")) throw new AssertionError("Preview ingress changed");
     try { NativeAppIdentity.apiPath("app", "/api/native/app/v1/profile"); throw new AssertionError("Arbitrary bridge route accepted"); } catch (IllegalArgumentException expected) {}
@@ -122,4 +127,28 @@ test("installed probe package selection matches the requested lane and rejects u
   }
   const rejected=Bun.spawnSync(["python","-c","import sys; sys.path.insert(0,'scripts'); from native_identity import application_id; application_id()"],{cwd:join(import.meta.dir,".."),env:{...process.env,NATIVE_IDENTITY_LANE:"foreign"}});
   expect(rejected.exitCode).not.toBe(0);
+});
+
+test("candidate associations use only the exact public path and preserve Preview manifest behavior",()=>{
+ const result=Bun.spawnSync(["python3","-c",`import xml.etree.ElementTree as E, plistlib
+from pathlib import Path
+base=E.parse('mobile/android/app/src/main/AndroidManifest.xml').getroot()
+app=E.parse('mobile/android/app/src/appIdentity/AndroidManifest.xml').getroot()
+a='{http://schemas.android.com/apk/res/android}'
+links=[f for f in app.findall('./application/activity/intent-filter') if f.find('data') is not None]
+assert len(links)==1
+link=links[0]
+assert link.attrib=={a+'autoVerify':'true'}
+assert [d.attrib for d in link.findall('data')]==[{a+'scheme':'https',a+'host':'mychef.dev',a+'path':'/app/open'}]
+assert [n.get(a+'name') for n in link.findall('action')]==['android.intent.action.VIEW']
+assert sorted(n.get(a+'name') for n in link.findall('category'))==['android.intent.category.BROWSABLE','android.intent.category.DEFAULT']
+app.find('./application/activity').remove(link)
+def shape(n):return (n.tag,sorted(n.attrib.items()),(n.text or '').strip(),[shape(c) for c in n])
+assert shape(base)==shape(app), 'candidate manifest changed unrelated permissions or activities'
+with open('mobile/ios/App/App/AppIdentity.entitlements','rb') as f:ent=plistlib.load(f)
+assert ent=={'aps-environment':'production','com.apple.developer.associated-domains':['applinks:mychef.dev']}
+with open('mobile/ios/App/App/PushPreview.entitlements','rb') as f:old=plistlib.load(f)
+assert 'com.apple.developer.associated-domains' not in old
+`],{cwd:join(import.meta.dir,"..")});
+ expect(result.exitCode,result.stderr.toString()).toBe(0);
 });
