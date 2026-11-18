@@ -122,10 +122,35 @@ func (m *Manager) Register(ctx context.Context, r Registration) (store.User, err
 	}
 	prefs, _ := json.Marshal(domain.EmptyPreferences())
 	user := store.User{Email: r.Email, Password: hash, Username: r.Username, FirstName: r.FirstName, LastName: r.LastName, PreferencesJSON: store.Ptr(string(prefs))}
-	if err = m.Store.DB.WithContext(ctx).Create(&user).Error; errors.Is(err, sqlite3.CONSTRAINT_UNIQUE) {
+	err = m.Store.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if _, err := reserveAppUsername(tx, user.Username, 0); err != nil {
+			return err
+		}
+		return tx.Create(&user).Error
+	})
+	if errors.Is(err, sqlite3.CONSTRAINT_UNIQUE) {
 		return store.User{}, ErrConflict
 	}
 	return user, err
+}
+
+// reserveAppUsername runs inside the same immediate transaction as the app
+// account create or rename. The index is deliberately non-unique for imports.
+func reserveAppUsername(tx *gorm.DB, username string, owner int64) ([]byte, error) {
+	key := store.UsernameKey(username)
+	if key == nil {
+		return nil, nil
+	}
+	var taken bool
+	err := tx.Raw(`SELECT EXISTS(SELECT 1 FROM users
+		WHERE isNewsletterOnly=0 AND login_username_key=? AND user_id<>?)`, key, owner).Row().Scan(&taken)
+	if err != nil {
+		return nil, err
+	}
+	if taken {
+		return nil, ErrConflict
+	}
+	return key, nil
 }
 
 type verifiedLogin struct {
@@ -265,15 +290,29 @@ func (m *Manager) Update(ctx context.Context, id int64, p ProfileUpdate, tokens 
 	}
 	prefs, _ := json.Marshal(p.Preferences)
 	err := m.Store.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		liveProfile := func() *gorm.DB {
+			q := tx.Model(&store.User{}).Where("user_id = ?", id)
+			if len(tokens) == 1 {
+				q = q.Where("EXISTS (SELECT 1 FROM sessions s WHERE s.user_id=users.user_id AND s.hash=? AND s.expires_unix>unixepoch())", Hash(tokens[0]))
+			}
+			return q
+		}
 		var before store.User
-		if err := tx.First(&before, id).Error; err != nil {
+		if err := liveProfile().Take(&before).Error; err != nil {
+			if len(tokens) == 1 && errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrSession
+			}
 			return err
 		}
-		query := tx.Model(&store.User{}).Where("user_id = ?", id)
-		if len(tokens) == 1 {
-			query = query.Where("EXISTS (SELECT 1 FROM sessions s WHERE s.user_id=users.user_id AND s.hash=? AND s.expires_unix>unixepoch())", Hash(tokens[0]))
+		updates := map[string]any{"firstname": p.FirstName, "lastname": p.LastName, "username": p.Username, "birthdate": p.Birthdate, "sex": p.Sex, "preferences_json": string(prefs), "haspref": true}
+		if !before.IsNewsletterOnly && p.Username != before.Username {
+			key, err := reserveAppUsername(tx, p.Username, id)
+			if err != nil {
+				return err
+			}
+			updates["login_username_key"] = key
 		}
-		result := query.Updates(map[string]any{"firstname": p.FirstName, "lastname": p.LastName, "username": p.Username, "birthdate": p.Birthdate, "sex": p.Sex, "preferences_json": string(prefs), "haspref": true})
+		result := liveProfile().Updates(updates)
 		if errors.Is(result.Error, sqlite3.CONSTRAINT_UNIQUE) {
 			return ErrConflict
 		}
