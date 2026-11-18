@@ -286,6 +286,7 @@ are outside this policy.
 | Date | Review | Kind | Commit | Model | Isolation | Outcome |
 | --- | --- | --- | --- | --- | --- | --- |
 | 2026-11-18 | R-1 | spec | `4df5bcc5d337709899dbe8ad640c3c028c35743d` | unknown | procedural | 1 blocking, 4 should-fix |
+| 2026-11-18 | R-2 | spec | `6e3f76b065ebdbdba7d3b5c709d183a95e0ff926` | unknown | procedural | 1 blocking, 2 should-fix |
 
 ### R-1
 
@@ -323,6 +324,29 @@ SEVERITY: should-fix
 WHERE: Design > Throttle and session authority; Acceptance Criteria AC-03; Test Plan AC-03
 EVIDENCE: The current process limit atomically checks and increments a key (`internal/http/api.go:288-311`), but the new account key is derived after identity resolution. The proposed sequential test verifies the total after alternate identifiers but does not verify mixed-transport requests contending for the last account slot.
 PROPOSAL: Add a concurrent fixture check with email and username using distinct sources and one account attempt left. Exactly one should reach credential verification, while the other receives the ordinary 429 response.
+
+### R-2
+
+FINDING: F-01
+KIND: factual
+SEVERITY: blocking
+WHERE: Scope; Design > New registrations and renames; Acceptance Criteria AC-06; Test Plan AC-06
+EVIDENCE: The revised design requires an in-transaction collision check but does not order it after write authorization. For native profile changes, `internal/http/api.go:514-527` passes the access token to `Manager.Update`, which checks the token's shape first and the live session only in the UPDATE predicate (`internal/auth/manager.go:243-248,266-286`). The existing expiry regression verifies this check at execution time (`internal/auth/native_profile_test.go:13-35`). An earlier conflict return could give an expired native caller 409 for an occupied name and an authorization error for a free one. Verified signup also validates the live anonymous session, proof and mailbox ownership before acting (`internal/auth/registration.go:400-445`).
+PROPOSAL: Require existing live authorization before returning collision information and retain the native authority predicate at the actual update. Test free and occupied names with expired or revoked native authority and invalid signup authority, confirming identical authorization failures and no writes.
+
+FINDING: F-02
+KIND: factual
+SEVERITY: should-fix
+WHERE: Design > Identifiers and matching and New registrations and renames; Test Plan AC-05 and AC-06
+EVIDENCE: The revised design says newsletter-only rows do not reserve an app alias, but it also retains the global exact username constraint (`migrations/001_initial.sql:1-5`). A newsletter-only row with a non-null username can therefore still prevent an exact-spelling signup or rename, even though the new folded lookup excludes it (`internal/newsletter/capture.go:323-341`).
+PROPOSAL: State that newsletter-only rows do not reserve a folded app key and that the existing exact-spelling constraint remains unchanged. Check both cases with a disposable newsletter fixture.
+
+FINDING: F-03
+KIND: factual
+SEVERITY: should-fix
+WHERE: Context > Policy-independent sign-in baseline; Test Plan AC-01
+EVIDENCE: The revised plan requires running the policy-independent email probes, but their five named tests were run through a temporary overlay. At `6e3f76b065ebdbdba7d3b5c709d183a95e0ff926`, `git grep TestIssue41Baseline` finds those names only in the feature document. The independent implementation reviewer cannot run those checks from that evidence alone.
+PROPOSAL: Require equivalent probes to be committed as regression tests and name a reproducible invocation for them. Keep the temporary overlay results as baseline evidence only.
 
 ## Sources
 
