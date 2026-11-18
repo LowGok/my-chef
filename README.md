@@ -55,7 +55,11 @@ An optional `App` section contains separate settings for `dev.mychef.app`; it
 never falls back to the Preview sender. The Google configuration for this new
 section must name the exact `Package`. Each registration and queued copy keeps
 its server-selected lane and environment, and sends restrict both the APNs topic
-and FCM Android package. Provider files and signing material remain private.
+and FCM Android package. A candidate submission crosses a final policy fence;
+pausing cancels claims that have not crossed it and prevents retries of late
+results. Already accepted delivery may still arrive. Native taps require the
+issuing lane and current authorization. Provider files and signing material
+remain private.
 
 ## Container
 

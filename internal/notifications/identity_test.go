@@ -38,7 +38,8 @@ func TestPushIdentityRestrictsPackageAndRejectsRouteMismatchBeforeWire(t *testin
 		})}}
 		for _, provider := range []string{"apns", "fcm"} {
 			d := Delivery{IdentityLane: lane, Environment: "production", Provider: provider, Token: strings.Repeat("a", 64), Reference: strings.Repeat("b", 32), Deadline: now.Add(time.Minute)}
-			if sender.Send(t.Context(), d).State != Accepted {
+			ctx := WithSubmissionGate(t.Context(), func() (func(), bool) { return func() {}, true })
+			if sender.Send(ctx, d).State != Accepted {
 				t.Fatal("matching delivery denied")
 			}
 			before := wire

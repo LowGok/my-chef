@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"sync/atomic"
 	"time"
 
 	"github.com/LowGok/my-chef/internal/notifications"
@@ -45,7 +46,7 @@ const reminderFamilyActive = ` FROM reminder_installations i
 JOIN native_families f ON f.id=i.family_id
 JOIN sessions a ON a.hash=f.anchor_hash
 JOIN account_incarnations o ON o.incarnation=i.incarnation AND o.user_id=a.user_id
-WHERE i.identity_lane=f.identity_lane AND i.identity_revision=f.identity_revision AND i.incarnation=? AND f.platform=i.platform AND f.expires_unix>? AND a.expires_unix>? AND i.refreshed_unix>?`
+WHERE (i.identity_lane='preview' OR EXISTS(SELECT 1 FROM native_identity_policy p WHERE p.id=1 AND p.active=1 AND p.revision=i.identity_revision)) AND i.identity_lane=f.identity_lane AND i.identity_revision=f.identity_revision AND i.incarnation=? AND f.platform=i.platform AND f.expires_unix>? AND a.expires_unix>? AND i.refreshed_unix>?`
 
 func (s *ReminderSettings) evaluateReminderPreferences(ctx context.Context) error {
 	return s.store.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -360,7 +361,27 @@ func (s *ReminderSettings) RunReminderStep(ctx context.Context, send notificatio
 	if err != nil || dispatch.Reference == "" {
 		return false, err
 	}
+	return s.submitClaimedReminder(ctx, delivery, dispatch, tag, send)
+}
+
+func (s *ReminderSettings) submitClaimedReminder(ctx context.Context, delivery notifications.Delivery, dispatch reminderDispatch, tag []byte, send notifications.Send) (bool, error) {
 	call, cancel := context.WithTimeout(ctx, 15*time.Second)
+	var attempted, crossed atomic.Bool
+	if dispatch.IdentityLane == "app" {
+		call = notifications.WithSubmissionGate(call, func() (func(), bool) {
+			if !attempted.CompareAndSwap(false, true) {
+				return func() {}, false
+			}
+			s.store.NativeIdentityWork.RLock()
+			policy, err := s.store.NativeIdentityPolicy(call)
+			if err != nil || call.Err() != nil || !policy.Active || policy.Revision != dispatch.IdentityRevision || !s.identityProviderEnabled(dispatch.IdentityLane, dispatch.Environment, delivery.Provider) {
+				s.store.NativeIdentityWork.RUnlock()
+				return func() {}, false
+			}
+			crossed.Store(true)
+			return s.store.NativeIdentityWork.RUnlock, true
+		})
+	}
 	result := send(call, delivery)
 	cancel()
 	now := s.now()
@@ -379,9 +400,21 @@ func (s *ReminderSettings) RunReminderStep(ctx context.Context, send notificatio
 	case notifications.Permanent, notifications.InvalidRegistration:
 		state = "permanent"
 	}
+	if dispatch.IdentityLane == "app" && !crossed.Load() {
+		state = "suppressed"
+	}
 	finish, stop := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer stop()
-	err = s.store.DB.WithContext(finish).Transaction(func(tx *gorm.DB) error {
+	err := s.store.DB.WithContext(finish).Transaction(func(tx *gorm.DB) error {
+		if state == "pending" && dispatch.IdentityLane == "app" {
+			var allowed bool
+			if err := tx.Raw("SELECT active=1 AND revision=? FROM native_identity_policy WHERE id=1", dispatch.IdentityRevision).Row().Scan(&allowed); err != nil {
+				return err
+			}
+			if !allowed {
+				state = "suppressed"
+			}
+		}
 		if result.State == notifications.InvalidRegistration {
 			if err := tx.Exec("DELETE FROM reminder_installations WHERE family_id=? AND token_tag=?", dispatch.FamilyID, tag).Error; err != nil {
 				return err
@@ -407,7 +440,12 @@ func (s *ReminderSettings) OpenReminder(ctx context.Context, actor PersonalActor
 		var o reminderOccurrence
 		err = tx.Raw(`SELECT o.id,o.incarnation,o.purpose,o.target_week,o.scheduled,coalesce(d.submission_deadline,o.deadline),o.revision
 FROM reminder_occurrences o JOIN reminder_dispatches d ON d.occurrence=o.id
-WHERE o.incarnation=? AND d.reference=? AND d.state IN ('sending','accepted','uncertain')`, owner, reference).Row().
+WHERE o.incarnation=? AND d.reference=? AND d.state IN ('sending','accepted','uncertain')
+AND (?=0 OR EXISTS(SELECT 1 FROM native_accesses access
+JOIN native_families family ON family.id=access.family_id
+WHERE access.hash=? AND family.identity_lane=d.identity_lane AND family.identity_revision=d.identity_revision
+AND (family.identity_lane='preview' OR EXISTS(SELECT 1 FROM native_identity_policy policy
+WHERE policy.id=1 AND policy.active=1 AND policy.revision=family.identity_revision))))`, owner, reference, actor.Native, actor.SessionHash).Row().
 			Scan(&o.ID, &o.Incarnation, &o.Purpose, &o.TargetWeek, &o.Scheduled, &o.Deadline, &o.Revision)
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrReminderMissing

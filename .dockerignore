@@ -347,3 +347,4 @@ internal/notifications/**
 !cmd/mychef/native_identity.go
 !internal/store/notification_identity.go
 !migrations/031_notification_identity.sql
+!internal/notifications/submission.go

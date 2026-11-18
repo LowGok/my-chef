@@ -16,6 +16,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptrace"
 	"net/url"
 	"regexp"
 	"strconv"
@@ -247,6 +248,9 @@ func (s *PushSender) Send(ctx context.Context, d Delivery) Result {
 	if configuredEnvironment == "" {
 		configuredEnvironment = "production"
 	}
+	if _, exists := ctx.Value(submissionGateKey{}).(submissionGate); configuredLane == "app" && !exists {
+		return Result{State: Permanent}
+	}
 	if lane != configuredLane || environment != configuredEnvironment {
 		return Result{State: Permanent}
 	}
@@ -304,6 +308,16 @@ func (s *PushSender) Send(ctx context.Context, d Delivery) Result {
 		req.Header.Set("apns-push-type", "alert")
 		req.Header.Set("apns-collapse-id", d.Reference)
 	}
+	release, allowed := BeginSubmission(ctx)
+	if !allowed {
+		release()
+		return Result{State: Permanent}
+	}
+	var releaseOnce sync.Once
+	finishSubmission := func() { releaseOnce.Do(release) }
+	defer finishSubmission()
+	traced := httptrace.WithClientTrace(req.Context(), &httptrace.ClientTrace{WroteRequest: func(httptrace.WroteRequestInfo) { finishSubmission() }})
+	req = req.WithContext(traced)
 	resp, err := s.client.Do(req)
 	if err != nil {
 		return Result{State: Uncertain}

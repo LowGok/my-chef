@@ -43,7 +43,12 @@ func TestReminderIdentityCannotStealSiblingTokenOrRetargetRetry(t *testing.T) {
 	}
 	var deliveries []notifications.Delivery
 	for range 2 {
-		_, err := service.RunReminderStep(ctx, func(_ context.Context, d notifications.Delivery) notifications.Result {
+		_, err := service.RunReminderStep(ctx, func(ctx context.Context, d notifications.Delivery) notifications.Result {
+			release, allowed := notifications.BeginSubmission(ctx)
+			defer release()
+			if !allowed {
+				return notifications.Result{State: notifications.Permanent}
+			}
 			deliveries = append(deliveries, d)
 			return notifications.Result{State: notifications.Temporary}
 		})
@@ -67,7 +72,12 @@ func TestReminderIdentityCannotStealSiblingTokenOrRetargetRetry(t *testing.T) {
 	first := append([]notifications.Delivery(nil), deliveries...)
 	deliveries = nil
 	for range 2 {
-		if _, err := service.RunReminderStep(ctx, func(_ context.Context, d notifications.Delivery) notifications.Result {
+		if _, err := service.RunReminderStep(ctx, func(ctx context.Context, d notifications.Delivery) notifications.Result {
+			release, allowed := notifications.BeginSubmission(ctx)
+			defer release()
+			if !allowed {
+				return notifications.Result{State: notifications.Permanent}
+			}
 			deliveries = append(deliveries, d)
 			return notifications.Result{State: notifications.Accepted}
 		}); err != nil {
@@ -80,6 +90,16 @@ func TestReminderIdentityCannotStealSiblingTokenOrRetargetRetry(t *testing.T) {
 	for i, d := range deliveries {
 		if d.Reference != first[i].Reference || d.IdentityLane != first[i].IdentityLane || d.Environment != first[i].Environment {
 			t.Fatal("retry changed its original route")
+		}
+	}
+	for _, d := range deliveries {
+		if d.IdentityLane == "app" {
+			if _, err := service.OpenReminder(ctx, actors[0], d.Reference); !errors.Is(err, ErrReminderMissing) {
+				t.Fatal("candidate reminder tap opened through Preview", err)
+			}
+			if week, err := service.OpenReminder(ctx, actors[1], d.Reference); err != nil || week != "2026-11-16" {
+				t.Fatal("matching candidate cannot open its reminder", err)
+			}
 		}
 	}
 	// A changed registration cannot adopt a previously queued retry from another lane.
