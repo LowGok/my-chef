@@ -1,9 +1,15 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
+import { nativeIdentity, type NativeIdentityLane } from "./native-identity";
 
 // No production target is available until the later native release review.
-export function createMobileConfig(origin: string, environment = "preview") {
+export function createMobileConfig(
+  origin: string,
+  environment = "preview",
+  lane: NativeIdentityLane = "preview",
+) {
+  const identity = nativeIdentity(lane);
   const url = new URL(origin);
   if (
     environment !== "preview" ||
@@ -21,8 +27,8 @@ export function createMobileConfig(origin: string, environment = "preview") {
   )
     throw new Error("An explicit private HTTPS preview origin is required.");
   return {
-    appId: "com.gkldevelopment.mychef.preview",
-    appName: "MyChef Preview",
+    appId: identity.appId,
+    appName: identity.appName,
     webDir: ".generated/embedded",
     loggingBehavior: "none" as const,
     server: {
@@ -38,13 +44,14 @@ export function createMobileConfig(origin: string, environment = "preview") {
       zoomEnabled: true,
     },
     ios: { webContentsDebuggingEnabled: false },
-    plugins: { MyChefNative: { apiOrigin: url.origin } },
+    plugins: { MyChefNative: { apiOrigin: url.origin, identityLane: identity.lane } },
   };
 }
 type Config = ReturnType<typeof createMobileConfig>;
 type Asset = { path: string; sha256: string; bytes: number };
 type Manifest = {
-  version: 1;
+  version: 2;
+  identityLane: NativeIdentityLane;
   environment: "preview";
   sourceCommit: string;
   config: Config;
@@ -104,6 +111,8 @@ export async function prepareMobileBundle(
     throw new Error("An exact source commit is required.");
   const canonicalConfig = createMobileConfig(
     config.plugins.MyChefNative.apiOrigin,
+    "preview",
+    config.plugins.MyChefNative.identityLane,
   );
   if (JSON.stringify(config) !== JSON.stringify(canonicalConfig))
     throw new Error("Unsupported native configuration.");
@@ -145,7 +154,8 @@ export async function prepareMobileBundle(
     assets.push({ path, sha256: digest(data), bytes: data.length });
   }
   const evidence = {
-    version: 1 as const,
+    version: 2 as const,
+    identityLane: config.plugins.MyChefNative.identityLane,
     environment: "preview" as const,
     sourceCommit,
     config: canonicalConfig,
@@ -174,7 +184,8 @@ export async function verifyMobileBundle(
   );
   const { bundleSha256, ...evidence } = manifest;
   if (
-    manifest.version !== 1 ||
+    manifest.version !== 2 ||
+    !["preview", "app"].includes(manifest.identityLane) ||
     manifest.environment !== "preview" ||
     !/^[a-f0-9]{40}$/.test(manifest.sourceCommit) ||
     digest(JSON.stringify(evidence)) !== bundleSha256
@@ -182,6 +193,8 @@ export async function verifyMobileBundle(
     throw new Error("Invalid native bundle identity.");
   const canonicalConfig = createMobileConfig(
     manifest.config.plugins.MyChefNative.apiOrigin,
+    "preview",
+    manifest.identityLane,
   );
   if (
     JSON.stringify(canonicalConfig) !== JSON.stringify(manifest.config) ||
@@ -225,12 +238,12 @@ if (import.meta.main) {
     destination &&
     origin &&
     commit &&
-    !extra.length
+    extra.length <= 1
   ) {
     const result = await prepareMobileBundle(
       source,
       destination,
-      createMobileConfig(origin),
+      createMobileConfig(origin, "preview", nativeIdentity(extra[0] ?? "preview").lane),
       commit,
     );
     console.log(
@@ -242,6 +255,6 @@ if (import.meta.main) {
     );
   } else
     throw new Error(
-      "Usage: bun scripts/mobile-build.ts prepare <web-app> <generated-dir> <private-https-origin> <commit> | verify <generated-dir>",
+      "Usage: bun scripts/mobile-build.ts prepare <web-app> <generated-dir> <private-https-origin> <commit> [preview|app] | verify <generated-dir>",
     );
 }

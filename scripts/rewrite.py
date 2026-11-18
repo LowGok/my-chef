@@ -91,6 +91,7 @@ def main() -> None:
             "--types", "bun-types", "--typeRoots", "./node_modules", "--skipLibCheck",
             "../scripts/audit-web.ts", "../scripts/audit-web.test.ts",
             "../scripts/mobile-build.ts", "../scripts/mobile-build.test.ts",
+            "../scripts/native-identity.ts", "../scripts/native-identity.test.ts",
             "../scripts/mobile-java.test.ts", "../scripts/mobile-delivery.ts",
             "../scripts/mobile-delivery.test.ts", "../scripts/mobile-hosted.ts",
             "../scripts/mobile-hosted.test.ts",
@@ -99,6 +100,7 @@ def main() -> None:
             "generate.ts", "../scripts/generate-api.test.ts", web=True)
         run("bun", "test", "src", "../scripts/audit-web.test.ts",
             "../scripts/generate-api.test.ts", "../scripts/mobile-build.test.ts",
+            "../scripts/native-identity.test.ts",
             "../scripts/mobile-java.test.ts", "../scripts/mobile-delivery.test.ts",
             "../scripts/mobile-hosted.test.ts", "../scripts/native-android-report.test.ts", web=True)
     elif command == "lint":
