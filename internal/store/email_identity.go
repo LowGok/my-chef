@@ -34,6 +34,10 @@ func (u *User) BeforeCreate(tx *gorm.DB) error {
 		return err
 	}
 	u.Email, u.EmailKey = display, key
+	u.LoginUsernameKey = nil
+	if !u.IsNewsletterOnly {
+		u.LoginUsernameKey = UsernameKey(u.Username)
+	}
 	if err := guardNewsletterIdentityCreate(tx, display); err != nil {
 		return err
 	}

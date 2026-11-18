@@ -122,40 +122,49 @@ func (m *Manager) Register(ctx context.Context, r Registration) (store.User, err
 	}
 	prefs, _ := json.Marshal(domain.EmptyPreferences())
 	user := store.User{Email: r.Email, Password: hash, Username: r.Username, FirstName: r.FirstName, LastName: r.LastName, PreferencesJSON: store.Ptr(string(prefs))}
-	if err = m.Store.DB.WithContext(ctx).Create(&user).Error; errors.Is(err, sqlite3.CONSTRAINT_UNIQUE) {
+	err = m.Store.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if _, err := reserveAppUsername(tx, user.Username, 0); err != nil {
+			return err
+		}
+		return tx.Create(&user).Error
+	})
+	if errors.Is(err, sqlite3.CONSTRAINT_UNIQUE) {
 		return store.User{}, ErrConflict
 	}
 	return user, err
 }
 
-type verifiedLogin struct {
-	user    store.User
-	upgrade string
+// reserveAppUsername runs inside the same immediate transaction as the app
+// account create or rename. The index is deliberately non-unique for imports.
+func reserveAppUsername(tx *gorm.DB, username string, owner int64) ([]byte, error) {
+	key := store.UsernameKey(username)
+	if key == nil {
+		return nil, nil
+	}
+	var taken bool
+	err := tx.Raw(`SELECT EXISTS(SELECT 1 FROM users
+		WHERE isNewsletterOnly=0 AND login_username_key=? AND user_id<>?)`, key, owner).Row().Scan(&taken)
+	if err != nil {
+		return nil, err
+	}
+	if taken {
+		return nil, ErrConflict
+	}
+	return key, nil
 }
 
-func (m *Manager) verifyLogin(ctx context.Context, address, raw string) (verifiedLogin, error) {
-	normalized, err := normalizePassword(raw)
-	_, emailKey, emailErr := store.EmailIdentity(address)
-	if err != nil || emailErr != nil {
-		return verifiedLogin{}, ErrCredentials
-	}
-	var u store.User
-	err = m.Store.DB.WithContext(ctx).Where("email_key = ? AND isNewsletterOnly=0", emailKey).First(&u).Error
-	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-		return verifiedLogin{}, err
-	}
-	matched, legacy, err := comparePassword(ctx, u.Password, raw, normalized)
+type verifiedLogin struct {
+	user        store.User
+	upgrade     string
+	usernameKey []byte
+}
+
+func (m *Manager) verifyLogin(ctx context.Context, identifier, raw string) (verifiedLogin, error) {
+	target, err := m.ResolveLogin(ctx, identifier)
 	if err != nil {
 		return verifiedLogin{}, err
 	}
-	if !matched || u.ID == 0 {
-		return verifiedLogin{}, ErrCredentials
-	}
-	login := verifiedLogin{user: u}
-	if legacy {
-		login.upgrade, err = newPasswordHash(ctx, normalized)
-	}
-	return login, err
+	return verifyResolvedLogin(ctx, target, raw)
 }
 
 // completeLogin binds session creation and any legacy upgrade to the same
@@ -180,6 +189,15 @@ func (m *Manager) completeLogin(ctx context.Context, login verifiedLogin, old st
 		}
 		if err != nil {
 			return err
+		}
+		if login.usernameKey != nil {
+			owner, err := lookupLoginUsername(tx, login.usernameKey)
+			if err != nil {
+				return err
+			}
+			if owner.ID != current.ID {
+				return ErrCredentials
+			}
 		}
 		if login.upgrade != "" {
 			result := tx.Model(&store.User{}).Where("user_id = ? AND password = ?", current.ID, current.Password).Update("password", login.upgrade)
@@ -219,12 +237,12 @@ func (m *Manager) Login(ctx context.Context, email, password string) (store.User
 	return u, err
 }
 
-func (m *Manager) LoginSession(ctx context.Context, email, password, old string) (store.User, string, error) {
-	login, err := m.verifyLogin(ctx, email, password)
+func (m *Manager) LoginSession(ctx context.Context, identifier, password, old string) (store.User, string, error) {
+	target, err := m.ResolveLogin(ctx, identifier)
 	if err != nil {
 		return store.User{}, "", err
 	}
-	return m.completeLogin(ctx, login, old, true)
+	return m.LoginResolvedSession(ctx, target, password, old)
 }
 
 func (m *Manager) RegistrationSession(ctx context.Context, user store.User, old string) (store.User, string, error) {
@@ -265,15 +283,29 @@ func (m *Manager) Update(ctx context.Context, id int64, p ProfileUpdate, tokens 
 	}
 	prefs, _ := json.Marshal(p.Preferences)
 	err := m.Store.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		liveProfile := func() *gorm.DB {
+			q := tx.Model(&store.User{}).Where("user_id = ?", id)
+			if len(tokens) == 1 {
+				q = q.Where("EXISTS (SELECT 1 FROM sessions s WHERE s.user_id=users.user_id AND s.hash=? AND s.expires_unix>unixepoch())", Hash(tokens[0]))
+			}
+			return q
+		}
 		var before store.User
-		if err := tx.First(&before, id).Error; err != nil {
+		if err := liveProfile().Take(&before).Error; err != nil {
+			if len(tokens) == 1 && errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrSession
+			}
 			return err
 		}
-		query := tx.Model(&store.User{}).Where("user_id = ?", id)
-		if len(tokens) == 1 {
-			query = query.Where("EXISTS (SELECT 1 FROM sessions s WHERE s.user_id=users.user_id AND s.hash=? AND s.expires_unix>unixepoch())", Hash(tokens[0]))
+		updates := map[string]any{"firstname": p.FirstName, "lastname": p.LastName, "username": p.Username, "birthdate": p.Birthdate, "sex": p.Sex, "preferences_json": string(prefs), "haspref": true}
+		if !before.IsNewsletterOnly && p.Username != before.Username {
+			key, err := reserveAppUsername(tx, p.Username, id)
+			if err != nil {
+				return err
+			}
+			updates["login_username_key"] = key
 		}
-		result := query.Updates(map[string]any{"firstname": p.FirstName, "lastname": p.LastName, "username": p.Username, "birthdate": p.Birthdate, "sex": p.Sex, "preferences_json": string(prefs), "haspref": true})
+		result := liveProfile().Updates(updates)
 		if errors.Is(result.Error, sqlite3.CONSTRAINT_UNIQUE) {
 			return ErrConflict
 		}

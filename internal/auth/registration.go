@@ -434,14 +434,21 @@ func (s *SignUp) Complete(ctx context.Context, anonymousToken string, input Sign
 					}
 				}
 				user.ID = owner.ID
+				key, conflict := reserveAppUsername(tx, user.Username, owner.ID)
+				if conflict != nil {
+					return conflict
+				}
 				store.TrackNewsletterIdentity(tx, owner.ID)
 				err = tx.Model(&owner).Where("isNewsletterOnly=1").Updates(map[string]any{
 					"isNewsletterOnly": false, "newsletter_minimised": false, "email_key": draft.EmailKey, "email": draft.Email, "email_verified_at": now.Unix(), "password": credential,
-					"username": input.Username, "firstname": input.FirstName, "lastname": input.LastName, "preferences_json": string(prefs),
+					"username": input.Username, "login_username_key": key, "firstname": input.FirstName, "lastname": input.LastName, "preferences_json": string(prefs),
 				}).Error
 			case lookup == nil && !found:
 				if draft.ContactID != 0 {
 					return ErrSignUpProof
+				}
+				if _, err := reserveAppUsername(tx, user.Username, 0); err != nil {
+					return err
 				}
 				err = tx.Create(&user).Error
 			default:
