@@ -6,7 +6,7 @@ import {nativeOperationDigest,runNativeOperation,type NativeProviderClient,type 
 
 const temporary:string[]=[];
 afterEach(async()=>{for(const p of temporary.splice(0))await rm(p,{recursive:true,force:true});});
-const plan=():NativeProviderPlan=>({schemaVersion:1,operationId:"a".repeat(32),identityLane:"app",appId:"dev.mychef.app",environment:"preview",provider:"apple",accountId:"approved-team",sourceCommit:"b".repeat(40),action:"create-app",target:{name:"MyChef",sku:"mychef-app-ios",platform:"IOS"}});
+const plan=():NativeProviderPlan=>({schemaVersion:1,operationId:"a".repeat(32),identityLane:"app",appId:"dev.mychef.app",environment:"preview",provider:"apple",accountId:"approved-team",sourceCommit:"b".repeat(40),action:"create-app",target:{name:"MyChef",sku:"mychef-app-ios",platform:"IOS",userAccess:"limited",appUserIds:["account-holder"]}});
 const approval=(value:NativeProviderPlan)=>({planSha256:nativeOperationDigest(value),expiresUnix:2000});
 async function journal(){const directory=await mkdtemp(join(tmpdir(),"mychef-provider-"));temporary.push(directory);return directory;}
 function fixture(value:NativeProviderPlan){
@@ -113,4 +113,27 @@ test("provider drift, before-state mismatch and concurrent writes fail before mu
    expect(remote.writes()).toBe(0);
   }
  }
+});
+
+test("Apple app creation binds Limited Access and the complete effective user roster", async () => {
+  const baseline = plan();
+  const value = {
+    ...baseline,
+    target: { ...baseline.target, userAccess: "limited", appUserIds: ["account-holder"] },
+  };
+  const consent = approval(value);
+  for (const target of [
+    { name: "MyChef", sku: "mychef-app-ios", platform: "IOS" },
+    { ...value.target, userAccess: "full" },
+    { ...value.target, appUserIds: [] },
+  ]) {
+    expect(() => nativeOperationDigest({ ...value, target })).toThrow();
+  }
+  const widened = { ...value, target: { ...value.target, appUserIds: ["account-holder", "unexpected-user"] } };
+  const remote = fixture(value);
+  await expect(runNativeOperation(widened, consent, remote.client, await journal(), 1000)).rejects.toThrow();
+  expect(remote.writes()).toBe(0);
+  const mismatchedReadback = fixture(widened);
+  await expect(runNativeOperation(value, consent, mismatchedReadback.client, await journal(), 1000)).rejects.toThrow();
+  expect(mismatchedReadback.writes()).toBe(1);
 });

@@ -15,12 +15,19 @@ privately verified account roster.
 
 | Stage | Facts needed before the operation | Facts obtained afterwards |
 | --- | --- | --- |
-| App or explicit bundle registration | Account, platform, package/bundle, name; Apple SKU for the app | Immutable record ID and exact identity readback |
+| App or explicit bundle registration | Account, platform, package/bundle and name. Apple app creation also names the SKU, Limited Access and every effective app user | Immutable record ID and exact identity readback |
 | Internal group creation | Parent app, group name, empty roster, automatic distribution and public link off | Group ID and unchanged parent/type/settings |
 | Capability or profile preparation | Existing record, exact capabilities, certificate, production push and App Attest, associated domain | Capability/profile identity, expiry and signed entitlement readback |
 | First Play upload | Existing app, Play App Signing mode, upload certificate, exact signed bundle, inactive internal draft | Complete applicable app-signing fingerprint set, distinct from the upload certificate |
 | Later signing, upload or assignment | Read-back record and profile, artifact/source hashes, signing facts, exact group/track and roster where applicable | Exact artifact/build, scope and distribution readback |
 | Website publication | Existing site/origin and state hash, exact staged association bundle and three paths | Published bytes, headers and untouched unrelated routes |
+
+On Apple app creation, bind `userAccess: "limited"` and the complete effective
+`appUserIds` roster, including users with account-wide access through their
+role. In the authenticated New App dialog choose **Limited Access** and verify
+the visible users and any inherited access before creating the record. Read
+back the same scope before progressing to group creation, upload or
+assignment. [Apple app creation controls](https://developer.apple.com/help/app-store-connect/create-an-app-record/add-a-new-app/)
 
 Creation does not require an ID that only the provider can return afterwards.
 Every later operation requires a current before-state digest. The authenticated

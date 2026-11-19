@@ -40,8 +40,10 @@ function parse(input:unknown):NativeProviderPlan{
  let artifactKind:string|undefined;
  switch(p.action){
  case "create-app":
-  exact(t,provider==="apple"?["name","sku","platform"]:["name","platform"]);
-  if(!["apple","google"].includes(provider as string) || t.name!=="MyChef" || t.platform!==(provider==="apple"?"IOS":"ANDROID") || provider==="apple" && (typeof t.sku!=="string" || !/^[a-z0-9._-]{1,120}$/.test(t.sku)))fail();break;
+  exact(t,provider==="apple"?["name","sku","platform","userAccess","appUserIds"]:["name","platform"]);
+  if(!["apple","google"].includes(provider as string) || t.name!=="MyChef" || t.platform!==(provider==="apple"?"IOS":"ANDROID"))fail();
+  if(provider==="apple" && (typeof t.sku!=="string" || !/^[a-z0-9._-]{1,120}$/.test(t.sku) || t.userAccess!=="limited" || !list(t.appUserIds,id)))fail();
+  break;
  case "register-bundle":
   exact(t,["name","platform"]);if(provider!=="apple" || t.name!=="MyChef" || t.platform!=="IOS")fail();break;
  case "create-group":
