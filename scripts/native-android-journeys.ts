@@ -282,6 +282,7 @@ async function activateControl(control: Locator, name: string) {
   let previousGeometry: number[] | null = null;
   let stableGeometry = 0;
   let sawGeometry = false;
+  let viewportCorrections = 0;
   await expect
     .poll(
       async () => {
@@ -309,13 +310,24 @@ async function activateControl(control: Locator, name: string) {
         stableGeometry = current ? (settled ? stableGeometry + 1 : 1) : 0;
         sawGeometry ||= current !== null;
         previousGeometry = current;
+        if (current === null && viewportCorrections < 3) {
+          // TalkBack focus or late WebView reflow can move the target after
+          // the initial centering. Correct only before input, within this
+          // same deadline; never retry the native activation.
+          viewportCorrections += 1;
+          await control.evaluate((node) => node.scrollIntoView({
+            block: "center", inline: "nearest", behavior: "instant",
+          }));
+          await Bun.sleep(350);
+        }
         return stableGeometry >= 3;
       },
       { message: name + " must keep its center point and native viewport stable", intervals: [150], timeout: 10_000 },
     )
     .toBe(true).catch(async (error: unknown) => {
       console.log("Installed Android viewport state: " + JSON.stringify({
-        observed: sawGeometry, valid: previousGeometry !== null, stable: stableGeometry, owner: focusOwner(),
+        observed: sawGeometry, valid: previousGeometry !== null, stable: stableGeometry,
+        recentered: viewportCorrections, owner: focusOwner(),
       }));
       // Failure-only, closed facts distinguish clipping from hit-test mismatch.
       // Never return text, values, identifiers, classes or a DOM representation.
