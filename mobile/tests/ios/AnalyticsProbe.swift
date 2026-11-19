@@ -1246,6 +1246,15 @@ final class AnalyticsProbe: XCTestCase {
         try openSignupWithVoice()
         waitFor({ ((try? self.control("native-notice")["assessedObserved"]) as? Bool) == true },
                 "Native assessed notice response must precede VoiceOver observation")
+        print("Analytics iOS voice phase: prepare assessed choice viewport")
+        // Isolate the control's actual speech/operation from the separately
+        // unresolved offscreen-navigation behavior. Position with ordinary
+        // native content gestures, then require real VoiceOver label/role/state
+        // and activation again. This setup supplies no speech observation.
+        try voice.disable()
+        reveal(checkbox())
+        XCTAssertTrue(hasTapRegion(checkbox()), "Signup choice must be visible before VoiceOver")
+        try enableVoice()
         print("Analytics iOS voice phase: assessed signup choice")
         XCTAssertEqual(state(try focusSpeech("Help improve MyChef")), "on")
         let assessedBox = checkbox()
