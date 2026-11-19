@@ -71,6 +71,7 @@ Association declarations are prepared for the new identity; publishing the
 website files and installing signed builds still require separate approval.
 The [app-link artifact handoff](docs/reference/native-app-links.md) describes
 local generation, HTTPS rehearsal and the exact website publication scope.
+The [provider operation guard](docs/reference/native-provider-operations.md) binds separately approved app-lane writes to their exact record, artifact and roster and preserves uncertain results for readback.
 
 ## Container
 

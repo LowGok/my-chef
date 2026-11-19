@@ -93,6 +93,7 @@ def main() -> None:
             "../scripts/mobile-build.ts", "../scripts/mobile-build.test.ts",
             "../scripts/native-identity.ts", "../scripts/native-identity.test.ts",
             "../scripts/native-app-links.ts", "../scripts/native-app-links.test.ts",
+            "../scripts/native-provider-operations.ts", "../scripts/native-provider-operations.test.ts",
             "../scripts/mobile-java.test.ts", "../scripts/mobile-delivery.ts",
             "../scripts/mobile-delivery.test.ts", "../scripts/mobile-hosted.ts",
             "../scripts/mobile-hosted.test.ts",
@@ -102,6 +103,7 @@ def main() -> None:
         run("bun", "test", "src", "../scripts/audit-web.test.ts",
             "../scripts/generate-api.test.ts", "../scripts/mobile-build.test.ts",
             "../scripts/native-identity.test.ts", "../scripts/native-app-links.test.ts",
+            "../scripts/native-provider-operations.test.ts",
             "../scripts/mobile-java.test.ts", "../scripts/mobile-delivery.test.ts",
             "../scripts/mobile-hosted.test.ts", "../scripts/native-android-report.test.ts", web=True)
     elif command == "lint":
