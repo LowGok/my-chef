@@ -891,6 +891,15 @@ final class AnalyticsProbe: XCTestCase {
                 "label BEGINSWITH %@", phrase)).firstMatch
         }
         var activationPhrase: String?
+        func voicePoint(_ phrase: String, frame: CGRect, window: CGRect) -> CGVector {
+            // WebKit can expose the checkbox together with its wide label.
+            // The input is first in this LTR row and at least 20 points square;
+            // explore its control area instead of the label's text midpoint.
+            let x = phrase == "Help improve MyChef" ? frame.minX + min(frame.width / 2, 12) : frame.midX
+            let y = phrase == "Help improve MyChef" ? frame.minY + min(frame.height / 2, 12) : frame.midY
+            return CGVector(dx: (x - window.minX) / window.width,
+                            dy: (y - window.minY) / window.height)
+        }
         func activateVoice() {
             let bounds = app.frame
             guard voice.isEnabled, app.state == .runningForeground,
@@ -913,8 +922,7 @@ final class AnalyticsProbe: XCTestCase {
             // Keep the real double tap at the spoken control's measured
             // position. An arbitrary window center can target other content.
             // Only the caller's actual UI/server result proves activation.
-            let point = CGVector(dx: (frame.midX - bounds.minX) / bounds.width,
-                                 dy: (frame.midY - bounds.minY) / bounds.height)
+            let point = voicePoint(phrase, frame: frame, window: bounds)
             print("Analytics iOS voice phase: measured control activation")
             app.coordinate(withNormalizedOffset: point).doubleTap()
         }
@@ -992,7 +1000,8 @@ final class AnalyticsProbe: XCTestCase {
             }
             return finish(false)
         }
-        func spoken(_ phrase: String, backward: Bool = false, controlRole: Bool = false) throws -> String {
+        func spoken(_ phrase: String, backward: Bool = false, controlRole: Bool = false,
+                    touchExplored: Bool = false) throws -> String {
             func words(_ value: String) -> String {
                 value.lowercased().components(separatedBy: CharacterSet.alphanumerics.inverted)
                     .filter { !$0.isEmpty }.joined(separator: " ")
@@ -1060,6 +1069,11 @@ final class AnalyticsProbe: XCTestCase {
                 // may reach its control, whose own speech must include its role.
                 return nil
             }
+            // Only a just-completed native exploration touch can authorize
+            // this initial sample. A launch or stale pre-existing utterance
+            // still requires the fresh native navigation commands below.
+            if touchExplored, let sample = observe({ try voice.currentSpeech().utterance }),
+               let result = candidate(sample) { return result }
             // Every accepted result is one actual utterance. Native container
             // commands handle the current hierarchy without assuming its mode.
             for reverse in [backward, !backward] {
@@ -1099,15 +1113,6 @@ final class AnalyticsProbe: XCTestCase {
             // not stop at a matching text node before the real double tap.
             let control = ["Help improve MyChef", "Save preferences", "Refresh analytics setting",
                            "Create an account", "Profile", "Account details"].contains(phrase)
-            if control && !hasTapRegion(target()) {
-                // Let actual VoiceOver navigation reveal an offscreen control.
-                // Page gestures can overshoot a small checkbox in a long form.
-                // A label alone never authorizes activation.
-                print("Analytics iOS voice phase: native offscreen navigation")
-                let output = try spoken(phrase, controlRole: true)
-                activationPhrase = phrase
-                return output
-            }
             // Enabling VoiceOver can move its focus and scroll the form away
             // from the control revealed beforehand. Restore only a measured
             // offscreen target with native gestures while VoiceOver stays on.
@@ -1180,7 +1185,11 @@ final class AnalyticsProbe: XCTestCase {
             }
             let element = target()
             let region = hasTapRegion(element)
-            let ready = region && (!control || tapReady(element, frame: element.frame, nativeElement: false))
+            // This is passive VoiceOver exploration, not activation. Keep
+            // its visible/enabled query fast so the old focus cannot scroll
+            // the control away during ordinary tap preparation. Activation
+            // still rechecks the complete exact-target/viewport guard.
+            let ready = region && (!control || element.isEnabled)
             print("Analytics iOS voice anchor: region=\(region) ready=\(ready)")
             if !region && element.exists {
                 let frame = element.frame, bounds = app.frame
@@ -1190,23 +1199,30 @@ final class AnalyticsProbe: XCTestCase {
                 let covered = keyboard.exists && keyboard.frame.intersects(frame)
                 print("Analytics iOS voice anchor frame: valid=\(finite) above=\(finite && frame.minY < bounds.minY) below=\(finite && frame.maxY > bounds.maxY) keyboard=\(covered)")
             }
+            var touchExplored = false
             if ready {
                 if control {
                     if phrase == "Help improve MyChef" {
                         let frame = element.frame
                         print("Analytics iOS choice frame: width=\(Int(frame.width)) height=\(Int(frame.height))")
                     }
-                    // A single real touch explores the measured control with
-                    // VoiceOver running. Only the later double tap activates it.
-                    // Do not silently omit this anchor because WebKit cannot
-                    // compute an isHittable point for an otherwise valid frame.
-                    tapSettled(element)
+                    // Exploration must not use the ordinary tap preparer's
+                    // one-finger scrolling while VoiceOver is running.
+                    // Recheck visible geometry and send one real focus touch.
+                    let frame = element.frame, bounds = app.frame
+                    if voice.isEnabled, app.state == .runningForeground,
+                       app.alerts.count == 0, hasTapRegion(frame: frame) {
+                        app.coordinate(withNormalizedOffset: voicePoint(phrase, frame: frame, window: bounds)).tap()
+                        touchExplored = true
+                        print("Analytics iOS voice phase: fresh touch exploration")
+                    }
                 } else {
                     element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
                 }
                 RunLoop.current.run(until: Date().addingTimeInterval(0.3))
             }
-            let output = try spoken(phrase, backward: control, controlRole: control)
+            let output = try spoken(phrase, backward: control, controlRole: control,
+                                    touchExplored: touchExplored)
             if control { activationPhrase = phrase }
             return output
         }
@@ -1223,6 +1239,7 @@ final class AnalyticsProbe: XCTestCase {
         func openSignupWithVoice() throws {
             waitFor({ self.text("Welcome back.") }, "VoiceOver launch must reach sign in", timeout: 90)
             _ = try focusSpeech("Create an account")
+            XCTAssertTrue(self.text("Welcome back."), "VoiceOver exploration must not activate signup")
             activateVoice()
             waitFor({ self.text("Let’s get started.") }, "VoiceOver must open the actual signup form")
         }
@@ -1246,15 +1263,6 @@ final class AnalyticsProbe: XCTestCase {
         try openSignupWithVoice()
         waitFor({ ((try? self.control("native-notice")["assessedObserved"]) as? Bool) == true },
                 "Native assessed notice response must precede VoiceOver observation")
-        print("Analytics iOS voice phase: prepare assessed choice viewport")
-        // Isolate the control's actual speech/operation from the separately
-        // unresolved offscreen-navigation behavior. Position with ordinary
-        // native content gestures, then require real VoiceOver label/role/state
-        // and activation again. This setup supplies no speech observation.
-        try voice.disable()
-        reveal(checkbox())
-        XCTAssertTrue(hasTapRegion(checkbox()), "Signup choice must be visible before VoiceOver")
-        try enableVoice()
         print("Analytics iOS voice phase: assessed signup choice")
         XCTAssertEqual(state(try focusSpeech("Help improve MyChef")), "on")
         let assessedBox = checkbox()
