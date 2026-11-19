@@ -234,19 +234,38 @@ final class AnalyticsProbe: XCTestCase {
         // can also expose several nested WebView wrappers for one document.
         // Require one containing native hierarchy and one exact target in it.
         tapViewportCounts = (views: 0, roots: 0, targets: 0)
-        guard element.isEnabled, app.alerts.count == 0 else { return false }
-        let views = app.webViews.allElementsBoundByAccessibilityElement
+        // Resolve each native hierarchy once per sample. Repeating remote
+        // descendant queries for every wrapper/control wastes the fixed test
+        // budget and can compare different WebKit layout generations.
+        // These snapshots stay in memory; no tree or field values are logged.
+        guard let target = try? element.snapshot(), target.isEnabled,
+              let window = try? app.snapshot() else { return false }
+        func descendants(_ node: any XCUIElementSnapshot) -> [any XCUIElementSnapshot] {
+            var nodes = node.children
+            var index = 0
+            while index < nodes.count {
+                nodes.append(contentsOf: nodes[index].children)
+                index += 1
+            }
+            return nodes
+        }
+        let nodes = descendants(window)
+        guard !nodes.contains(where: { $0.elementType == .alert }) else { return false }
+        let views = nodes.filter { $0.elementType == .webView }
         tapViewportCounts.views = min(99, views.count)
         guard !views.isEmpty, views.count <= 8 else { return false }
-        let roots = views.filter { $0.descendants(matching: .webView).count == views.count - 1 }
+        let roots = views.filter {
+            descendants($0).filter { $0.elementType == .webView }.count == views.count - 1
+        }
         tapViewportCounts.roots = min(99, roots.count)
         guard roots.count == 1 else { return false }
         let root = roots[0]
-        let targets = root.descendants(matching: .any).matching(NSPredicate(
-            format: "label == %@ AND elementType == %d", element.label, element.elementType.rawValue))
+        let targets = descendants(root).filter {
+            $0.label == target.label && $0.elementType == target.elementType
+        }
         tapViewportCounts.targets = min(99, targets.count)
-        guard targets.count == 1 else { return false }
-        let matched = targets.firstMatch.frame
+        guard targets.count == 1, targets[0].isEnabled else { return false }
+        let matched = targets[0].frame
         guard [matched.minX - frame.minX, matched.minY - frame.minY,
                matched.width - frame.width, matched.height - frame.height]
             .allSatisfy({ $0.isFinite && abs($0) <= 1 }) else { return false }
@@ -1080,6 +1099,15 @@ final class AnalyticsProbe: XCTestCase {
             // not stop at a matching text node before the real double tap.
             let control = ["Help improve MyChef", "Save preferences", "Refresh analytics setting",
                            "Create an account", "Profile", "Account details"].contains(phrase)
+            if control && !hasTapRegion(target()) {
+                // Let actual VoiceOver navigation reveal an offscreen control.
+                // Page gestures can overshoot a small checkbox in a long form.
+                // A label alone never authorizes activation.
+                print("Analytics iOS voice phase: native offscreen navigation")
+                let output = try spoken(phrase, controlRole: true)
+                activationPhrase = phrase
+                return output
+            }
             // Enabling VoiceOver can move its focus and scroll the form away
             // from the control revealed beforehand. Restore only a measured
             // offscreen target with native gestures while VoiceOver stays on.
