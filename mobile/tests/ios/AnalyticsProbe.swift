@@ -827,10 +827,19 @@ final class AnalyticsProbe: XCTestCase {
         app.activate()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 20))
         waitFor({ self.text("Welcome back.") }, "Owned app must reach sign in before VoiceOver")
-        func enableVoice() throws {
+        func enableVoice(freshLaunch: Bool = false) throws {
+            if freshLaunch {
+                if app.state != .notRunning { app.terminate() }
+                XCTAssertTrue(app.wait(for: .notRunning, timeout: 20))
+            }
             try voice.enable()
             XCTAssertTrue(voice.isEnabled)
-            app.activate()
+            if freshLaunch {
+                // Initialize the new WebKit document with VoiceOver already
+                // active, following Apple's enable-then-open audit setup.
+                print("Analytics iOS voice phase: launch with VoiceOver enabled")
+                app.launch()
+            } else { app.activate() }
             XCTAssertTrue(app.wait(for: .runningForeground, timeout: 20))
             let nativeEnabled = Thread.isMainThread
                 ? MainActor.assumeIsolated { UIAccessibility.isVoiceOverRunning }
@@ -997,8 +1006,11 @@ final class AnalyticsProbe: XCTestCase {
             // native scroll instead of retaining a pre-transition element.
             func target() -> XCUIElement {
                 if phrase == "Help improve MyChef" { return checkbox() }
-                if ["Save preferences", "Refresh analytics setting"].contains(phrase) {
+                if ["Save preferences", "Refresh analytics setting", "Create an account", "Profile"].contains(phrase) {
                     return app.buttons[phrase].firstMatch
+                }
+                if phrase == "Account details" {
+                    return app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", phrase)).firstMatch
                 }
                 return app.descendants(matching: .any).matching(NSPredicate(format:
                     "label BEGINSWITH %@", phrase)).firstMatch
@@ -1117,30 +1129,37 @@ final class AnalyticsProbe: XCTestCase {
             print("Analytics iOS spoken control: role=\(role) disabled=\(disabled) state=unknown")
             return "unknown"
         }
+        func openSignupWithVoice() throws {
+            waitFor({ self.text("Welcome back.") }, "VoiceOver launch must reach sign in", timeout: 90)
+            _ = try focusSpeech("Create an account")
+            app.doubleTap()
+            waitFor({ self.text("Let’s get started.") }, "VoiceOver must open the actual signup form")
+        }
         // This uses the OS VoiceOver service's actual spoken output. No TTS
         // substitute, DOM label or accessibility audit can set these flags.
-        tap("Create an account")
-        let signupBox = checkbox(); reveal(signupBox)
-        XCTAssertFalse(signupBox.isEnabled); XCTAssertEqual(signupBox.value as? String, "0")
-        let unavailable = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Analytics is Off while unavailable")).firstMatch
-        reveal(unavailable)
+        try enableVoice(freshLaunch: true)
+        defer { try? voice.disable() }
+        try openSignupWithVoice()
         waitFor({ ((try? self.control("native-notice")["disabledObserved"]) as? Bool) == true },
                 "Native disabled notice response must precede VoiceOver observation")
-        try enableVoice()
-        defer { try? voice.disable() }
-        XCTAssertTrue(voice.isEnabled)
         print("Analytics iOS voice phase: unavailable status")
         // Disabled controls cannot be operated. Its adjacent spoken status
         // must communicate both Off and why; assessed controls are exercised below.
         _ = try focusSpeech("Analytics is Off while unavailable")
+        let signupBox = checkbox()
+        XCTAssertTrue(signupBox.exists)
+        XCTAssertFalse(signupBox.isEnabled); XCTAssertEqual(signupBox.value as? String, "0")
         try voice.disable()
-        _ = try control("approved"); relaunch()
-        tap("Create an account")
-        let assessedBox = checkbox(); reveal(assessedBox)
-        waitFor({ self.checkbox().isEnabled && (self.checkbox().value as? String) == "1" }, "Assessed signup notice must arrive before interaction")
-        try enableVoice()
+        _ = try control("approved")
+        try enableVoice(freshLaunch: true)
+        try openSignupWithVoice()
+        waitFor({ ((try? self.control("native-notice")["assessedObserved"]) as? Bool) == true },
+                "Native assessed notice response must precede VoiceOver observation")
         print("Analytics iOS voice phase: assessed signup choice")
         XCTAssertEqual(state(try focusSpeech("Help improve MyChef")), "on")
+        let assessedBox = checkbox()
+        XCTAssertTrue(assessedBox.exists && assessedBox.isEnabled)
+        XCTAssertEqual(assessedBox.value as? String, "1")
         app.doubleTap()
         waitFor({ (self.checkbox().value as? String) == "0" }, "VoiceOver signup choice must become Off")
         XCTAssertEqual(state(try focusSpeech("Help improve MyChef")), "off")
@@ -1150,10 +1169,11 @@ final class AnalyticsProbe: XCTestCase {
         fill("Email", configuration["email"] ?? "")
         fill("Password", configuration["password"] ?? "", secure: true)
         tap("Sign in to MyChef"); profile(); details()
-        relaunch(); profile(); details()
-        let privacyHeading = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Privacy and data")).firstMatch
-        reveal(privacyHeading)
-        try enableVoice()
+        try enableVoice(freshLaunch: true)
+        waitFor({ self.app.buttons["Profile"].exists }, "VoiceOver launch must restore authenticated navigation", timeout: 90)
+        _ = try focusSpeech("Profile"); app.doubleTap()
+        waitFor({ self.text("Your profile.") }, "VoiceOver must open the actual Profile")
+        _ = try focusSpeech("Account details"); app.doubleTap()
         print("Analytics iOS voice phase: profile order")
         _ = try focusSpeech("Privacy and data")
         var checkboxIndex: Int?, statusIndex: Int?, refreshIndex: Int?
