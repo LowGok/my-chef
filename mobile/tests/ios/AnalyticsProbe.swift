@@ -862,11 +862,12 @@ final class AnalyticsProbe: XCTestCase {
                 XCTFail("VoiceOver activation needs the owned foreground window")
                 return
             }
-            // Deliver at a coordinate without asking XCTest to choose
-            // an application-level hittable point.
-            // Only the caller's actual UI/server result proves activation.
-            print("Analytics iOS voice phase: coordinate activation")
-            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).doubleTap()
+            // Use the existing separate native touch helper. An accepted
+            // event is not an app outcome; callers still require the actual
+            // destination UI, spoken state and server acknowledgement.
+            let result = AnalyticsVoiceOverActivate(bounds)
+            XCTAssertEqual(result, 0, "Native VoiceOver double tap must be acknowledged")
+            print("Analytics iOS voice phase: native activation acknowledged")
         }
         func observe(_ operation: () throws -> String) -> String? {
             do { return try operation() }
