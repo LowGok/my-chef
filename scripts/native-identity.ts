@@ -19,14 +19,14 @@ export function nativeIdentity(lane: unknown) {
 // Inspect compiler-produced metadata. Prepared configuration alone is not a
 // packaged identity receipt; unsigned compilation is not signing proof.
 export function verifyCompiledIdentity(platform:"android"|"ios-simulator"|"ios-device",metadata:string,lane:NativeIdentityLane,version:{version:string;build:number}):string {
- const expected=nativeIdentity(lane).appId;
+ const identity=nativeIdentity(lane),expected=identity.appId;
  if(platform==="android"){
   const rows=metadata.split("\n").filter(line=>line.startsWith("package: "));
   const row=rows[0]??"";
-  if(rows.length!==1 || row.match(/name='([^']+)'/)?.[1]!==expected || row.match(/versionCode='([^']+)'/)?.[1]!==String(version.build) || row.match(/versionName='([^']+)'/)?.[1]!==version.version || !metadata.split("\n").some(line=>line.startsWith("launchable-activity: name='com.gkldevelopment.mychef.preview.MainActivity' ")))throw new Error("Compiled native artifact identity does not match its selected lane.");
+  if(!metadata.split("\n").includes(`application-label:'${identity.appName}'`) || rows.length!==1 || row.match(/name='([^']+)'/)?.[1]!==expected || row.match(/versionCode='([^']+)'/)?.[1]!==String(version.build) || row.match(/versionName='([^']+)'/)?.[1]!==version.version || !metadata.split("\n").some(line=>line.startsWith("launchable-activity: name='com.gkldevelopment.mychef.preview.MainActivity' ")))throw new Error("Compiled native artifact identity does not match its selected lane.");
  }else{
   const info=JSON.parse(metadata);
-  if(info.CFBundleIdentifier!==expected || info.CFBundleVersion!==String(version.build) || info.CFBundleShortVersionString!==version.version)throw new Error("Compiled native artifact identity does not match its selected lane.");
+  if(info.CFBundleDisplayName!==identity.appName || info.CFBundleIdentifier!==expected || info.CFBundleVersion!==String(version.build) || info.CFBundleShortVersionString!==version.version)throw new Error("Compiled native artifact identity does not match its selected lane.");
  }
  return expected;
 }

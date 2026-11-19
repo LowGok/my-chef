@@ -39,6 +39,9 @@ if (pushPreview) {
 }
 
 android {
+    buildFeatures {
+        resValues = true
+    }
     namespace = "com.gkldevelopment.mychef.preview"
     compileSdk = rootProject.ext.compileSdkVersion
     defaultConfig {

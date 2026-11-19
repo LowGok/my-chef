@@ -237,10 +237,13 @@ test("compiled artifact metadata must match the selected identity, version and a
  for(const [lane,appId] of [["preview","com.gkldevelopment.mychef.preview"],["app","dev.mychef.app"]] as const){
   const android=`package: name='${appId}' versionCode='2' versionName='0.1.0' platformBuildVersionName='17'
 launchable-activity: name='com.gkldevelopment.mychef.preview.MainActivity' label='MyChef' icon='res/mipmap/icon.png'
+application-label:'${lane==="app"?"MyChef":"MyChef Preview"}'
 `;
   expect(verifyCompiledIdentity("android",android,lane,version)).toBe(appId);
-  const ios=JSON.stringify({CFBundleIdentifier:appId,CFBundleShortVersionString:"0.1.0",CFBundleVersion:"2"});
+  expect(()=>verifyCompiledIdentity("android",android.replace(/application-label:[^\n]+/,"application-label:'Wrong name'"),lane,version)).toThrow();
+  const ios=JSON.stringify({CFBundleIdentifier:appId,CFBundleShortVersionString:"0.1.0",CFBundleVersion:"2",CFBundleDisplayName:lane==="app"?"MyChef":"MyChef Preview"});
   expect(verifyCompiledIdentity("ios-device",ios,lane,version)).toBe(appId);
+  expect(()=>verifyCompiledIdentity("ios-device",JSON.stringify({...JSON.parse(ios),CFBundleDisplayName:"Wrong name"}),lane,version)).toThrow();
   expect(()=>verifyCompiledIdentity("android",android,lane==="app"?"preview":"app",version)).toThrow();
   expect(()=>verifyCompiledIdentity("ios-simulator",ios,lane,{...version,build:3})).toThrow();
   expect(()=>verifyCompiledIdentity("android",android.replace("com.gkldevelopment.mychef.preview.MainActivity","dev.mychef.app.MainActivity"),lane,version)).toThrow();

@@ -23,6 +23,9 @@ routes stay Preview-only. Current app identities are
 `com.gkldevelopment.mychef.preview` and `dev.mychef.app`. The Android namespace
 and activity class remain `com.gkldevelopment.mychef.preview.MainActivity` in
 both packages. Instrumentation uses the selected package as its target.
+The module explicitly enables [resource value generation](https://developer.android.com/reference/tools/gradle-api/9.1/com/android/build/api/dsl/BuildFeatures)
+for the selected display name. The packaged receipt checks that name as well as
+the application ID, so a successful compile with a sibling label is rejected.
 
 Compilation inspects the produced Android manifest metadata or Xcode-built
 Info.plist, checks package, version and build, then binds `packagedAppId` into the
