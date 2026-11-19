@@ -1009,10 +1009,10 @@ final class AnalyticsProbe: XCTestCase {
             // native scroll instead of retaining a pre-transition element.
             func target() -> XCUIElement {
                 if phrase == "Help improve MyChef" { return checkbox() }
-                if ["Save preferences", "Refresh analytics setting", "Create an account", "Profile"].contains(phrase) {
+                if ["Save preferences", "Refresh analytics setting"].contains(phrase) {
                     return app.buttons[phrase].firstMatch
                 }
-                if phrase == "Account details" {
+                if ["Create an account", "Profile", "Account details"].contains(phrase) {
                     return app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", phrase)).firstMatch
                 }
                 return app.descendants(matching: .any).matching(NSPredicate(format:
@@ -1021,7 +1021,10 @@ final class AnalyticsProbe: XCTestCase {
             // Enabling VoiceOver may scroll to its current focus. Use a real
             // visible touch anchor when available; otherwise let VoiceOver's
             // own navigation reach and scroll to the required announcement.
-            let control = ["Help improve MyChef", "Save preferences", "Refresh analytics setting"].contains(phrase)
+            // Signup/Profile navigation must reach an actual spoken control,
+            // not stop at a matching text node before the real double tap.
+            let control = ["Help improve MyChef", "Save preferences", "Refresh analytics setting",
+                           "Create an account", "Profile"].contains(phrase)
             // Enabling VoiceOver can move its focus and scroll the form away
             // from the control revealed beforehand. Restore only a measured
             // offscreen target with native gestures while VoiceOver stays on.
