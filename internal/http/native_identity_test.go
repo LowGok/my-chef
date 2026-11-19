@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -8,6 +9,7 @@ import (
 	"time"
 
 	"github.com/LowGok/my-chef/internal/auth"
+	"github.com/LowGok/my-chef/internal/domain"
 )
 
 func callAppNative(h http.Handler, method, path, body, access string) *httptest.ResponseRecorder {
@@ -171,5 +173,88 @@ func TestNativeIdentitySyncDeadlineClosesExistingCredentials(t *testing.T) {
 	}
 	if callNative(h, "GET", "/profile", "", old.AccessToken).Code != 200 {
 		t.Fatal("expired candidate window stopped Preview")
+	}
+}
+
+func TestNativeIdentityAccountContinuityAcrossWithdrawal(t *testing.T) {
+	a, legacy := testAPI(t)
+	preview := nativeFixtureLogin(t, a, legacy)
+	a.Config.NativeAppIngress = true
+	active, err := a.Store.SetNativeIdentityPolicy(t.Context(), 0, true, 0, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	shared := a.Handler(nil)
+	anonymous := nativeReply(t, callAppNative(shared, "POST", "/session", `{"platform":"android"}`, ""), 201)
+	app := nativeReply(t, callAppNative(shared, "POST", "/login", `{"email":"native-http@example.test","password":"Garden native 2026!"}`, anonymous.AccessToken), 200)
+
+	oldProfile := callNative(shared, "GET", "/profile", "", preview.AccessToken)
+	newProfile := callAppNative(shared, "GET", "/profile", "", app.AccessToken)
+	account := oldProfile.Header().Get("X-MyChef-User")
+	if oldProfile.Code != 200 || newProfile.Code != 200 || account == "" || account != newProfile.Header().Get("X-MyChef-User") || preview.AccessToken == app.AccessToken {
+		t.Fatal("two installations did not receive separate sessions for the same account")
+	}
+
+	const week = "/shopping/2026-11-16"
+	shopping := func(w *httptest.ResponseRecorder, expected int) domain.ShoppingList {
+		t.Helper()
+		if w.Code != expected {
+			t.Fatalf("shopping returned %d, want %d", w.Code, expected)
+		}
+		var list domain.ShoppingList
+		if expected == 200 {
+			if err := json.Unmarshal(w.Body.Bytes(), &list); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return list
+	}
+	payload := func(list domain.ShoppingList, id, name string) string {
+		t.Helper()
+		list.Items = append(list.Items, domain.ShoppingItem{
+			ID: id, Name: name, State: "buy", Manual: true, Contributions: []domain.ShoppingContribution{},
+		})
+		body, err := json.Marshal(list)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(body)
+	}
+
+	initial := shopping(callAppNative(shared, "GET", week, "", app.AccessToken), 200)
+	staleApp := payload(initial, "candidate-rice", "Candidate rice")
+	previewEdit := payload(initial, "preview-beans", "Preview beans")
+	saved := shopping(callNative(shared, "PUT", week, previewEdit, preview.AccessToken), 200)
+	shopping(callAppNative(shared, "PUT", week, staleApp, app.AccessToken), 409)
+
+	paused, err := a.Store.SetNativeIdentityPolicy(t.Context(), active.Revision, false, time.Now().Add(time.Minute).Unix(), time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	restarted := New(a.Store, nil, a.Config, nil).Handler(nil)
+	if callAppNative(restarted, "GET", "/profile", "", app.AccessToken).Code != 503 ||
+		callNative(restarted, "GET", week, "", app.AccessToken).Code != 401 {
+		t.Fatal("paused credential reached a privileged route")
+	}
+	current := shopping(callAppNative(restarted, "GET", week, "", app.AccessToken), 200)
+	if len(current.Items) != 1 || current.Items[0].Name != "Preview beans" || current.Revision != saved.Revision {
+		t.Fatal("new installation did not see the shared shopping revision")
+	}
+	checked := payload(current, "candidate-rice", "Candidate rice")
+	shopping(callAppNative(restarted, "PUT", week, checked, app.AccessToken), 200)
+	if _, err := a.Store.SQL.Exec("UPDATE native_identity_policy SET sync_until=unixepoch()-1 WHERE revision=?", paused.Revision); err != nil {
+		t.Fatal(err)
+	}
+	shopping(callAppNative(restarted, "PUT", week, checked, app.AccessToken), 503)
+	final := shopping(callNative(restarted, "GET", week, "", preview.AccessToken), 200)
+	if len(final.Items) != 2 {
+		t.Fatal("withdrawal lost synced edits or duplicated a shopping item")
+	}
+	names := map[string]bool{}
+	for _, item := range final.Items {
+		names[item.Name] = true
+	}
+	if !names["Preview beans"] || !names["Candidate rice"] {
+		t.Fatal("Preview did not retain both installations' synced changes")
 	}
 }

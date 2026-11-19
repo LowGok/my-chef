@@ -50,3 +50,36 @@ for the exact candidate after running the workflow. Simulator or emulator
 receipts do not establish store signing, co-installation through the real
 stores, live push, sandbox purchases or OS link association. Those remain the
 separately approved native identity pilot.
+
+## Rehearse upgrade and withdrawal
+
+Build the app and migration binaries from the last schema-28 source and from
+the candidate. Run the rehearsal with the four explicit binary paths.
+
+```sh
+python3 scripts/test_native_identity_upgrade.py \
+  --prior-app "$prior_app" --prior-migrate "$prior_migrate" \
+  --candidate-app "$candidate_app" --candidate-migrate "$candidate_migrate"
+```
+
+The script starts both binaries on loopback with fake providers and disposable
+SQLite files. It seeds a verified account, a Preview session and a saved shopping
+item. After deliberately failing the first native identity migration it restarts
+the previous binary on the same database and current lifecycle journal. It then
+completes the upgrade, checks the Preview session and saved revision again, and
+signs in as the same account through the new app route. Use this failure rehearsal
+before moving the shared Preview database. After a successful migration, keep
+using the compatible binary and pause the new lane to withdraw it.
+
+```sh
+go test -race ./internal/http ./internal/auth ./internal/store \
+  -run 'NativeIdentity|ReminderCutoff' -count=1
+bun test web/src/native-shopping.test.ts web/src/native-app-identity.test.ts
+```
+
+The HTTP checks cover two lane-bound sessions for one account, overlapping
+shopping edits, the bounded sync window and its cutoff, plus a restarted
+handler. The cache fixture checks separate pending edits for the same account.
+The compiled builds, fixture sessions and old-binary rehearsal do not prove
+installed store co-existence or the new identity's real store, link or push
+configuration.
