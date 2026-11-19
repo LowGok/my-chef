@@ -755,15 +755,22 @@ final class AnalyticsProbe: XCTestCase {
             summary.tap()
         }
         fill("Extra item", "Analytics queued oats")
+        // Await the actual software keyboard before tap() inspects it. An
+        // early absent AX snapshot must not skip its existing Done path.
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5),
+                      "Queued edit requires the actual software keyboard")
+        print("Analytics iOS phase: queued edit keyboard ready")
         // Finish native keyboard editing before revealing the submit button.
         // With the keyboard open its target kept moving despite being visible.
         // The normal path requires actual dismissal, then measured stable
         // geometry before a single real tap.
         tap("Add extra")
+        print("Analytics iOS phase: queued edit submit delivered")
         // The lower form and keyboard can leave the progress status outside
         // WebKit's accessibility tree. Reach the actual status before reading it.
         let pending = app.descendants(matching: .any).matching(NSPredicate(format:
             "label BEGINSWITH %@", "Pending sync")).firstMatch
+        print("Analytics iOS phase: queued edit pending status")
         reveal(pending)
         waitFor({ self.text("Pending sync") }, "Offline edit must enter durable queue")
         _ = try control("other-session-choice", ["enabled": false]); _ = try control("maintenance")
@@ -862,12 +869,11 @@ final class AnalyticsProbe: XCTestCase {
                 XCTFail("VoiceOver activation needs the owned foreground window")
                 return
             }
-            // Use the existing separate native touch helper. An accepted
-            // event is not an app outcome; callers still require the actual
-            // destination UI, spoken state and server acknowledgement.
-            let result = AnalyticsVoiceOverActivate(bounds)
-            XCTAssertEqual(result, 0, "Native VoiceOver double tap must be acknowledged")
-            print("Analytics iOS voice phase: native activation acknowledged")
+            // Deliver at a coordinate without asking XCTest to choose
+            // an application-level hittable point.
+            // Only the caller's actual UI/server result proves activation.
+            print("Analytics iOS voice phase: coordinate activation")
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).doubleTap()
         }
         func observe(_ operation: () throws -> String) -> String? {
             do { return try operation() }

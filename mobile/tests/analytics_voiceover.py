@@ -115,7 +115,7 @@ def main():
             prepared.append(analytics_ios.prepare(state, identifier))
             print('Separate VoiceOver probe compiled before phone boot', flush=True)
         metadata, launch, _, diagnostic = native.ios(state, stack, ca, artifact,
-            model='iPhone 17', fixture_name='MyChef analytics voice fixture', headless=True,
+            model='iPhone 17', fixture_name='MyChef analytics voice fixture', headless=False,
             before_boot=prepare_probe)
         devices = json.loads(native.command('xcrun', 'simctl', 'list', 'devices', 'booted', '-j'))['devices']
         identifiers = [d['udid'] for group in devices.values() for d in group if d.get('name') == 'MyChef analytics voice fixture']
