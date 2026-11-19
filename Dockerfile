@@ -26,7 +26,7 @@ RUN go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o /out/myche
     mkdir /runtime-worker && mkdir -m 0700 /runtime-worker/import-state /runtime-worker/import-policy && \
     mkdir -m 1770 /runtime-worker/import-channel
 
-FROM gcr.io/distroless/static-debian13:nonroot@sha256:336e53e9941facdb69b755e6fd2c63f5400abd3b1ba47bb17ebafc2b1547cebd AS final
+FROM gcr.io/distroless/static-debian13:nonroot@sha256:816dc4d589459a7fe33b8a2e69edb70da56ffad7161f4b415937fa2bfe7e92e8 AS final
 WORKDIR /app
 COPY --from=build --chown=65532:65532 /out/mychef /out/mychef-migrate /out/mychef-import-worker /app/
 COPY --from=build --chown=65532:65532 /runtime/ /
