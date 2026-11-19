@@ -785,8 +785,11 @@ async function mediaJourneys() {
     await openLibrary();
     await button("Create a recipe").click();
     await fillPersonalDraft(page);
+    stage = "open dish photo picker before cancellation";
     await choosePhoto("Choose recipe photo");
+    stage = "dismiss the focused Android dish photo picker";
     await picker("CANCEL");
+    stage = "verify dish photo cancellation kept the draft";
     await expect(
       page.getByLabel("Choose recipe photo", { exact: true }),
     ).toHaveValue("Choose photos");

@@ -191,17 +191,20 @@ public final class NativeJourneyProbe extends Instrumentation {
         return null;
     }
 
-    private static boolean clickDocuments(AccessibilityNodeInfo node) {
+    private static boolean activateDocumentRow(AccessibilityNodeInfo node, boolean select) {
         for (int depth = 0; depth < 5 && documents(node); depth++, node = node.getParent()) {
-            if (node.isVisibleToUser() && node.isEnabled() && node.isClickable())
-                return node.performAction(AccessibilityNodeInfo.ACTION_CLICK);
+            if (!node.isVisibleToUser() || !node.isEnabled()) continue;
+            if (select ? node.isLongClickable() : node.isClickable()) {
+                int action = select ? AccessibilityNodeInfo.ACTION_LONG_CLICK : AccessibilityNodeInfo.ACTION_CLICK;
+                if (node.performAction(action)) return true;
+            }
         }
         return false;
     }
 
     private static boolean tapDocument(UiAutomation automation, AccessibilityNodeInfo root, AccessibilityNodeInfo node) {
         if (!documents(node) || !node.isVisibleToUser() || !node.isEnabled()) return false;
-        return clickDocuments(node) || touchDocument(automation, root, node, 50);
+        return activateDocumentRow(node, false) || touchDocument(automation, root, node, 50);
     }
 
     private static boolean touchDocument(UiAutomation automation, AccessibilityNodeInfo root, AccessibilityNodeInfo node, int holdMillis) {
@@ -234,8 +237,10 @@ public final class NativeJourneyProbe extends Instrumentation {
 
     private static boolean confirmDocuments(UiAutomation automation, AccessibilityNodeInfo root) {
         String owner = String.valueOf(root.getPackageName());
-        for (AccessibilityNodeInfo control : root.findAccessibilityNodeInfosByViewId(owner + ":id/menu_open")) {
-            if (tapDocument(automation, root, control)) return true;
+        for (String id : new String[]{"action_menu_select", "dir_menu_open", "menu_open"}) {
+            for (AccessibilityNodeInfo control : root.findAccessibilityNodeInfosByViewId(owner + ":id/" + id)) {
+                if (tapDocument(automation, root, control)) return true;
+            }
         }
         for (String label : new String[]{"Open", "Select", "Done"}) {
             if (tapDocument(automation, root, named(root, label, false, 0))) return true;
@@ -294,7 +299,8 @@ public final class NativeJourneyProbe extends Instrumentation {
                     // grid tile can hit its thumbnail instead of opening the row.
                     boolean sent;
                     if (page) {
-                        sent = touchDocument(automation, root, file, ViewConfiguration.getLongPressTimeout() + 150);
+                        sent = activateDocumentRow(file, true)
+                            || touchDocument(automation, root, file, ViewConfiguration.getLongPressTimeout() + 150);
                     } else {
                         sent = tapDocument(automation, root, file);
                     }
