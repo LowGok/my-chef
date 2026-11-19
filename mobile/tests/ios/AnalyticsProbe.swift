@@ -860,6 +860,18 @@ final class AnalyticsProbe: XCTestCase {
             // a spoken-output observation or synthesize a replacement voice.
             print("Analytics iOS voice environment: api=\(voice.isEnabled) native=\(nativeEnabled) voices=\(min(999, voices.count)) english=\(min(999, english))")
         }
+        func voiceTarget(_ phrase: String) -> XCUIElement {
+            if phrase == "Help improve MyChef" { return checkbox() }
+            if ["Save preferences", "Refresh analytics setting"].contains(phrase) {
+                return app.buttons[phrase].firstMatch
+            }
+            if ["Create an account", "Profile", "Account details"].contains(phrase) {
+                return app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", phrase)).firstMatch
+            }
+            return app.descendants(matching: .any).matching(NSPredicate(format:
+                "label BEGINSWITH %@", phrase)).firstMatch
+        }
+        var activationPhrase: String?
         func activateVoice() {
             let bounds = app.frame
             guard voice.isEnabled, app.state == .runningForeground,
@@ -869,11 +881,23 @@ final class AnalyticsProbe: XCTestCase {
                 XCTFail("VoiceOver activation needs the owned foreground window")
                 return
             }
-            // Deliver at a coordinate without asking XCTest to choose
-            // an application-level hittable point.
+            guard let phrase = activationPhrase else {
+                XCTFail("VoiceOver activation needs a successfully spoken control")
+                return
+            }
+            let target = voiceTarget(phrase)
+            let frame = target.frame
+            guard hasTapRegion(target), tapReady(target, frame: frame, nativeElement: false) else {
+                XCTFail("Spoken VoiceOver control needs a measured activation region")
+                return
+            }
+            // Keep the real double tap at the spoken control's measured
+            // position. An arbitrary window center can target other content.
             // Only the caller's actual UI/server result proves activation.
-            print("Analytics iOS voice phase: coordinate activation")
-            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).doubleTap()
+            let point = CGVector(dx: (frame.midX - bounds.minX) / bounds.width,
+                                 dy: (frame.midY - bounds.minY) / bounds.height)
+            print("Analytics iOS voice phase: measured control activation")
+            app.coordinate(withNormalizedOffset: point).doubleTap()
         }
         func observe(_ operation: () throws -> String) -> String? {
             do { return try operation() }
@@ -1047,24 +1071,15 @@ final class AnalyticsProbe: XCTestCase {
         func focusSpeech(_ phrase: String) throws -> String {
             // Recreate the same query after VoiceOver enablement and each
             // native scroll instead of retaining a pre-transition element.
-            func target() -> XCUIElement {
-                if phrase == "Help improve MyChef" { return checkbox() }
-                if ["Save preferences", "Refresh analytics setting"].contains(phrase) {
-                    return app.buttons[phrase].firstMatch
-                }
-                if ["Create an account", "Profile", "Account details"].contains(phrase) {
-                    return app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", phrase)).firstMatch
-                }
-                return app.descendants(matching: .any).matching(NSPredicate(format:
-                    "label BEGINSWITH %@", phrase)).firstMatch
-            }
+            activationPhrase = nil
+            func target() -> XCUIElement { voiceTarget(phrase) }
             // Enabling VoiceOver may scroll to its current focus. Use a real
             // visible touch anchor when available; otherwise let VoiceOver's
             // own navigation reach and scroll to the required announcement.
             // Signup/Profile navigation must reach an actual spoken control,
             // not stop at a matching text node before the real double tap.
             let control = ["Help improve MyChef", "Save preferences", "Refresh analytics setting",
-                           "Create an account", "Profile"].contains(phrase)
+                           "Create an account", "Profile", "Account details"].contains(phrase)
             // Enabling VoiceOver can move its focus and scroll the form away
             // from the control revealed beforehand. Restore only a measured
             // offscreen target with native gestures while VoiceOver stays on.
@@ -1163,7 +1178,9 @@ final class AnalyticsProbe: XCTestCase {
                 }
                 RunLoop.current.run(until: Date().addingTimeInterval(0.3))
             }
-            return try spoken(phrase, backward: control, controlRole: control)
+            let output = try spoken(phrase, backward: control, controlRole: control)
+            if control { activationPhrase = phrase }
+            return output
         }
         func state(_ utterance: String) -> String {
             // Inspect only the control/state prefix, before its long hint.
