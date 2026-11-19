@@ -695,6 +695,7 @@ final class AnalyticsProbe: XCTestCase {
             #if compiler(>=6.4)
             if #available(iOS 27.0, *) {
                 try verifyVoiceOver()
+                if configuration["signupCheckboxOnly"] == "true" { return }
                 guard let output = configuration["output"] else { throw Failure.invalidFixture }
                 try JSONSerialization.data(withJSONObject: ["checks": observations]).write(to: URL(fileURLWithPath: output), options: .atomic)
                 return
@@ -1363,24 +1364,28 @@ final class AnalyticsProbe: XCTestCase {
         }
         // This uses the OS VoiceOver service's actual spoken output. No TTS
         // substitute, DOM label or accessibility audit can set these flags.
+        let signupCheckboxOnly = configuration["signupCheckboxOnly"] == "true"
+        if signupCheckboxOnly { _ = try control("approved") }
         try enableVoice(freshLaunch: true)
         defer { try? voice.disable() }
         try openSignupWithVoice()
-        waitFor({ ((try? self.control("native-notice")["disabledObserved"]) as? Bool) == true },
-                "Native disabled notice response must precede VoiceOver observation")
-        print("Analytics iOS voice phase: unavailable status")
-        // Disabled controls cannot be operated. Its adjacent spoken status
-        // must communicate both Off and why; assessed controls are exercised below.
-        _ = try focusSpeech("Analytics is Off while unavailable")
-        let signupBox = checkbox()
-        XCTAssertTrue(signupBox.exists)
-        XCTAssertFalse(signupBox.isEnabled); XCTAssertEqual(signupBox.value as? String, "0")
-        try voice.disable()
-        _ = try control("approved")
-        try enableVoice(freshLaunch: true)
-        try openSignupWithVoice()
+        if !signupCheckboxOnly {
+            waitFor({ ((try? self.control("native-notice")["disabledObserved"]) as? Bool) == true },
+                    "Native disabled notice response must precede VoiceOver observation")
+            print("Analytics iOS voice phase: unavailable status")
+            // Disabled controls cannot be operated. Its adjacent spoken status
+            // must communicate both Off and why; assessed controls are exercised below.
+            _ = try focusSpeech("Analytics is Off while unavailable")
+            let signupBox = checkbox()
+            XCTAssertTrue(signupBox.exists)
+            XCTAssertFalse(signupBox.isEnabled); XCTAssertEqual(signupBox.value as? String, "0")
+            try voice.disable()
+            _ = try control("approved")
+            try enableVoice(freshLaunch: true)
+            try openSignupWithVoice()
+        }
         waitFor({ ((try? self.control("native-notice")["assessedObserved"]) as? Bool) == true },
-                "Native assessed notice response must precede VoiceOver observation")
+                "Native assessed notice response must precede the isolated checkbox check")
         print("Analytics iOS voice phase: assessed signup choice")
         XCTAssertEqual(state(try focusSpeech("Help improve MyChef")), "on")
         let assessedBox = checkbox()
@@ -1390,6 +1395,15 @@ final class AnalyticsProbe: XCTestCase {
         waitFor({ (self.checkbox().value as? String) == "0" }, "VoiceOver signup choice must become Off")
         XCTAssertEqual(state(try focusSpeech("Help improve MyChef")), "off")
         XCTAssertEqual(try control("counts")["enabled"] as? Int, 0, "Incomplete signup creates no enrollment")
+        if signupCheckboxOnly {
+            guard let output = configuration["output"] else { throw Failure.invalidFixture }
+            let checks = ["signupCheckbox": ["purposeSpoken": true, "onSpoken": true,
+                                              "offSpoken": true, "toggledOnce": true]]
+            try JSONSerialization.data(withJSONObject: ["checks": checks])
+                .write(to: URL(fileURLWithPath: output), options: .atomic)
+            print("Analytics iOS signup checkbox: purpose=true on=true off=true toggle=1")
+            return
+        }
         try voice.disable()
         tap("Sign in")
         fill("Email", configuration["email"] ?? "")

@@ -64,7 +64,16 @@ def require_owned_phone(identifier):
         raise RuntimeError('Expected one owned booted VoiceOver phone')
 
 
+def signup_checkbox_verified(checks):
+    expected = {'purposeSpoken', 'onSpoken', 'offSpoken', 'toggledOnce'}
+    return (type(checks) is dict and set(checks) == {'signupCheckbox'}
+            and type(checks['signupCheckbox']) is dict and set(checks['signupCheckbox']) == expected
+            and all(type(value) is bool and value for value in checks['signupCheckbox'].values()))
+
+
 def main():
+    focused = os.environ.get('NATIVE_ANALYTICS_SIGNUP_CHECKBOX_ONLY') == '1'
+    app_source = 'd60638f6d003027405ac4c64962e4a24e6c1b41b' if focused else os.environ['GITHUB_SHA']
     os.umask(0o077)
     event = json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text())
     if (not authorized(event, os.environ) or os.environ.get('NATIVE_PLATFORM') != 'ios-simulator'
@@ -86,7 +95,7 @@ def main():
     if artifact.stat().st_size > 64 * 1024 * 1024:
         raise SystemExit('VoiceOver artifact exceeds verification bound')
     if (receipt.get('platform') != 'ios-simulator' or receipt.get('artifact') != artifact.name
-            or receipt['candidate']['sourceCommit'] != os.environ['GITHUB_SHA']
+            or receipt['candidate']['sourceCommit'] != app_source
             or hashlib.sha256(artifact.read_bytes()).hexdigest() != receipt['artifactSha256']):
         raise SystemExit('VoiceOver artifact is not the compiled candidate')
     plist = inputs / 'simulator-keychain.plist'
@@ -95,8 +104,8 @@ def main():
     primary_path = ROOT / 'mobile/.generated/voiceover-primary/analytics-installed-observations.json'
     if primary_path.exists() and primary_path.stat().st_size > 512 * 1024:
         raise SystemExit('VoiceOver observations exceed verification bound')
-    primary = json.loads(primary_path.read_text())['probe'] if primary_path.exists() else None
-    artifact_binding = dict(sourceCommit=os.environ['GITHUB_SHA'],
+    primary = json.loads(primary_path.read_text())['probe'] if primary_path.exists() and not focused else None
+    artifact_binding = dict(sourceCommit=app_source,
         apiSha256=hashlib.sha256((ROOT / 'api/openapi.yaml').read_bytes()).hexdigest(),
         bundleSha256=receipt['candidate']['bundleSha256'], artifactSha256=receipt['artifactSha256'], contractVersion=1)
     expected_primary = dict(artifact_binding, fixtureConfigSha256=primary['binding']['fixtureConfigSha256']) if primary is not None else None
@@ -138,9 +147,20 @@ def main():
             analytics_ios.bootstrap(identifier, events, rejected, diagnostic)
         # XCTest activates the already bootstrapped fixture instance. Later
         # relaunch tests still terminate/restart it with these same arguments.
+        focused_result = dict(schemaVersion=1, kind='signup-checkbox', status='gap',
+                              appSourceCommit=app_source, probeSourceCommit=os.environ['GITHUB_SHA'],
+                              appArtifactSha256=receipt['artifactSha256'],
+                              bundleSha256=receipt['candidate']['bundleSha256'],
+                              fullJourneys=False, liveCollection='disabled', device=metadata,
+                              distribution='not authorized')
+        def save_focused_result():
+            native.ARTIFACTS.mkdir(parents=True, exist_ok=True)
+            (native.ARTIFACTS / 'analytics-signup-checkbox.json').write_text(json.dumps(focused_result, indent=2) + '\n')
+        if focused:
+            save_focused_result()
         try:
             checks = analytics_ios.run(state, control, account, identifier, container, voiceover_only=True,
-                                       before_test=bootstrap, prepared_plan=prepared[0])
+                                       before_test=bootstrap, prepared_plan=prepared[0], signup_checkbox_only=focused)
         except RuntimeError:
             print('VoiceOver login input: ' + json.dumps(controls.get('native_login', 'unobserved')), flush=True)
             print('VoiceOver native API results: ' + ', '.join(method + '/' + kind + '/' + str(status)
@@ -151,6 +171,14 @@ def main():
                 for method, kind, status in notice_events[-8:]) or 'none observed')
                 + '; rejected requests=' + str(len(rejected)), flush=True)
             raise
+        if focused:
+            if (not signup_checkbox_verified(checks)
+                    or ('GET', 'analytics-notice-assessed', 200) not in events):
+                raise RuntimeError('Actual signup checkbox observations are incomplete')
+            focused_result.update(status='passed', checks=checks, device=metadata)
+            save_focused_result()
+            print('Actual signup checkbox purpose, On, one toggle and Off verified; full journeys withheld')
+            return
         if not all(('GET', kind, 200) in events for kind in ('analytics-notice-disabled', 'analytics-notice-assessed')):
             raise RuntimeError('VoiceOver requires both actual signup notice responses')
         analytics_ios.text_observation(identifier)

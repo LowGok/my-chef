@@ -50,7 +50,7 @@ class IOSTextObservationTest(unittest.TestCase):
 
 class IOSProbeOrderTest(unittest.TestCase):
     def exercise(self, fail_warmup=False, precompile=False, *, layout_only=False, voiceover_only=True,
-                 expected_timeout=1500, modified_source=None):
+                 expected_timeout=1500, modified_source=None, signup_checkbox_only=False):
         with tempfile.TemporaryDirectory(prefix='analytics-probe-order-') as folder:
             state = Path(folder)
             stages = []
@@ -92,7 +92,7 @@ class IOSProbeOrderTest(unittest.TestCase):
                 run = lambda: analytics_ios.run(state, {'url': 'http://127.0.0.1:18137/control', 'token': 'a' * 43},
                                                {'email': 'fictional@example.test', 'password': 'fictional'},
                                                'fictional-device', state / 'container', layout_only=layout_only,
-                                               voiceover_only=voiceover_only,
+                                               voiceover_only=voiceover_only, signup_checkbox_only=signup_checkbox_only,
                                                before_test=warmup, prepared_plan=prepared)
                 if fail_warmup:
                     with self.assertRaisesRegex(RuntimeError, 'Fictional bootstrap unavailable'):
@@ -100,6 +100,18 @@ class IOSProbeOrderTest(unittest.TestCase):
                 else:
                     self.assertEqual(run(), {})
             return stages
+
+    def test_signup_checkbox_attempt_has_a_five_minute_test_budget(self):
+        self.assertEqual(self.exercise(signup_checkbox_only=True, expected_timeout=300),
+                         ['compile', 'bootstrap', 'test'])
+
+    def test_signup_checkbox_result_cannot_claim_a_full_journey_or_partial_speech(self):
+        checks = {'signupCheckbox': dict(purposeSpoken=True, onSpoken=True, offSpoken=True, toggledOnce=True)}
+        self.assertTrue(analytics_voiceover.signup_checkbox_verified(checks))
+        for value in ({}, {'signupCheckbox': {**checks['signupCheckbox'], 'onSpoken': False}},
+                      {'signupCheckbox': {**checks['signupCheckbox'], 'offSpoken': 1}},
+                      {**checks, 'accessibility': {'platformScreenReader': True}}):
+            self.assertFalse(analytics_voiceover.signup_checkbox_verified(value))
 
     def test_native_bootstrap_occurs_after_probe_compilation_before_xctest(self):
         self.assertEqual(self.exercise(), ['compile', 'bootstrap', 'test'])

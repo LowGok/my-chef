@@ -86,7 +86,7 @@ class AnalyticsAuthorizationTest(unittest.TestCase):
         self.assertNotIn('macos-15-large', primary)
 
     def test_isolated_artifact_uploads_allow_same_source_job_retries(self):
-        workflow = (ROOT / '.github/workflows/native-compile.yml').read_text().split('  compile:\n', 1)[0]
+        workflow = (ROOT / '.github/workflows/native-compile.yml').read_text().split('  analytics-signup-checkbox:\n', 1)[0]
         uploads = [step for step in re.split(r'(?m)^      - ', workflow)[1:]
                    if 'uses: actions/upload-artifact@' in step]
         self.assertEqual(len(uploads), 3)

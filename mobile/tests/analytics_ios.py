@@ -226,7 +226,9 @@ def prepare(state, identifier):
 
 
 def run(state, control, account, identifier, container, layout_only=False, voiceover_only=False, before_test=None,
-        prepared_plan=None):
+        prepared_plan=None, signup_checkbox_only=False):
+    if type(signup_checkbox_only) is not bool or signup_checkbox_only and (not voiceover_only or layout_only):
+        raise ValueError('Signup checkbox requires the isolated VoiceOver mode')
     root = Path(state)
     output = root / 'analytics-ios-observations.json'
     input_path = root / 'analytics-ios-input.json'
@@ -234,6 +236,7 @@ def run(state, control, account, identifier, container, layout_only=False, voice
                                      'contract': str(ROOT / 'mobile/tests/analytics-contract.json'), 'output': str(output),
                                      'layoutOnly': 'true' if layout_only else 'false',
                                      'voiceOverOnly': 'true' if voiceover_only else 'false',
+                                     'signupCheckboxOnly': 'true' if signup_checkbox_only else 'false',
                                      'preserveBootstrap': 'true' if before_test is not None else 'false',
                                      'anonymousScreenshot': str(native.ARTIFACTS / 'analytics-anonymous.png')}))
     input_path.chmod(0o600)
@@ -419,7 +422,7 @@ def run(state, control, account, identifier, container, layout_only=False, voice
     # A measured full run completed both exports and reached final deletion
     # at 30 minutes. Allow five more only for this full functional path;
     # keep speech/layout budgets and the overall 65-minute job unchanged.
-    seconds = 1500 if layout_only or voiceover_only else 2100
+    seconds = 300 if signup_checkbox_only else 1500 if layout_only or voiceover_only else 2100
     execute(['xcodebuild', 'test-without-building', '-xctestrun', str(plans[0]), '-destination', 'id=' + identifier,
              '-parallel-testing-enabled', 'NO', '-maximum-concurrent-test-simulator-destinations', '1'], seconds)
     value = json.loads(output.read_text())

@@ -30,6 +30,7 @@ jobs:
   analytics-journeys:
     if: >-
       github.event_name == 'push' &&
+      !contains(github.event.head_commit.message, '[analytics-checkbox-only]') &&
       github.repository == 'LowGok/my-chef' && github.repository_id == '1454481532' &&
       github.event.repository.private == false && github.actor == 'LowGok' &&
       github.event.repository.full_name == github.repository && github.event.sender.login == 'LowGok' &&
@@ -116,6 +117,7 @@ jobs:
     needs: analytics-journeys
     if: >-
       always() && !cancelled() && github.event_name == 'push' &&
+      !contains(github.event.head_commit.message, '[analytics-checkbox-only]') &&
       github.repository == 'LowGok/my-chef' && github.repository_id == '1454481532' &&
       github.event.repository.private == false && github.actor == 'LowGok' &&
       github.event.repository.full_name == github.repository && github.event.sender.login == 'LowGok' &&
@@ -164,6 +166,60 @@ jobs:
           if-no-files-found: error
           retention-days: 1
           overwrite: true
+  analytics-signup-checkbox:
+    if: >-
+      github.event_name == 'push' &&
+      contains(github.event.head_commit.message, '[analytics-checkbox-only]') &&
+      github.repository == 'LowGok/my-chef' && github.repository_id == '1454481532' &&
+      github.event.repository.private == false && github.actor == 'LowGok' &&
+      github.event.repository.full_name == github.repository && github.event.sender.login == 'LowGok' &&
+      github.event.deleted == false && github.event.after == github.sha &&
+      github.ref == 'refs/heads/ci/analytics-installed-b9e9699'
+    runs-on: xcode-27
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read
+    env:
+      CI: "1"
+      CAPACITOR_TELEMETRY_DISABLED: "1"
+      NATIVE_PLATFORM: ios-simulator
+      NATIVE_ANALYTICS_VOICEOVER: "1"
+      NATIVE_ANALYTICS_SIGNUP_CHECKBOX_ONLY: "1"
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version-file: mobile/package.json
+          no-cache: true
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version-file: go.mod
+          cache: false
+      - uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53
+        with:
+          name: analytics-voiceover-input-d60638f6d003027405ac4c64962e4a24e6c1b41b
+          path: mobile/.generated/voiceover-input
+          run-id: 44588751578
+          github-token: ${{ github.token }}
+      - name: Build fictional backend assets
+        working-directory: web
+        run: |
+          bun install --frozen-lockfile
+          bun run build
+      - name: Attempt signup checkbox once on the pinned unsigned app
+        run: python3 mobile/tests/analytics_voiceover.py
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: analytics-signup-checkbox-${{ github.sha }}
+          path: mobile/.generated/artifacts/analytics-signup-checkbox.json
+          if-no-files-found: warn
+          retention-days: 1
+          overwrite: false
   compile:
     if: >-
       github.repository == 'LowGok/my-chef' &&
