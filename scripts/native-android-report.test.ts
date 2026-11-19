@@ -294,3 +294,22 @@ signal 11 (SIGSEGV), code 1
     .nativeFrameCategories).toEqual([]);
   expect(report.androidCrashFacts(raw, "201").targetProcess).toBe(false);
 });
+
+test("JNI reference observations keep stack order and only fixed operations for the current process", () => {
+  const raw = `pid: 100, tid: 100, name: main >>> com.gkldevelopment.mychef.preview <<<
+    #00 pc abc /private/customer/libart.so (art::JNI::DeleteGlobalRef+12)
+pid: 200, tid: 200, name: main >>> com.gkldevelopment.mychef.preview <<<
+signal 11 (SIGSEGV), code 1
+    #00 pc def /private/customer/libart.so (art::Thread::DecodeJObject+42)
+    #01 pc abc /private/customer/libart.so (art::JNI::NewGlobalRef+77)
+    #02 pc def /private/customer/libart.so (art::JNI::NewGlobalRef+88)
+    #03 pc abc /private/customer/libart.so (art::JNI::NewWeakGlobalRef+99)
+Abort message: DeleteGlobalRef private@example.test`;
+  const result = report.androidCrashFacts(raw, "200");
+  expect(result.referenceOperations).toEqual(["decode", "create-global", "create-weak"]);
+  expect(report.androidCrashFacts(raw, "300").referenceOperations).toEqual([]);
+  expect(report.androidCrashFacts(raw.replaceAll(/#[0-9]{2} pc/g, "message"), "200")
+    .referenceOperations).toEqual([]);
+  for (const secret of ["private", "customer", "DecodeJObject", "NewGlobalRef", "NewWeakGlobalRef", "DeleteGlobalRef", "@example", "200", "42"])
+    expect(JSON.stringify(result)).not.toContain(secret);
+});

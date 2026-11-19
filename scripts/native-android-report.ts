@@ -128,7 +128,8 @@ export function androidCrashFacts(raw: string, expectedPid?: string) {
   const empty = { targetProcess: false, javaCrash: false, nativeCrash: false,
     rendererFailure: false, exceptions: [] as string[], frames: [] as string[],
     signals: [] as string[], libraries: [] as string[], abortClasses: [] as string[],
-    threadRole: "unknown", nativeFrameCategories: [] as string[] };
+    threadRole: "unknown", nativeFrameCategories: [] as string[],
+    referenceOperations: [] as string[] };
   if (raw.length > 131072) return empty;
   if (expectedPid !== undefined && !/^[1-9][0-9]{0,9}$/.test(expectedPid)) return empty;
   const lines = raw.split(/\r?\n/);
@@ -162,6 +163,20 @@ export function androidCrashFacts(raw: string, expectedPid?: string) {
   // paths, thread ids and arbitrary crash messages out of the result.
   const nativeFrames = block.split("\n").filter(line =>
     /(?:^\s*|\bDEBUG\s*:\s*)#[0-9]{2,3}\s+pc\s+[0-9a-f]{1,16}\s+/.test(line)).join("\n");
+  // Distinguish reference creation/deletion/decoding without returning
+  // symbols, addresses, paths or arbitrary crash text. Preserve stack order
+  // and ignore other processes and non-frame messages, as above.
+  const referenceKinds = [
+    ["decode", /\bDecodeJObject\b/],
+    ["create-global", /\bNewGlobalRef\b/],
+    ["delete-global", /\bDeleteGlobalRef\b/],
+    ["create-weak", /\bNewWeakGlobalRef\b/],
+    ["delete-weak", /\bDeleteWeakGlobalRef\b/],
+  ] as const;
+  const referenceOperations = [...new Set(nativeFrames.split("\n").flatMap(line => {
+    const match = referenceKinds.find(([, pattern]) => pattern.test(line));
+    return match ? [match[0]] : [];
+  }))];
   const nativeFrameCategories = ([
     ["jni-reference", /DecodeJObject|NewGlobalRef|DeleteGlobalRef|JNIEnvExt|ScopedCheck|CheckJNI/],
     ["art-interpreter", /art::interpreter|ExecuteNterpImpl|nterp_helper|art_quick_to_interpreter/],
@@ -180,7 +195,7 @@ export function androidCrashFacts(raw: string, expectedPid?: string) {
     ["binder-object", /javaObjectForIBinder|ibinderForJavaObject|JavaDeathRecipient/],
     ["webview-native", /android_webview::|AwContents::|AwBrowserContext::/],
   ] as const).filter(([, pattern]) => pattern.test(nativeFrames)).map(([kind]) => kind);
-  return { targetProcess: true, javaCrash: block.includes("FATAL EXCEPTION:"),
+  return { targetProcess: true, referenceOperations, javaCrash: block.includes("FATAL EXCEPTION:"),
     nativeCrash: /signal [0-9]{1,2} \(SIG(?:ABRT|SEGV|BUS|ILL)\)/.test(block),
     rendererFailure: /[Rr]ender(?:er| process).*crash|lib(?:webviewchromium|monochrome)\.so/.test(block),
     exceptions: known.filter(name => new RegExp("\\b" + name + "\\b").test(block)),

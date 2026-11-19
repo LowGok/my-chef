@@ -549,7 +549,12 @@ final class AnalyticsProbe: XCTestCase {
             let frame = element.frame
             print("Analytics iOS tap rect: \(frame.minX),\(frame.minY),\(frame.width),\(frame.height)")
         })
-        waitFor({ self.hasTapRegion(element) }, "Focused text input must remain visible above the software keyboard")
+        // Keyboard presentation can cover the field focused by the real
+        // coordinate touch. Scroll the actual content above that keyboard;
+        // waiting alone does not move it, and typing must not be hidden.
+        if !hasTapRegion(element) { reveal(element) }
+        waitFor({ self.app.keyboards.firstMatch.exists && self.hasTapRegion(element) },
+                "Focused text input must remain visible above the software keyboard")
         XCTAssertEqual(app.state, .runningForeground, "Native keyboard input belongs to the owned foreground app")
         hasEnteredData = true
         if replace {
