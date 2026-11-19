@@ -345,6 +345,7 @@ internal/notifications/**
 !internal/store/native_identity_policy.go
 !internal/http/native_identity.go
 !cmd/mychef/native_identity.go
+!cmd/mychef/native_identity_control.go
 !internal/store/notification_identity.go
 !migrations/031_notification_identity.sql
 !internal/notifications/submission.go
