@@ -852,7 +852,8 @@ final class AnalyticsProbe: XCTestCase {
                 return nil
             }
         }
-        func walkSpeech(reverse: Bool = false, visit: (String) -> Bool) -> Bool {
+        func walkSpeech(reverse: Bool = false, probeEntry: ((String) -> Bool)? = nil,
+                        visit: (String) -> Bool) -> Bool {
             let deadline = Date().addingTimeInterval(45)
             var output = observe { try voice.currentSpeech().utterance }
             var previous = "", repeated = 0, silent = 0, entries = 0
@@ -880,14 +881,16 @@ final class AnalyticsProbe: XCTestCase {
                     }
                     let container = value.range(of: "\\b(web content|group|container)\\b",
                                                 options: [.regularExpression, .caseInsensitive]) != nil
-                    // A matching label is not evidence of a container.
-                    // Enter only a container actually announced by VoiceOver.
+                    // A role-less target label can be a grouped stop. Probe
+                    // native entry once without assuming a container or a pass;
+                    // only the returned speech can satisfy the visitor.
                     // The initial focus can already be nested. After moving
                     // out at its boundary, advance to a sibling rather than
                     // immediately entering the same parent again.
                     let canEnter = !ascending
                     ascending = false
-                    if canEnter && entries < 4 && container && inspected.insert(value).inserted {
+                    if canEnter && entries < 4 && (container || probeEntry?(value) == true)
+                        && inspected.insert(value).inserted {
                         // Entry is a real native command, not inferred success.
                         // A silent result never satisfies the visitor; keep the
                         // attempt bounded and return out at a silent boundary.
@@ -918,13 +921,24 @@ final class AnalyticsProbe: XCTestCase {
             let expected = words(phrase)
             var seen = Set<String>()
             var candidateFacts = Set<String>()
+            var unlabeledFacts = Set<String>()
             func matches(_ value: String) -> Bool {
                 let normalized = words(value)
                 for token in ["help improve mychef", "analytics is off", "unavailable", "check box", "checkbox", "checked", "button", "web content", "create an account", "privacy"] {
                     if normalized.contains(token) { seen.insert(token) }
                 }
-                guard normalized.contains(expected) else { return false }
                 let role = value.range(of: "switch|check.?box|tick.?box|button|link", options: [.regularExpression, .caseInsensitive]) != nil
+                if controlRole && !normalized.contains(expected)
+                    && value.range(of: "switch|check.?box|tick.?box", options: [.regularExpression, .caseInsensitive]) != nil {
+                    let prefix = String(normalized.prefix(100))
+                    let on = prefix.range(of: "\\b(on|checked|selected)\\b", options: .regularExpression) != nil
+                    let off = prefix.range(of: "\\b(off|unchecked|not checked|not selected)\\b", options: .regularExpression) != nil
+                    let facts = "on=\(on) off=\(off)"
+                    if unlabeledFacts.insert(facts).inserted {
+                        print("Analytics iOS spoken unlabeled choice: " + facts)
+                    }
+                }
+                guard normalized.contains(expected) else { return false }
                 if controlRole && !role && candidateFacts.count < 8 {
                     let prefix = String(normalized.prefix(100))
                     let on = prefix.range(of: "\\b(on|checked|selected)\\b", options: .regularExpression) != nil
@@ -955,7 +969,11 @@ final class AnalyticsProbe: XCTestCase {
             // commands handle the current hierarchy without assuming its mode.
             for reverse in [backward, !backward] {
                 var found: String?
-                let reached = walkSpeech(reverse: reverse, visit: { output in
+                let reached = walkSpeech(reverse: reverse, probeEntry: { output in
+                    controlRole && words(output).contains(expected)
+                        && output.range(of: "switch|check.?box|tick.?box|button|link",
+                                        options: [.regularExpression, .caseInsensitive]) == nil
+                }, visit: { output in
                     if let result = candidate(output) { found = result; return true }
                     return false
                 })

@@ -313,6 +313,9 @@ def run(state, control, account, identifier, container, layout_only=False, voice
             speech = re.findall(r'Analytics iOS spoken control: role=(true|false) disabled=(true|false) state=(on|off|unknown)', text)
             if speech:
                 detail += '; spoken role/disabled/state ' + ', '.join('/'.join(row) for row in speech[-4:])
+            unlabeled = re.findall(r'Analytics iOS spoken unlabeled choice: on=(true|false) off=(true|false)', text)
+            if unlabeled:
+                detail += '; unlabeled spoken choice on/off ' + ','.join('/'.join(row) for row in unlabeled[-4:])
             containers = re.findall(r'Analytics iOS spoken container: privacy=(true|false) label=(true|false)', text)
             if containers:
                 detail += '; spoken container privacy/label ' + ', '.join('/'.join(row) for row in containers[-4:])
