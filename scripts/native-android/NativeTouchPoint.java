@@ -4,6 +4,19 @@ package com.gkldevelopment.mychef.testing;
 public final class NativeTouchPoint {
     private NativeTouchPoint() {}
 
+    @FunctionalInterface public interface Measurement { int[] measure() throws Exception; }
+    @FunctionalInterface public interface Preparation { void center() throws Exception; }
+
+    /** Correct at most one late layout shift before any native input exists. */
+    public static int[] prepare(Measurement measurement, Preparation preparation) throws Exception {
+        try { return measurement.measure(); }
+        catch (IllegalArgumentException first) {
+            if (!"control-outside-viewport".equals(first.getMessage())) throw first;
+            preparation.center();
+            return measurement.measure();
+        }
+    }
+
     public static int[] locate(double[] point, int[] origin, int width, int height, boolean focused) {
         if (!focused) throw new IllegalArgumentException("native-window-unfocused");
         if (origin == null || origin.length != 2 || width <= 0 || height <= 0)

@@ -208,3 +208,41 @@ public class TouchFramesContract {
     expect(run.stdout.toString()).toContain("native kernel frame checks passed");
   } finally { await rm(output, { recursive: true, force: true }); }
 }, 30_000);
+
+test("native pre-input preparation corrects one late viewport shift without retrying input", async () => {
+  const output = await mkdtemp(join(tmpdir(), "mychef-native-prepare-"));
+  try {
+    const harness = join(output, "PreparationContract.java");
+    await writeFile(harness, `
+import com.gkldevelopment.mychef.testing.NativeTouchPoint;
+import java.util.Arrays;
+public class PreparationContract {
+  interface Work { void run() throws Exception; }
+  static void reject(Work work) throws Exception { try { work.run(); } catch (IllegalArgumentException expected) { return; } throw new AssertionError("Unsafe preparation accepted"); }
+  public static void main(String[] args) throws Exception {
+    int[] measured = {0}, corrected = {0};
+    int[] point = NativeTouchPoint.prepare(() -> {
+      measured[0]++;
+      return NativeTouchPoint.locate(new double[]{180,measured[0] == 1 ? 500 : 220,0,120,360,300},new int[]{0,72},1080,1200,true);
+    }, () -> corrected[0]++);
+    if (!Arrays.equals(point,new int[]{540,372}) || measured[0] != 2 || corrected[0] != 1) throw new AssertionError("Final viewport correction was not bounded");
+    measured[0] = 0; corrected[0] = 0;
+    point = NativeTouchPoint.prepare(() -> { measured[0]++; return new int[]{20,30}; }, () -> corrected[0]++);
+    if (measured[0] != 1 || corrected[0] != 0 || !Arrays.equals(point,new int[]{20,30})) throw new AssertionError("Valid input preparation was repeated");
+    measured[0] = 0; corrected[0] = 0;
+    reject(() -> NativeTouchPoint.prepare(() -> { measured[0]++; throw new IllegalArgumentException("control-outside-viewport"); }, () -> corrected[0]++));
+    if (measured[0] != 2 || corrected[0] != 1) throw new AssertionError("Repeated invalid viewport was retried");
+    measured[0] = 0; corrected[0] = 0;
+    reject(() -> NativeTouchPoint.prepare(() -> { measured[0]++; throw new IllegalArgumentException("native-window-unfocused"); }, () -> corrected[0]++));
+    if (measured[0] != 1 || corrected[0] != 0) throw new AssertionError("Unfocused input was repaired or accepted");
+    System.out.println("native preparation checks passed");
+  }
+}`);
+    const compile = Bun.spawnSync(["javac", "--release", "17", "-d", output,
+      resolve(import.meta.dir, "native-android/NativeTouchPoint.java"), harness]);
+    expect(compile.exitCode, compile.stderr.toString()).toBe(0);
+    const run = Bun.spawnSync(["java", "-cp", output, "PreparationContract"]);
+    expect(run.exitCode, run.stderr.toString()).toBe(0);
+    expect(run.stdout.toString()).toContain("native preparation checks passed");
+  } finally { await rm(output, { recursive: true, force: true }); }
+}, 30_000);

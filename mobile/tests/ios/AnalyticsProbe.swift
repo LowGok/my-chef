@@ -99,7 +99,8 @@ final class AnalyticsProbe: XCTestCase {
         }
         var bottom = bounds.maxY
         let keyboard = app.keyboards.firstMatch
-        if keyboard.exists {
+        let keyboardWasVisible = keyboard.exists
+        if keyboardWasVisible {
             let frame = keyboard.frame
             guard !frame.isNull, !frame.isInfinite, frame.width > 1, frame.height > 1,
                   [frame.minX, frame.minY, frame.maxX, frame.maxY].allSatisfy({ $0.isFinite }) else {
@@ -124,9 +125,12 @@ final class AnalyticsProbe: XCTestCase {
         // Correct toward the current rectangle without flicking past it.
         // Keep both contacts in the measured region above the keyboard.
         let origin = app.coordinate(withNormalizedOffset: .zero)
-        let start = origin.withOffset(CGVector(dx: bounds.width * 0.5,
+        // With a live keyboard, keep the drag in the trailing page gutter
+        // instead of beginning on another editable control and moving focus.
+        let contactX = keyboardWasVisible ? bounds.width - min(16, bounds.width * 0.04) : bounds.width * 0.5
+        let start = origin.withOffset(CGVector(dx: contactX,
             dy: center - bounds.minY - distance / 2))
-        let end = origin.withOffset(CGVector(dx: bounds.width * 0.5,
+        let end = origin.withOffset(CGVector(dx: contactX,
             dy: center - bounds.minY + distance / 2))
         start.press(forDuration: 0.05, thenDragTo: end, withVelocity: .slow,
                     thenHoldForDuration: 0.2)
@@ -552,12 +556,7 @@ final class AnalyticsProbe: XCTestCase {
         // Keyboard presentation can cover the field focused by the real
         // coordinate touch. Scroll the actual content above that keyboard;
         // waiting alone does not move it, and typing must not be hidden.
-        if !hasTapRegion(element) {
-            reveal(element)
-            // A content drag can move keyboard focus. Refocus the now-visible
-            // field with a real native touch before sending keyboard input.
-            tapSettled(element)
-        }
+        if !hasTapRegion(element) { reveal(element) }
         waitFor({ self.app.keyboards.firstMatch.exists && self.hasTapRegion(element) },
                 "Focused text input must remain visible above the software keyboard")
         XCTAssertEqual(app.state, .runningForeground, "Native keyboard input belongs to the owned foreground app")
@@ -876,7 +875,25 @@ final class AnalyticsProbe: XCTestCase {
         }
         // Automated OS audits supplement, but never replace, audible VoiceOver.
         _ = try control("foreign-export"); mark("lifecycle", "foreignExportRefused")
-        try app.performAccessibilityAudit(for: [.elementDetection, .hitRegion, .sufficientElementDescription])
+        for attempt in 1...2 {
+            do {
+                try app.performAccessibilityAudit(for: [.elementDetection, .hitRegion, .sufficientElementDescription])
+                print("Analytics iOS audit: attempt=\(attempt) result=complete")
+                break
+            } catch {
+                let failure = error as NSError
+                // Retry only the observed read-only framework timeout. Real
+                // audit findings and a second timeout still fail the test.
+                guard attempt == 1,
+                      failure.domain == "com.apple.xcode.xctest.accessibilityAudit",
+                      failure.code == -56,
+                      failure.localizedDescription == "Audit failed to complete in time" else { throw error }
+                print("Analytics iOS audit: attempt=1 result=framework-timeout")
+                guard app.wait(for: .runningForeground, timeout: 5) else { throw error }
+                _ = try app.snapshot()
+                RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+            }
+        }
         tap("Delete my account"); fill("Current password", configuration["password"] ?? "", secure: true)
         fill("Type DELETE to confirm", "DELETE"); tap("Permanently delete account")
         verifyDeletedSignOut("Account deletion must return to sign in")

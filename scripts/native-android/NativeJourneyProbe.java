@@ -111,8 +111,6 @@ public final class NativeJourneyProbe extends Instrumentation {
             if (!ready[0]) SystemClock.sleep(100);
         }
         if (!ready[0]) throw new IllegalStateException("native-window-unfocused");
-        double[][] point = {null};
-        CountDownLatch evaluated = new CountDownLatch(1);
         String quotedLabel = JSONObject.quote(label);
         String selector = switch (label) {
             case "Current password" -> "[...document.querySelectorAll('dialog[open] input[name=currentPassword]')].filter(n=>!n.disabled&&n.getClientRects().length)";
@@ -125,24 +123,49 @@ public final class NativeJourneyProbe extends Instrumentation {
         String expression = "(() => {const nodes=" + selector + ";"
             + "if(nodes.length!==1)return null;const r=nodes[0].getBoundingClientRect(),v=visualViewport;"
             + "return [r.x+r.width/2,r.y+r.height/2,v?v.offsetLeft:0,v?v.offsetTop:0,v?v.width:innerWidth,v?v.height:innerHeight]})()";
-        runOnMainSync(() -> web.evaluateJavascript(expression, value -> {
-            try {
-                JSONArray result = new JSONArray(value);
-                if (result.length() == 6) {
-                    point[0] = new double[6];
-                    for (int i = 0; i < 6; i++) point[0][i] = result.getDouble(i);
-                }
-            } catch (Exception ignored) { point[0] = null; }
-            finally { evaluated.countDown(); }
-        }));
-        if (!evaluated.await(10, TimeUnit.SECONDS)) throw new IllegalStateException("control-timeout");
-        int[] location = new int[2], size = new int[2];
-        boolean[] focused = {false};
-        runOnMainSync(() -> {
-            web.getLocationOnScreen(location); size[0] = web.getWidth(); size[1] = web.getHeight();
-            focused[0] = web.isShown() && web.hasWindowFocus();
+        // Both measurements and the optional layout-only correction share the
+        // original measurement budget. Pointer construction stays below prepare.
+        long deadline = SystemClock.uptimeMillis() + 10_000;
+        int[] target = NativeTouchPoint.prepare(() -> {
+            double[][] point = {null};
+            CountDownLatch evaluated = new CountDownLatch(1);
+            runOnMainSync(() -> web.evaluateJavascript(expression, value -> {
+                try {
+                    JSONArray result = new JSONArray(value);
+                    if (result.length() == 6) {
+                        point[0] = new double[6];
+                        for (int i = 0; i < 6; i++) point[0][i] = result.getDouble(i);
+                    }
+                } catch (Exception ignored) { point[0] = null; }
+                finally { evaluated.countDown(); }
+            }));
+            long remaining = deadline - SystemClock.uptimeMillis();
+            if (remaining <= 0 || !evaluated.await(remaining, TimeUnit.MILLISECONDS))
+                throw new IllegalStateException("control-timeout");
+            int[] location = new int[2], size = new int[2];
+            boolean[] focused = {false};
+            runOnMainSync(() -> {
+                web.getLocationOnScreen(location); size[0] = web.getWidth(); size[1] = web.getHeight();
+                focused[0] = web.isShown() && web.hasWindowFocus();
+            });
+            return NativeTouchPoint.locate(point[0], location, size[0], size[1], focused[0]);
+        }, () -> {
+            CountDownLatch centered = new CountDownLatch(1);
+            boolean[] corrected = {false};
+            String correction = "(() => {const nodes=" + selector + ";"
+                + "if(nodes.length!==1)return false;"
+                + "nodes[0].scrollIntoView({block:'center',inline:'nearest',behavior:'instant'});return true})()";
+            runOnMainSync(() -> web.evaluateJavascript(correction, value -> {
+                corrected[0] = "true".equals(value); centered.countDown();
+            }));
+            long remaining = deadline - SystemClock.uptimeMillis();
+            if (remaining <= 0 || !centered.await(remaining, TimeUnit.MILLISECONDS))
+                throw new IllegalStateException("control-timeout");
+            if (!corrected[0]) throw new IllegalStateException("control-target");
+            if (deadline - SystemClock.uptimeMillis() < 350)
+                throw new IllegalStateException("control-timeout");
+            SystemClock.sleep(350);
         });
-        int[] target = NativeTouchPoint.locate(point[0], location, size[0], size[1], focused[0]);
         long down = SystemClock.uptimeMillis();
         MotionEvent.PointerProperties finger = new MotionEvent.PointerProperties();
         finger.id = 0; finger.toolType = MotionEvent.TOOL_TYPE_FINGER;
