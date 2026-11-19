@@ -144,6 +144,12 @@ final class AnalyticsProbe: XCTestCase {
         let keyboard = app.keyboards.firstMatch
         return !keyboard.exists || !keyboard.frame.intersects(frame)
     }
+    func visibleWebRegion(_ element: XCUIElement) -> Bool {
+        guard element.exists, hasTapRegion(element) else { return false }
+        // Reading a disabled control is valid. Actual activation still
+        // requires enabled state and the same exact native target/viewport.
+        return tapReady(element, frame: element.frame, nativeElement: false, requireEnabled: false)
+    }
     func reveal(_ element: XCUIElement) {
         // WebKit can omit offscreen controls from the OS accessibility tree.
         // Search with actual content gestures before declaring the control absent.
@@ -191,7 +197,7 @@ final class AnalyticsProbe: XCTestCase {
         exists = element.exists
         XCTAssertTrue(exists, "Expected installed app control")
         for _ in 0..<12 {
-            if hasTapRegion(element) && element.isHittable { return }
+            if visibleWebRegion(element) { return }
             // A restored focus can place the result above the viewport. Use
             // its current native rectangle to choose the scroll direction,
             // keeping the gesture above the software keyboard.
@@ -220,14 +226,15 @@ final class AnalyticsProbe: XCTestCase {
             let moved = !after.isNull && abs(after.minY - before.minY) > 1
             print("Analytics iOS reveal scroll: moved=\(moved) stable=\(stable >= 3) region=\(hasTapRegion(element))")
         }
-        if !hasTapRegion(element) || !element.isHittable {
+        if !visibleWebRegion(element) {
             screenState()
             let frame = element.frame
             print("Analytics iOS tap rect: \(frame.minX),\(frame.minY),\(frame.width),\(frame.height)")
         }
-        XCTAssertTrue(hasTapRegion(element) && element.isHittable, "Control must be reachable at OS text size")
+        XCTAssertTrue(visibleWebRegion(element), "Control must be reachable at OS text size")
     }
-    func tapReady(_ element: XCUIElement, frame: CGRect, nativeElement: Bool) -> Bool {
+    func tapReady(_ element: XCUIElement, frame: CGRect, nativeElement: Bool,
+                  requireEnabled: Bool = true) -> Bool {
         guard element.exists, hasTapRegion(frame: frame) else { return false }
         if nativeElement { return element.isHittable }
         // WebKit can throw from isHittable despite a valid visible frame. AX
@@ -238,7 +245,7 @@ final class AnalyticsProbe: XCTestCase {
         // descendant queries for every wrapper/control wastes the fixed test
         // budget and can compare different WebKit layout generations.
         // These snapshots stay in memory; no tree or field values are logged.
-        guard let target = try? element.snapshot(), target.isEnabled,
+        guard let target = try? element.snapshot(), (!requireEnabled || target.isEnabled),
               let window = try? app.snapshot() else { return false }
         func descendants(_ node: any XCUIElementSnapshot) -> [any XCUIElementSnapshot] {
             var nodes = node.children
@@ -260,11 +267,19 @@ final class AnalyticsProbe: XCTestCase {
         tapViewportCounts.roots = min(99, roots.count)
         guard roots.count == 1 else { return false }
         let root = roots[0]
-        let targets = descendants(root).filter {
+        let candidates = descendants(root).filter {
             $0.label == target.label && $0.elementType == target.elementType
         }
+        // WebKit may expose a details container and its summary as equally
+        // labelled buttons. Resolve the unique innermost matching control;
+        // ambiguous sibling controls still fail, as does different geometry.
+        let targets = candidates.filter { candidate in
+            !descendants(candidate).contains {
+                $0.label == target.label && $0.elementType == target.elementType
+            }
+        }
         tapViewportCounts.targets = min(99, targets.count)
-        guard targets.count == 1, targets[0].isEnabled else { return false }
+        guard targets.count == 1, (!requireEnabled || targets[0].isEnabled) else { return false }
         let matched = targets[0].frame
         guard [matched.minX - frame.minX, matched.minY - frame.minY,
                matched.width - frame.width, matched.height - frame.height]
@@ -360,11 +375,11 @@ final class AnalyticsProbe: XCTestCase {
                               "Authenticated startup must finish before navigation")
             }
             for _ in 0..<18 {
-                if home.exists && home.isHittable && home.frame.minY >= app.frame.minY { break }
+                if visibleWebRegion(home) { break }
                 scrollContent(up: false)
             }
-            if !home.exists || !home.isHittable { screenState() }
-            XCTAssertTrue(home.exists && home.isHittable, "Navigation header is reachable")
+            if !visibleWebRegion(home) { screenState() }
+            XCTAssertTrue(visibleWebRegion(home), "Navigation header is reachable")
         }
         if label == "Shopping list" {
             // The OS exposes this wrapped navigation name differently from
@@ -529,26 +544,28 @@ final class AnalyticsProbe: XCTestCase {
             "label == %@ AND (elementType == %d OR elementType == %d)", label,
             XCUIElement.ElementType.textField.rawValue, XCUIElement.ElementType.textView.rawValue)).firstMatch
         let element = secure ? app.secureTextFields[label].firstMatch : ordinary
-        reveal(element); tapSettled(element, nativeElement: true)
+        reveal(element); tapSettled(element)
         waitFor({ self.app.keyboards.firstMatch.exists }, "Native text input needs the software keyboard", onTimeout: {
             let frame = element.frame
             print("Analytics iOS tap rect: \(frame.minX),\(frame.minY),\(frame.width),\(frame.height)")
         })
+        waitFor({ self.hasTapRegion(element) }, "Focused text input must remain visible above the software keyboard")
+        XCTAssertEqual(app.state, .runningForeground, "Native keyboard input belongs to the owned foreground app")
         hasEnteredData = true
         if replace {
-            element.press(forDuration: 1.0)
+            element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).press(forDuration: 1.0)
             let menuItem = app.menuItems["Select All"].firstMatch
             let menuButton = app.buttons["Select All"].firstMatch
             waitFor({ (menuItem.exists && menuItem.isHittable) || (menuButton.exists && menuButton.isHittable) },
                     "Native editing must expose Select All for replacement")
             if menuItem.exists && menuItem.isHittable { menuItem.tap() }
             else { menuButton.tap() }
-            element.typeText(XCUIKeyboardKey.delete.rawValue)
+            app.typeText(XCUIKeyboardKey.delete.rawValue)
         }
         // These fictional forms start empty. Use the actual software keyboard
         // without a hardware command chord or AX-placeholder clearing guess.
         // The known nonempty replacement above uses the native editing menu.
-        element.typeText(text)
+        app.typeText(text)
         // Acceptance is established by the visible signup completion and the
         // exact persisted profile checks after Save. An immediate WebKit AX
         // value snapshot is not a reliable duplicate of those outcomes.
@@ -731,7 +748,7 @@ final class AnalyticsProbe: XCTestCase {
         _ = try control("other-session-choice", ["enabled": false])
         let staleBox = checkbox(); reveal(staleBox)
         XCTAssertEqual(staleBox.value as? String, "1", "Conflict fixture retains its older visible choice")
-        tapSettled(staleBox, nativeElement: true)
+        tapSettled(staleBox)
         waitFor({ ((try? self.control("native-preference")["writes"]) as? Int ?? 0) > (choiceWrites ?? 0) },
                 "Native checkbox must send its preference update", onTimeout: {
             self.preferenceState()
@@ -768,10 +785,10 @@ final class AnalyticsProbe: XCTestCase {
         if !extraInput.exists {
             reveal(extras.firstMatch)
             let visible = extras.allElementsBoundByIndex.filter {
-                $0.exists && $0.isHittable && $0.frame.width > 0 && $0.frame.height > 0
+                $0.exists && self.tapReady($0, frame: $0.frame, nativeElement: false)
             }.sorted { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height }
             guard let summary = visible.first else { throw Failure.missingControl }
-            summary.tap()
+            tapSettled(summary)
         }
         fill("Extra item", "Analytics queued oats")
         // Await the actual software keyboard before tap() inspects it. An
