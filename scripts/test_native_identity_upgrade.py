@@ -95,8 +95,29 @@ def main():
                 native("app", "POST", "/session", {"platform": "ios"}, status=404)
                 assert browser.call("GET", "/api/v1/profile") == expected
                 assert native("preview", "GET", week, token=preview) == saved
-            fixture_env = dict(env, MYCHEF_NATIVE_APP_INGRESS="1", MYCHEF_NATIVE_IDENTITY_FIXTURE="1")
-            with server(args.candidate_app.resolve(), db, origin, fixture_env, log, journal):
+            control = root / "native-identity.sock"
+            control_env = dict(env, MYCHEF_NATIVE_APP_INGRESS="1",
+                               MYCHEF_NATIVE_IDENTITY_CONTROL_SOCKET=str(control))
+
+            def policy(change=None):
+                command = ["curl", "--fail", "--silent", "--show-error", "--noproxy", "*",
+                           "--max-time", "5", "--unix-socket", str(control)]
+                if change is not None:
+                    command.extend(["-X", "PUT", "--json", json.dumps(change)])
+                return json.loads(subprocess.check_output([*command, "http://localhost/policy"],
+                                                          env=env, timeout=10))
+
+            with server(args.candidate_app.resolve(), db, origin, control_env, log, journal):
+                assert not policy()["Active"]
+                foreign = urllib.request.Request(origin + "/policy", method="PUT",
+                                                 data=b'{"expectedRevision":0,"active":true}')
+                try:
+                    with urllib.request.urlopen(foreign, timeout=5) as response:
+                        raise AssertionError(f"Operator policy exposed over TCP: {response.status}")
+                except urllib.error.HTTPError as error:
+                    assert error.code in (404, 405)
+                assert policy()["Revision"] == 0
+                assert policy({"expectedRevision": 0, "active": True})["Active"]
                 app = sign_in("app")
                 assert preview != app
                 new_profile = native("app", "GET", "/profile", token=app)
@@ -104,9 +125,17 @@ def main():
                 assert new_profile["id"] == old_profile["id"] == expected["id"]
                 assert native("app", "GET", week, token=app) == saved
                 native("preview", "GET", "/profile", token=app, status=401)
+                withdrawn = policy({"expectedRevision": 1, "active": False})
+                assert not withdrawn["Active"] and withdrawn["Revision"] == 2
+                native("app", "GET", "/profile", token=app, status=503)
+                assert native("preview", "GET", week, token=preview) == saved
+            with server(args.candidate_app.resolve(), db, origin, control_env, log, journal):
+                assert not policy()["Active"] and policy()["Revision"] == 2
+                native("app", "GET", "/profile", token=app, status=503)
+                assert native("preview", "GET", week, token=preview) == saved
             with closing(sqlite3.connect(journal)) as sql:
                 assert sql.execute("PRAGMA quick_check").fetchone() == ("ok",)
-    print("Explicit upgrade preserved the current lifecycle journal, account, separate sessions and synced shopping.")
+    print("Explicit upgrade and operator withdrawal preserved the journal, account, Preview session and synced shopping.")
 
 
 if __name__ == "__main__":

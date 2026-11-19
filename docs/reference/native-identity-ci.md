@@ -67,7 +67,9 @@ SQLite files. It seeds a verified account, a Preview session and a saved shoppin
 item. After deliberately failing the first native identity migration it restarts
 the previous binary on the same database and current lifecycle journal. It then
 completes the upgrade, checks the Preview session and saved revision again, and
-signs in as the same account through the new app route. Use this failure rehearsal
+signs in as the same account through the new app route. It exercises the local
+operator control, rejects a TCP policy write, withdraws the candidate, and
+verifies persisted withdrawal after restart. Use this failure rehearsal
 before moving the shared Preview database. After a successful migration, keep
 using the compatible binary and pause the new lane to withdraw it.
 
@@ -83,3 +85,33 @@ handler. The cache fixture checks separate pending edits for the same account.
 The compiled builds, fixture sessions and old-binary rehearsal do not prove
 installed store co-existence or the new identity's real store, link or push
 configuration.
+
+## Activate or withdraw the candidate
+
+Set `MYCHEF_NATIVE_IDENTITY_CONTROL_SOCKET` to an absolute path ending in
+`native-identity.sock` on the candidate server with app ingress enabled. The
+service user owns the dedicated 0700 directory and the listener sets the socket
+to 0600. Run operator commands as that service user, on the host or inside its
+private container. Leave the socket outside reverse proxies, Tailscale Serve
+and any shared mount. With the setting absent the process opens no operator
+listener.
+
+Read the revision before applying an approved change. Send the observed
+revision as `expectedRevision`. Pausing can name a separately approved
+`syncUntil` UTC Unix timestamp for existing shopping sessions. Omit it for an
+immediate cutoff. Read the policy again after a lost or non-success response and
+reconcile the observed revision before attempting another change.
+
+```sh
+curl --fail --silent --show-error --noproxy '*' --unix-socket "$mychef_control_socket" \
+  http://localhost/policy
+curl --fail --silent --show-error --noproxy '*' --unix-socket "$mychef_control_socket" \
+  --request PUT --json '{"expectedRevision":1,"active":false}' \
+  http://localhost/policy
+```
+
+The example withdraws only if the observed revision is `1`. Activation uses
+`"active":true` with the current revision and no `syncUntil`. Verify the
+returned state, signed candidate status and Preview account access after the
+change. If the socket path is occupied, verify which process owns it and
+reconcile the recorded policy before cleaning up the path.

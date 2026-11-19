@@ -64,7 +64,7 @@ func (s *Store) NativeIdentityPolicy(ctx context.Context) (NativeIdentityPolicy,
 	return p, err
 }
 
-// SetNativeIdentityPolicy is an operator operation, never an HTTP admin route.
+// SetNativeIdentityPolicy is an operator operation, never on the app listener.
 // Comparing revisions prevents stale retries from reopening a withdrawn lane.
 func (s *Store) SetNativeIdentityPolicy(ctx context.Context, expected int64, active bool, syncUntil int64, now time.Time) (NativeIdentityPolicy, error) {
 	if expected < 0 || syncUntil < 0 || active && syncUntil != 0 || syncUntil != 0 && syncUntil <= now.Unix() {

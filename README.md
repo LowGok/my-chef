@@ -49,8 +49,8 @@ a persisted paused state. The operator must separately authorize activation.
 Withdrawal fences admitted requests and can allow only existing signed-in
 families to finish shopping sync until an exact deadline. Restarting the server
 does not reopen the candidate; reactivation requires fresh sign-in. The Preview
-route remains available. These controls do not create store records, publish
-links, sign builds or move testers.
+route remains available. The optional local operator socket controls this
+policy on the running server. See the [operator procedure](docs/reference/native-identity-ci.md#activate-or-withdraw-the-candidate).
 
 Push configuration keeps the existing top-level Apple/Google Preview settings.
 An optional `App` section contains separate settings for `dev.mychef.app`; it

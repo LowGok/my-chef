@@ -425,6 +425,12 @@ func main() {
 		PersonalFixture: personalFixture, PersonalEntitlements: personalReader, Reminders: reminders,
 		PersonalRecipes: personalRecipes, PersonalPhotos: personalPhotos, RecipeImports: recipeImports,
 	}, logger)
+	closeNativeControl, err := startNativeIdentityControl(s, os.Getenv("MYCHEF_NATIVE_IDENTITY_CONTROL_SOCKET"), nativeAppIngress, logger)
+	if err != nil {
+		logger.Error("invalid native identity operator socket")
+		os.Exit(1)
+	}
+	defer closeNativeControl()
 	srv := &http.Server{Addr: cfg.Addr, Handler: api.Handler(webui.Handler()), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second, BaseContext: func(net.Listener) context.Context { return ctx }}
 	shutdownDone := make(chan struct{})
 	go func() {
@@ -436,6 +442,7 @@ func main() {
 	}()
 	logger.Info("mychef starting", "address", cfg.Addr, "version", version)
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		closeNativeControl()
 		logger.Error("server stopped", "error", err)
 		os.Exit(1)
 	}
