@@ -194,7 +194,10 @@ def full_journeys(receipt, artifact):
                 print('Separate small-phone iOS probe compiled before phone boot', flush=True)
             small_metadata, _, _, small_diagnostic = native.ios(small, stack, ca, artifact,
                 model='iPhone SE (3rd generation)', fixture_name='MyChef analytics small fixture',
-                headless=True, before_boot=prepare_small)
+                # The second phone failed initialization or reported no test
+                # actions on the command-line route. Open its Simulator host
+                # with this owned UUID and the existing software-keyboard args.
+                headless=False, before_boot=prepare_small)
             devices = json.loads(native.command('xcrun', 'simctl', 'list', 'devices', 'booted', '-j'))['devices']
             identifiers = [d['udid'] for group in devices.values() for d in group if d.get('name') == 'MyChef analytics small fixture']
             if len(identifiers) != 1:

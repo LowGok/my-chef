@@ -882,7 +882,10 @@ final class AnalyticsProbe: XCTestCase {
         func walkSpeech(reverse: Bool = false, probeEntry: ((String) -> Bool)? = nil,
                         visit: (String) -> Bool) -> Bool {
             let deadline = Date().addingTimeInterval(45)
-            var output = observe { try voice.currentSpeech().utterance }
+            // Establish focus with a fresh native move. A pre-existing
+            // currentSpeech value after launch/touch exploration must not
+            // authorize activation without any native navigation command.
+            var output = observe { try (reverse ? voice.moveBackward() : voice.moveForward()).utterance }
             var previous = "", repeated = 0, silent = 0, entries = 0
             var inspected = Set<String>()
             var initialExits = 0, visited = 0, entered = 0
