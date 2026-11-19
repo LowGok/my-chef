@@ -248,6 +248,14 @@ public final class NativeJourneyProbe extends Instrumentation {
         return false;
     }
 
+    private static boolean listDocuments(UiAutomation automation, AccessibilityNodeInfo root) {
+        String id = root.getPackageName() + ":id/option_menu_list";
+        for (AccessibilityNodeInfo control : root.findAccessibilityNodeInfosByViewId(id)) {
+            if (tapDocument(automation, root, control)) return true;
+        }
+        return tapDocument(automation, root, named(root, "List view", false, 0));
+    }
+
     private String pickerWindow(UiAutomation automation) {
         for (AccessibilityWindowInfo window : automation.getWindows()) {
             if (!window.isFocused()) continue;
@@ -269,6 +277,7 @@ public final class NativeJourneyProbe extends Instrumentation {
         boolean save = target.equals("SAVE"), page = target.equals("native-page.png");
         boolean sawPicker = false, sawTarget = false, selected = false, confirmed = false;
         boolean openedRoots = false, visitedDownloads = false;
+        boolean requestedList = false;
         int dishTaps = 0;
         long selectionTime = 0;
         while (SystemClock.uptimeMillis() < end) {
@@ -311,11 +320,17 @@ public final class NativeJourneyProbe extends Instrumentation {
                         if (!save && !page) dishTaps++;
                     }
                     if (!selected && file == null && !save) {
-                        if (!openedRoots) openedRoots = tapDocument(automation, root, named(root, "Show roots", false, 0));
-                        else if (!visitedDownloads) {
+                        // Image-only Recents can hide grid titles. Its List
+                        // view exposes the actual file name above the preview.
+                        if (!page && !requestedList && listDocuments(automation, root)) {
+                            requestedList = true;
+                        } else if (!openedRoots) {
+                            openedRoots = tapDocument(automation, root, named(root, "Show roots", false, 0));
+                        } else if (!visitedDownloads) {
                             AccessibilityNodeInfo downloads = named(root, "Downloads", false, 0);
                             if (downloads == null) downloads = named(root, "Download", false, 0);
                             visitedDownloads = tapDocument(automation, root, downloads);
+                            if (visitedDownloads) requestedList = false;
                         }
                     }
                 }
