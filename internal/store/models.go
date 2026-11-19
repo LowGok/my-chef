@@ -17,6 +17,7 @@ type User struct {
 	EmailChangedAt           *int64  `gorm:"column:email_changed_at"`
 	Password                 string  `gorm:"column:password"`
 	Username                 string  `gorm:"column:username"`
+	LoginUsernameKey         []byte  `gorm:"column:login_username_key;default:null" json:"-"`
 	Allergens                *string `gorm:"column:allergens"`
 	Diet                     *string `gorm:"column:diet"`
 	Dislikes                 *string `gorm:"column:dislikes"`

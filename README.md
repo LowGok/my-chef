@@ -25,6 +25,14 @@ with `MYCHEF_PLANNING_TIERS=1`. For browser verification, run
 or use `shopping-downgrade.spec.ts` to verify offline shopping after a downgrade.
 Build first. The flag defaults to off and does not enable store checkout.
 
+## Sign-in identifiers
+
+The sign-in APIs keep the existing `email` request field. It accepts either a
+trimmed email address or a uniquely matching Unicode case-folded username.
+Legacy username collisions remain email-only until resolved. Both identifiers
+share the same account attempt limit. Email verification and password recovery
+still require a mailbox address.
+
 ## Native clients
 
 The [Capacitor projects](mobile/) package the same React interface for Android
