@@ -7,3 +7,6 @@ NSInteger AnalyticsVoiceOverScroll(CGRect viewport, BOOL upward);
 
 // Standard-gesture correction after an observed page overshoot; <=30% height.
 NSInteger AnalyticsVoiceOverFineScroll(CGRect viewport, CGFloat distance);
+
+// One acknowledged native focus touch; passive exploration only, not activation.
+NSInteger AnalyticsVoiceOverExplore(CGRect viewport, CGPoint point);

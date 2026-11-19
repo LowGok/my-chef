@@ -1168,29 +1168,58 @@ final class AnalyticsProbe: XCTestCase {
                 RunLoop.current.run(until: Date().addingTimeInterval(0.3))
             }
             var touchExplored = false
-            func exploreInValidatedWindow(_ frame: CGRect, bounds: CGRect) -> Bool {
-                // The caller just checked the owned foreground app, VoiceOver,
-                // enabled control, absent alerts and keyboard before this
-                // passive gesture. Keep the measured frame and touch together;
-                // repeated remote queries can outlive its visible position.
+            func exploreSnapshot(type: XCUIElement.ElementType) -> Bool {
+                // Resolve the window and target in ONE native hierarchy.
+                // No frame, idle or hittability round trip sits between this
+                // measured visible point and the acknowledged focus touch.
+                func fact(_ reason: String, _ count: Int = 0) {
+                    print("Analytics iOS voice snapshot: reason=\(reason) candidates=\(min(9, count))")
+                }
+                guard let snapshot = try? app.snapshot() else { fact("snapshot"); return false }
+                let bounds = snapshot.frame
+                guard !bounds.isNull, !bounds.isInfinite, bounds.width >= 200, bounds.height > bounds.width,
+                      [bounds.minX, bounds.minY, bounds.width, bounds.height].allSatisfy({ $0.isFinite }) else {
+                    fact("window"); return false
+                }
+                var nodes = snapshot.children
+                var index = 0
+                while index < nodes.count {
+                    if nodes.count > 4096 { fact("hierarchy"); return false }
+                    nodes.append(contentsOf: nodes[index].children)
+                    index += 1
+                }
+                guard !nodes.contains(where: {
+                    $0.elementType == .alert || ($0.elementType == .keyboard
+                        && $0.frame.width > 1 && $0.frame.height > 1 && $0.frame.intersects(bounds))
+                }) else {
+                    fact("blocked"); return false
+                }
+                let matches = nodes.filter { $0.elementType == type && $0.label.hasPrefix(phrase) }
+                guard matches.count == 1, matches[0].isEnabled else { fact("target", matches.count); return false }
+                let frame = matches[0].frame
                 guard !frame.isNull, !frame.isInfinite, frame.width > 1, frame.height > 1,
                       [frame.minX, frame.minY, frame.width, frame.height].allSatisfy({ $0.isFinite }),
-                      bounds.insetBy(dx: 1, dy: 1).contains(frame) else { return false }
-                app.coordinate(withNormalizedOffset: voicePoint(phrase, frame: frame, window: bounds)).tap()
-                print("Analytics iOS voice phase: fresh touch exploration")
-                return true
+                      bounds.insetBy(dx: 1, dy: 1).contains(frame) else { fact("offscreen", 1); return false }
+                fact("ready", 1)
+                let point = voicePoint(phrase, frame: frame, window: bounds)
+                let result = AnalyticsVoiceOverExplore(bounds, CGPoint(
+                    x: bounds.minX + point.dx * bounds.width, y: bounds.minY + point.dy * bounds.height))
+                print("Analytics iOS voice exploration: acknowledged=\(result == 0) code=\(result)")
+                XCTAssertEqual(result, 0, "Native VoiceOver exploration touch must be acknowledged")
+                if result == 0 { print("Analytics iOS voice phase: fresh touch exploration") }
+                return result == 0
             }
             func explore(_ element: XCUIElement, frame: CGRect) -> Bool {
                 guard voice.isEnabled, app.state == .runningForeground,
                       app.alerts.count == 0, hasTapRegion(frame: frame),
                       !control || element.isEnabled else { return false }
-                return exploreInValidatedWindow(frame, bounds: app.frame)
+                return exploreSnapshot(type: element.elementType)
             }
             var preciseScroll = false
             for _ in 0..<6 {
                 let element = target()
                 if hasTapRegion(element) || !element.exists { break }
-                let frame = element.frame, bounds = app.frame
+                let frame = element.frame, bounds = app.frame, expectedType = element.elementType
                 guard !frame.isNull, !frame.isInfinite, frame.width > 1, frame.height > 1,
                       [frame.minX, frame.minY, frame.maxX, frame.maxY].allSatisfy({ $0.isFinite }),
                       frame.minY < bounds.minY || frame.maxY > bounds.maxY else { break }
@@ -1231,7 +1260,7 @@ final class AnalyticsProbe: XCTestCase {
                             // before the old VoiceOver focus scrolls it away.
                             // Anchor that measured visible control immediately;
                             // this is passive exploration, never activation.
-                            if control, exploreInValidatedWindow(sample, bounds: bounds) {
+                            if control, exploreSnapshot(type: expectedType) {
                                 touchExplored = true
                                 break
                             }
@@ -1244,10 +1273,7 @@ final class AnalyticsProbe: XCTestCase {
                 // deadline. Inspect that final position before another page
                 // gesture; the failed run first saw visibility at this point.
                 if control && !touchExplored {
-                    let updated = target()
-                    if updated.exists, exploreInValidatedWindow(updated.frame, bounds: bounds) {
-                        touchExplored = true
-                    }
+                    touchExplored = exploreSnapshot(type: expectedType)
                 }
                 let moved = !after.isNull && abs(after.minY - frame.minY) > 1
                 let toward = !after.isNull && (frame.midY > bounds.midY

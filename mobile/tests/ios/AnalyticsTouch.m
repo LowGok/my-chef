@@ -19,7 +19,7 @@
 - (void)synthesizeEvent:(id)record completion:(void (^)(BOOL, NSError *))completion;
 @end
 
-static NSInteger AnalyticsVoiceOverGesture(CGRect viewport, BOOL upward, BOOL precise, CGFloat distance) {
+static NSInteger AnalyticsVoiceOverGesture(CGRect viewport, BOOL upward, BOOL precise, CGFloat distance, BOOL explore, CGPoint point) {
 #if TARGET_OS_SIMULATOR
     if (CGRectIsNull(viewport) || CGRectIsInfinite(viewport)
         || !isfinite(CGRectGetMinX(viewport)) || !isfinite(CGRectGetMinY(viewport))
@@ -29,6 +29,8 @@ static NSInteger AnalyticsVoiceOverGesture(CGRect viewport, BOOL upward, BOOL pr
     }
     if (precise && (!isfinite(distance) || fabs(distance) < 2
                     || fabs(distance) > viewport.size.height * 0.3)) return 2;
+    if (explore && (!isfinite(point.x) || !isfinite(point.y)
+                    || !CGRectContainsPoint(CGRectInset(viewport, 8, 8), point))) return 2;
     @try {
         Class paths = NSClassFromString(@"XCPointerEventPath");
         Class records = NSClassFromString(@"XCSynthesizedEventRecord");
@@ -44,10 +46,19 @@ static NSInteger AnalyticsVoiceOverGesture(CGRect viewport, BOOL upward, BOOL pr
         }
         id synthesizer = [XCUIDevice.sharedDevice eventSynthesizer];
         if (![synthesizer respondsToSelector:@selector(synthesizeEvent:completion:)]) return 1;
-        id record = [[records alloc] initWithName:(precise ? @"Analytics VoiceOver precise scroll" : @"Analytics VoiceOver scroll")
-                            interfaceOrientation:UIInterfaceOrientationPortrait];
+        NSString *name = explore ? @"Analytics VoiceOver passive exploration"
+            : precise ? @"Analytics VoiceOver precise scroll" : @"Analytics VoiceOver scroll";
+        id record = [[records alloc] initWithName:name interfaceOrientation:UIInterfaceOrientationPortrait];
         if (!record) return 1;
-        if (precise) {
+        if (explore) {
+            // Request one physical exploration contact. The caller requires
+            // VoiceOver and actual passive-focus/UI/speech observations before
+            // the separate activation; acknowledgement alone proves no result.
+            id path = [[paths alloc] initForTouchAtPoint:point offset:0];
+            if (!path) return 1;
+            [path liftUpAtOffset:0.06];
+            [record addPointerEventPath:path];
+        } else if (precise) {
             // VoiceOver's documented standard-gesture entry: double-tap,
             // hold the second contact, then drag while VoiceOver stays on.
             // https://support.apple.com/en-lamr/guide/iphone/iph3e2e2281/27/ios/27
@@ -114,9 +125,13 @@ static NSInteger AnalyticsVoiceOverGesture(CGRect viewport, BOOL upward, BOOL pr
 }
 
 NSInteger AnalyticsVoiceOverScroll(CGRect viewport, BOOL upward) {
-    return AnalyticsVoiceOverGesture(viewport, upward, NO, 0);
+    return AnalyticsVoiceOverGesture(viewport, upward, NO, 0, NO, CGPointZero);
 }
 
 NSInteger AnalyticsVoiceOverFineScroll(CGRect viewport, CGFloat distance) {
-    return AnalyticsVoiceOverGesture(viewport, NO, YES, distance);
+    return AnalyticsVoiceOverGesture(viewport, NO, YES, distance, NO, CGPointZero);
+}
+
+NSInteger AnalyticsVoiceOverExplore(CGRect viewport, CGPoint point) {
+    return AnalyticsVoiceOverGesture(viewport, NO, NO, 0, YES, point);
 }

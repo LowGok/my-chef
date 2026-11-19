@@ -342,6 +342,12 @@ def run(state, control, account, identifier, container, layout_only=False, voice
             repeats = re.findall(r'Analytics iOS spoken container repeat: kind=(web|privacy|label)', text)
             if repeats:
                 detail += '; container repeats ' + ','.join(repeats[-6:])
+            snapshots = re.findall(r'Analytics iOS voice snapshot: reason=(snapshot|window|hierarchy|blocked|target|offscreen|ready) candidates=([0-9])', text)
+            if snapshots:
+                detail += '; native focus snapshot reason/candidates ' + ','.join('/'.join(row) for row in snapshots[-6:])
+            touches = re.findall(r'Analytics iOS voice exploration: acknowledged=(true|false) code=([0-5])', text)
+            if touches:
+                detail += '; native exploration acknowledged/code ' + ','.join('/'.join(row) for row in touches[-4:])
             voice_anchors = re.findall(r'Analytics iOS voice anchor: region=(true|false) ready=(true|false)', text)
             if voice_anchors:
                 detail += '; voice anchor region/ready ' + '/'.join(voice_anchors[-1])
