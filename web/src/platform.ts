@@ -45,10 +45,11 @@ class NativeResponse extends Error {
     super("Native session request was rejected.");
   }
 }
+const passwordPath = "/api/v1/account/password";
 const mutations = new Set([
   "/api/v1/login",
   "/api/v1/register",
-  "/api/v1/account/password",
+  passwordPath,
   "/api/v1/email/verification/confirm",
 ]);
 const stale = () =>
@@ -90,6 +91,7 @@ export class NativeTransport implements PlatformTransport {
   #deadline = 0;
   #epoch = 0;
   #work: Promise<void> | null = null;
+  #passwordChange: Promise<Response> | null = null;
   #storage: Promise<void> = Promise.resolve();
   #barrier: Promise<void> = Promise.resolve();
   #fault = false;
@@ -278,6 +280,9 @@ export class NativeTransport implements PlatformTransport {
     const epoch = this.#epoch;
     if (options.signal?.aborted) throw stale();
     try {
+      const changing = this.#passwordChange;
+      if (changing) await changing.catch(() => undefined);
+      if (pathname === passwordPath && this.#work) await this.#work;
       await this.#credentials(epoch);
       this.#check(epoch);
       if (options.signal?.aborted) throw stale();
@@ -288,6 +293,11 @@ export class NativeTransport implements PlatformTransport {
         throw stale();
       }
       if (response.status === 401 && !mutations.has(pathname)) {
+        // The server can revoke the old refresh token before the password
+        // response reaches this device. Let its replacement finish first.
+        const changing = this.#passwordChange;
+        if (changing) await changing.catch(() => undefined);
+        this.#check(epoch);
         if (this.#access === access) await this.#credentials(epoch, true);
         this.#check(epoch);
         access = this.#access;
@@ -350,6 +360,12 @@ export class NativeTransport implements PlatformTransport {
     }
   }
   request(path: string, options: RequestInit = {}) {
-    return this.#request(path, options, true);
+    const request = this.#request(path, options, true);
+    if (path.split("?")[0] !== passwordPath) return request;
+    const changing = request.finally(() => {
+      if (this.#passwordChange === changing) this.#passwordChange = null;
+    });
+    this.#passwordChange = changing;
+    return changing;
   }
 }

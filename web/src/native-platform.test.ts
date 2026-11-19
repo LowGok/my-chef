@@ -183,3 +183,64 @@ test("native cancellation stops the OS request and exposes no sensitive bridge e
     "The private API request failed.",
   );
 });
+test("a native read rejected during password rotation retries with the replacement session", async () => {
+  const { native, stored } = bridge();
+  const transport = await createNativeTransport(native, "ios");
+  await transport.request("/api/v1/session");
+  const readStarted = Promise.withResolvers<void>();
+  const passwordStarted = Promise.withResolvers<void>();
+  const rejectOldRead = Promise.withResolvers<void>();
+  const finishPassword = Promise.withResolvers<void>();
+  const refreshStarted = Promise.withResolvers<void>();
+  let refreshes = 0;
+  let retriedWithReplacement = false;
+  const json = (status: number, body: object) => ({
+    status,
+    headers: { "Content-Type": "application/json" },
+    body: btoa(JSON.stringify(body)),
+  });
+  native.request = async ({ path, headers }) => {
+    if (path.endsWith("/account/password")) {
+      passwordStarted.resolve();
+      await finishPassword.promise;
+      return json(200, {
+        native: {
+          accessToken: "c".repeat(64),
+          refreshToken: "d".repeat(64),
+          accessExpiresUnix: Math.floor(Date.now() / 1000) + 300,
+          sessionExpiresUnix: Math.floor(Date.now() / 1000) + 3600,
+        },
+      });
+    }
+    if (path.endsWith("/refresh")) {
+      refreshes++;
+      refreshStarted.resolve();
+      return json(401, {});
+    }
+    if (headers.authorization === "Bearer " + "c".repeat(64)) {
+      retriedWithReplacement = true;
+      return json(200, {});
+    }
+    readStarted.resolve();
+    await rejectOldRead.promise;
+    return json(401, {});
+  };
+  const read = transport.request("/api/v1/menu");
+  await readStarted.promise;
+  const rotation = transport.request("/api/v1/account/password", {
+    method: "PUT",
+    body: "{}",
+  });
+  const results = Promise.allSettled([rotation, read]);
+  await passwordStarted.promise;
+  rejectOldRead.resolve();
+  await Promise.race([refreshStarted.promise, Bun.sleep(50)]);
+  finishPassword.resolve();
+  expect((await results).map((result) => result.status)).toEqual([
+    "fulfilled",
+    "fulfilled",
+  ]);
+  expect(refreshes).toBe(0);
+  expect(retriedWithReplacement).toBe(true);
+  expect(stored()).toBe("d".repeat(64));
+});

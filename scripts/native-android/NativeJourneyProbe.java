@@ -291,18 +291,19 @@ public final class NativeJourneyProbe extends Instrumentation {
                     && SystemClock.uptimeMillis() - selectionTime >= 2_500;
                 if (!selected || retryDish) {
                     AccessibilityNodeInfo file = save ? null : fileTitle(root, target, 0);
-                    if (file == null) file = named(root, target, false, 0);
+                    if (file == null && (save || page)) file = named(root, target, false, 0);
                     sawTarget |= file != null;
                     // In the multi-file picker, select the file with a long
                     // press and use the action bar to confirm the selection.
-                    // Activate the labelled row for a single file. A tap on a
-                    // grid tile can hit its thumbnail instead of opening the row.
+                    // Tap the single-file title itself. Activating its container
+                    // can open a separate image preview instead of picking it.
                     boolean sent;
                     if (page) {
                         sent = activateDocumentRow(file, true)
                             || touchDocument(automation, root, file, ViewConfiguration.getLongPressTimeout() + 150);
                     } else {
-                        sent = tapDocument(automation, root, file);
+                        sent = save ? tapDocument(automation, root, file)
+                            : touchDocument(automation, root, file, 50);
                     }
                     if (sent) {
                         selected = true;
