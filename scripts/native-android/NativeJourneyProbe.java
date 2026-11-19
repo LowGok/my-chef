@@ -243,6 +243,21 @@ public final class NativeJourneyProbe extends Instrumentation {
         return false;
     }
 
+    private String pickerWindow(UiAutomation automation) {
+        for (AccessibilityWindowInfo window : automation.getWindows()) {
+            if (!window.isFocused()) continue;
+            AccessibilityNodeInfo root = window.getRoot();
+            if (documents(root)) return "documents";
+            if (root == null) return "no-root";
+            String owner = String.valueOf(root.getPackageName());
+            if (owner.equals(getTargetContext().getPackageName())) return "app";
+            if (owner.equals("com.android.systemui") || owner.equals("android")) return "android-system";
+            if (owner.equals("com.google.android.apps.photos")) return "photos";
+            return "other";
+        }
+        return "no-focus";
+    }
+
     private void selectSystemDocument(String target) {
         UiAutomation automation = interactiveWindows();
         long end = SystemClock.uptimeMillis() + 30_000;
@@ -300,6 +315,11 @@ public final class NativeJourneyProbe extends Instrumentation {
             }
             SystemClock.sleep(650);
         }
+        // Capture the window before the instrumentation process tears down the
+        // test activity. Shell focus after shutdown cannot identify the failure.
+        Bundle diagnostic = new Bundle();
+        diagnostic.putString("pickerWindow", pickerWindow(automation));
+        sendStatus(0, diagnostic);
         throw new IllegalStateException(selected ? page && !confirmed ? "picker-confirmation" : "picker-return" : sawTarget ? "picker-activation"
             : sawPicker ? "picker-target" : "picker-window");
     }
