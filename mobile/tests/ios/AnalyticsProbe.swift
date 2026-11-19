@@ -853,6 +853,21 @@ final class AnalyticsProbe: XCTestCase {
             // a spoken-output observation or synthesize a replacement voice.
             print("Analytics iOS voice environment: api=\(voice.isEnabled) native=\(nativeEnabled) voices=\(min(999, voices.count)) english=\(min(999, english))")
         }
+        func activateVoice() {
+            let bounds = app.frame
+            guard voice.isEnabled, app.state == .runningForeground,
+                  app.alerts.count == 0, !bounds.isNull, !bounds.isInfinite,
+                  bounds.width > 100, bounds.height > 100,
+                  [bounds.minX, bounds.minY, bounds.width, bounds.height].allSatisfy({ $0.isFinite }) else {
+                XCTFail("VoiceOver activation needs the owned foreground window")
+                return
+            }
+            // Deliver at a coordinate without asking XCTest to choose
+            // an application-level hittable point.
+            // Only the caller's actual UI/server result proves activation.
+            print("Analytics iOS voice phase: coordinate activation")
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).doubleTap()
+        }
         func observe(_ operation: () throws -> String) -> String? {
             do { return try operation() }
             catch {
@@ -1138,7 +1153,7 @@ final class AnalyticsProbe: XCTestCase {
         func openSignupWithVoice() throws {
             waitFor({ self.text("Welcome back.") }, "VoiceOver launch must reach sign in", timeout: 90)
             _ = try focusSpeech("Create an account")
-            app.doubleTap()
+            activateVoice()
             waitFor({ self.text("Let’s get started.") }, "VoiceOver must open the actual signup form")
         }
         // This uses the OS VoiceOver service's actual spoken output. No TTS
@@ -1166,7 +1181,7 @@ final class AnalyticsProbe: XCTestCase {
         let assessedBox = checkbox()
         XCTAssertTrue(assessedBox.exists && assessedBox.isEnabled)
         XCTAssertEqual(assessedBox.value as? String, "1")
-        app.doubleTap()
+        activateVoice()
         waitFor({ (self.checkbox().value as? String) == "0" }, "VoiceOver signup choice must become Off")
         XCTAssertEqual(state(try focusSpeech("Help improve MyChef")), "off")
         XCTAssertEqual(try control("counts")["enabled"] as? Int, 0, "Incomplete signup creates no enrollment")
@@ -1177,9 +1192,9 @@ final class AnalyticsProbe: XCTestCase {
         tap("Sign in to MyChef"); profile(); details()
         try enableVoice(freshLaunch: true)
         waitFor({ self.app.buttons["Profile"].exists }, "VoiceOver launch must restore authenticated navigation", timeout: 90)
-        _ = try focusSpeech("Profile"); app.doubleTap()
+        _ = try focusSpeech("Profile"); activateVoice()
         waitFor({ self.text("Your profile.") }, "VoiceOver must open the actual Profile")
-        _ = try focusSpeech("Account details"); app.doubleTap()
+        _ = try focusSpeech("Account details"); activateVoice()
         print("Analytics iOS voice phase: profile order")
         _ = try focusSpeech("Privacy and data")
         var checkboxIndex: Int?, statusIndex: Int?, refreshIndex: Int?
@@ -1203,7 +1218,7 @@ final class AnalyticsProbe: XCTestCase {
         try enableVoice()
         print("Analytics iOS voice phase: enabled state")
         XCTAssertEqual(state(try focusSpeech("Help improve MyChef")), "off")
-        app.doubleTap()
+        activateVoice()
         waitFor({ ((try? self.control("preference")["enabled"]) as? Bool) == true }, "VoiceOver enable receives server acknowledgement")
         XCTAssertEqual(state(try focusSpeech("Help improve MyChef")), "on", "VoiceOver must convey enabled participation")
         XCTAssertEqual(try control("preference")["enabled"] as? Bool, true, "Touch exploration must not change participation")
@@ -1211,7 +1226,7 @@ final class AnalyticsProbe: XCTestCase {
         // control remains On, then activate it with the real VoiceOver gesture.
         print("Analytics iOS voice phase: stale choice")
         _ = try control("other-session-choice", ["enabled": false])
-        app.doubleTap()
+        activateVoice()
         waitFor({ self.text("Your setting changed elsewhere") }, "VoiceOver action must encounter stale-choice error")
         _ = try spoken("Your setting changed elsewhere", backward: true)
         XCTAssertEqual(state(try spoken("Help improve MyChef")), "off")
@@ -1221,7 +1236,7 @@ final class AnalyticsProbe: XCTestCase {
         let offlineBox = checkbox(); reveal(offlineBox)
         try enableVoice(); _ = try focusSpeech("Help improve MyChef")
         XCTAssertEqual(try control("preference")["enabled"] as? Bool, true, "Touch exploration preserves On")
-        app.doubleTap()
+        activateVoice()
         waitFor({ self.text("Turning off was not confirmed") }, "VoiceOver action must encounter unconfirmed Off")
         _ = try spoken("Turning off was not confirmed", backward: true)
         XCTAssertEqual(state(try spoken("Help improve MyChef")), "on")
@@ -1241,14 +1256,14 @@ final class AnalyticsProbe: XCTestCase {
         }
         let save = app.buttons["Save preferences"].firstMatch; reveal(save)
         try enableVoice()
-        _ = try focusSpeech("Save preferences"); app.doubleTap()
+        _ = try focusSpeech("Save preferences"); activateVoice()
         waitFor({ ((try? self.control("profile-input", ["target": "updated"])["passed"]) as? Bool) == true }, "VoiceOver Save must persist the requested fixture value")
         waitFor({ ((try? self.control("counts")["queued"]) as? Int) == 1 }, "VoiceOver core action commits one event")
         _ = try control("tick"); _ = try control("backup")
         try voice.disable()
         let erase = checkbox(); reveal(erase)
         try enableVoice()
-        _ = try focusSpeech("Help improve MyChef"); app.doubleTap()
+        _ = try focusSpeech("Help improve MyChef"); activateVoice()
         waitFor({ ((try? self.control("preference")["enabled"]) as? Bool) == false }, "VoiceOver Off must receive server acknowledgement")
         XCTAssertEqual(state(try focusSpeech("Help improve MyChef")), "off")
         print("Analytics iOS voice phase: active cleanup")
@@ -1257,7 +1272,7 @@ final class AnalyticsProbe: XCTestCase {
         try voice.disable()
         let refresh = app.buttons["Refresh analytics setting"].firstMatch; reveal(refresh)
         try enableVoice()
-        _ = try focusSpeech("Refresh analytics setting"); app.doubleTap()
+        _ = try focusSpeech("Refresh analytics setting"); activateVoice()
         waitFor({ self.text("isolated backup cleanup is pending") }, "Backup cleanup stays pending")
         print("Analytics iOS voice phase: backup cleanup")
         _ = try spoken("isolated backup cleanup is pending", backward: true)
