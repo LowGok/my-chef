@@ -223,6 +223,10 @@ test("identity verification is public, owner-labelled, exact-PR and explicit-lan
   expect(compileInputs(installed,"android","2","11","44",lane).installed).toBe(true);
   expect(compileInputs(installed,"ios-simulator","2","11","44",lane).installed).toBe(true);
   expect(()=>compileInputs(installed,"ios-device","2","11","44",lane)).toThrow();
+  const androidOnly = {...event, label:{name:"native-identity-installed-android"}};
+  expect(compileInputs(androidOnly,"android","2","11","44",lane)).toMatchObject({identityLane:lane,installed:true});
+  expect(()=>compileInputs(androidOnly,"ios-simulator","2","11","44",lane)).toThrow();
+  expect(()=>compileInputs(androidOnly,"android","2","11","45",lane)).toThrow();
  }
  for(const lane of [undefined,"other",""])expect(()=>compileInputs(event,"android","2","11","44",lane)).toThrow();
  expect(()=>compileInputs(event,"android","2","11","45","app")).toThrow();

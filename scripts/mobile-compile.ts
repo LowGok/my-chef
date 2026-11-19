@@ -44,12 +44,14 @@ export function compileInputs(value: unknown, platform: string | undefined, nati
   const head = event?.pull_request?.head;
   const label = event?.label?.name;
   const reminder = label === "native-reminder-fixture";
-  const identity = label === "native-identity-compile" || label === "native-identity-installed";
+  const androidOnlyIdentity = label === "native-identity-installed-android";
+  const installedIdentity = label === "native-identity-installed" || androidOnlyIdentity;
+  const identity = label === "native-identity-compile" || installedIdentity;
   const lane = identity ? nativeIdentity(identityLane!).lane : "preview";
   if (identity && !identityLane || !identity && identityLane !== undefined && identityLane !== "preview") stop();
   const approvedPR = identity ? identityPR : reminder ? reminderPR : nativePR;
   const allowed = identity
-    ? label === "native-identity-compile" || platform === "android" || platform === "ios-simulator"
+    ? androidOnlyIdentity ? platform === "android" : label === "native-identity-compile" || platform === "android" || platform === "ios-simulator"
     : reminder
     ? platform === "android" || platform === "ios-simulator"
     : label === "native-compile" ||
@@ -78,7 +80,7 @@ export function compileInputs(value: unknown, platform: string | undefined, nati
     commit: head!.sha!,
     identityLane: lane,
     installed:
-      label === "native-identity-installed" || reminder || label === "native-installed" || label === `native-installed-${platform}`,
+      installedIdentity || reminder || label === "native-installed" || label === `native-installed-${platform}`,
   };
 }
 export function compilePlan(

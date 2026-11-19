@@ -16,6 +16,7 @@ closed. Keep the PR unmerged until its review and shipping gates pass.
 | --- | --- | --- |
 | `native-identity-compile` | `preview`, `app` | Android, iOS Simulator, unsigned iOS device compile |
 | `native-identity-installed` | `preview`, `app` | Android emulator journeys and iOS Simulator session/relaunch |
+| `native-identity-installed-android` | `preview`, `app` | Android emulator journeys |
 
 These labels select an explicit matrix lane; a branch, hostname or display name
 cannot select the packaged identity. The existing native and reminder label

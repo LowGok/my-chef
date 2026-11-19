@@ -636,7 +636,10 @@ def main():
     package = ARTIFACTS / receipt["artifact"]
     label = event.get("label", {}).get("name")
     reminders = label == "native-reminder-fixture"
-    identity = label == "native-identity-installed"
+    android_only_identity = label == "native-identity-installed-android"
+    if android_only_identity and PLATFORM != "android":
+        raise SystemExit("Android identity verification requires an Android fixture")
+    identity = label == "native-identity-installed" or android_only_identity
     if identity and (event.get("repository", {}).get("private") is not False
                      or event.get("repository", {}).get("id") != 1454481532
                      or event["pull_request"]["head"].get("ref") != "feat/native-app-identity"
@@ -646,7 +649,7 @@ def main():
         raise SystemExit("Identity installed verification requires its approved public PR")
     if not identity and LANE != "preview":
         raise SystemExit("Legacy installed verification is Preview only")
-    if (label not in ("native-installed", f"native-installed-{PLATFORM}", "native-reminder-fixture", "native-identity-installed")
+    if (label not in ("native-installed", f"native-installed-{PLATFORM}", "native-reminder-fixture", "native-identity-installed", "native-identity-installed-android")
             or (reminders and (event["pull_request"]["head"].get("ref") != "feat/weekly-reminders"
                               or str(event.get("number")) != os.environ.get("NATIVE_REMINDER_PR")))
             or event.get("sender", {}).get("login") != "LowGok"
