@@ -24,6 +24,7 @@ GENERATED = ROOT / "mobile/.generated"
 ARTIFACTS = GENERATED / "artifacts"
 from native_identity import application_id
 
+LANE = os.environ.get("NATIVE_IDENTITY_LANE", "preview")
 APP = application_id()
 PLATFORM = os.environ.get("NATIVE_PLATFORM")
 ORIGIN = "https://localhost:8977"
@@ -105,6 +106,8 @@ def fixture(state, stack, journeys=False):
     app_env = dict(ENV, **email, MYCHEF_ADDR="127.0.0.1:18137", MYCHEF_ORIGIN=ORIGIN,
                    MYCHEF_DB=db, MYCHEF_LIFECYCLE_DB=db + ".lifecycle", MYCHEF_DEV="1",
                    MYCHEF_PROVIDER="fixture", MYCHEF_E2E="1", MYCHEF_PUSH_FIXTURE="1", MYCHEF_FEEDBACK_TO="operator@example.test")
+    if LANE == "app":
+        app_env.update(MYCHEF_NATIVE_APP_INGRESS="1", MYCHEF_NATIVE_IDENTITY_FIXTURE="1")
     if journeys:
         app_env.update(stack.enter_context(fixture_imports(ROOT, state, app_env)))
     subprocess.run([str(state / "mychef-migrate"), "up", "--db", db], env=app_env, check=True, timeout=60)
@@ -158,9 +161,11 @@ def fixture(state, stack, journeys=False):
             return saved.status == 200 and len(saved.read(1_048_577)) <= 1_048_576
 
         def forward(self):
-            if not re.fullmatch(r"/api/native/v1/[A-Za-z0-9_/?=&%.+~-]{1,4096}", self.path):
+            prefix = "/api/native/app/v1/" if LANE == "app" else "/api/native/v1/"
+            if not self.path.startswith(prefix) or not re.fullmatch(r"[A-Za-z0-9_/?=&%.+~-]{1,4096}", self.path[len(prefix):]):
                 self.send_error(404)
                 return
+            logical_path = "/api/native/v1/" + self.path[len(prefix):]
             if (state / "native-network-offline").exists():
                 # Loopback remains reachable through ADB with radios disabled.
                 # Drop the connection so the native client sees transport loss.
@@ -173,7 +178,7 @@ def fixture(state, stack, journeys=False):
             request_body = self.rfile.read(size)
             with closing(http.client.HTTPConnection("127.0.0.1", 18137, timeout=8)) as client:
                 headers = {k: self.headers[k] for k in ("Authorization", "Content-Type", "Cookie", "Accept", "Idempotency-Key", "If-Match", "If-None-Match") if k in self.headers}
-                if journeys and self.command == "PUT" and re.fullmatch(r"/api/native/v1/shopping/\d{4}-\d{2}-\d{2}", self.path):
+                if journeys and self.command == "PUT" and re.fullmatch(r"/api/native/v1/shopping/\d{4}-\d{2}-\d{2}", logical_path):
                     try:
                         (state / "native-shopping-conflict").unlink()
                     except FileNotFoundError:
@@ -188,7 +193,7 @@ def fixture(state, stack, journeys=False):
                 if len(body) > 32 * 1024 * 1024:
                     self.send_error(502)
                     return
-                if journeys and self.command == "POST" and self.path == "/api/native/v1/personal-recipes" and response.status in (200, 201):
+                if journeys and self.command == "POST" and logical_path == "/api/native/v1/personal-recipes" and response.status in (200, 201):
                     try:
                         (state / "native-personal-save-drop").unlink()
                     except FileNotFoundError:
@@ -212,12 +217,12 @@ def fixture(state, stack, journeys=False):
                 self.end_headers()
                 self.wfile.write(body)
                 # Fixed route groups only: no IDs, query values or response bodies.
-                route = self.path.split("?", 1)[0].removeprefix("/api/native/v1/")
+                route = logical_path.split("?", 1)[0].removeprefix("/api/native/v1/")
                 event_kind = route if route in ("session", "refresh", "login", "profile", "menus", "generations", "personal-recipes", "feedback", "planning-reminders/installation", "planning-reminders/open") else "feature"
                 if re.fullmatch(r"favorite-weeks/\d{4}-\d{2}-\d{2}", route):
                     event_kind = "favorite-week"
                 events.append((self.command, event_kind, response.status))
-                if journeys and self.command == "PUT" and response.status == 200 and re.fullmatch(r"/api/native/v1/shopping/\d{4}-\d{2}-\d{2}", self.path):
+                if journeys and self.command == "PUT" and response.status == 200 and re.fullmatch(r"/api/native/v1/shopping/\d{4}-\d{2}-\d{2}", logical_path):
                     value = json.loads(request_body)
                     names = [item.get("name") for item in value.get("items", [])]
                     with shopping_lock:
@@ -347,7 +352,7 @@ def android(state, stack, ca, apk):
     def launch():
         adb("shell", "input", "keyevent", "KEYCODE_WAKEUP")
         adb("shell", "wm", "dismiss-keyguard")
-        adb("shell", "am", "start", "-W", "-n", APP + "/.MainActivity")
+        adb("shell", "am", "start", "-W", "-n", APP + "/com.gkldevelopment.mychef.preview.MainActivity")
 
         def focused():
             nonlocal system_ui_recovered
@@ -612,16 +617,36 @@ def android_journeys(state, receipt, metadata, events, reminders=False):
     (ARTIFACTS / "installed-journeys.json").write_text(json.dumps(result, indent=2) + "\n")
 
 
+def verify_identity_receipt(receipt, platform, lane):
+    expected = {"preview": "com.gkldevelopment.mychef.preview", "app": "dev.mychef.app"}.get(lane)
+    candidate = receipt.get("candidate", {})
+    if (not expected or receipt.get("platform") != platform or receipt.get("compilation") != "passed"
+            or candidate.get("identityLane") != lane or candidate.get("appId") != expected
+            or receipt.get("packagedAppId") != expected):
+        raise ValueError("Installed verification package identity did not match its selected lane")
+
+
 def main():
     os.umask(0o077)
     if os.environ.get("GITHUB_ACTIONS") != "true" or os.environ.get("GITHUB_REPOSITORY") != "LowGok/my-chef" or PLATFORM not in ("android", "ios-simulator"):
         raise SystemExit("This check requires the public hosted native verification workflow.")
     event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
     receipt = json.loads((ARTIFACTS / "compilation.json").read_text())
+    verify_identity_receipt(receipt, PLATFORM, LANE)
     package = ARTIFACTS / receipt["artifact"]
     label = event.get("label", {}).get("name")
     reminders = label == "native-reminder-fixture"
-    if (label not in ("native-installed", f"native-installed-{PLATFORM}", "native-reminder-fixture")
+    identity = label == "native-identity-installed"
+    if identity and (event.get("repository", {}).get("private") is not False
+                     or event.get("repository", {}).get("id") != 1454481532
+                     or event["pull_request"]["head"].get("ref") != "feat/native-app-identity"
+                     or event["pull_request"]["head"].get("repo", {}).get("id") != 1454481532
+                     or event["pull_request"].get("base", {}).get("ref") != "main"
+                     or str(event.get("number")) != os.environ.get("NATIVE_IDENTITY_PR")):
+        raise SystemExit("Identity installed verification requires its approved public PR")
+    if not identity and LANE != "preview":
+        raise SystemExit("Legacy installed verification is Preview only")
+    if (label not in ("native-installed", f"native-installed-{PLATFORM}", "native-reminder-fixture", "native-identity-installed")
             or (reminders and (event["pull_request"]["head"].get("ref") != "feat/weekly-reminders"
                               or str(event.get("number")) != os.environ.get("NATIVE_REMINDER_PR")))
             or event.get("sender", {}).get("login") != "LowGok"

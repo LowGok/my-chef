@@ -1,5 +1,6 @@
+export {verifyCompiledIdentity} from "./native-identity";
 import { createHash } from "node:crypto";
-import { nativeIdentity, type NativeIdentityLane } from "./native-identity";
+import { nativeIdentity, verifyCompiledIdentity, type NativeIdentityLane } from "./native-identity";
 import { appendFileSync, readFileSync } from "node:fs";
 import {
   copyFile,
@@ -28,7 +29,7 @@ const xcode = {
 const stop = () => {
   throw new Error("Compile-only authorization or source identity is invalid.");
 };
-export function compileInputs(value: unknown, platform: string | undefined, nativePR: string | undefined, reminderPR?: string) {
+export function compileInputs(value: unknown, platform: string | undefined, nativePR: string | undefined, reminderPR?: string, identityPR?: string, identityLane?: string) {
   const event = value as {
     action?: string;
     number?: number;
@@ -43,8 +44,13 @@ export function compileInputs(value: unknown, platform: string | undefined, nati
   const head = event?.pull_request?.head;
   const label = event?.label?.name;
   const reminder = label === "native-reminder-fixture";
-  const approvedPR = reminder ? reminderPR : nativePR;
-  const allowed = reminder
+  const identity = label === "native-identity-compile" || label === "native-identity-installed";
+  const lane = identity ? nativeIdentity(identityLane!).lane : "preview";
+  if (identity && !identityLane || !identity && identityLane !== undefined && identityLane !== "preview") stop();
+  const approvedPR = identity ? identityPR : reminder ? reminderPR : nativePR;
+  const allowed = identity
+    ? label === "native-identity-compile" || platform === "android" || platform === "ios-simulator"
+    : reminder
     ? platform === "android" || platform === "ios-simulator"
     : label === "native-compile" ||
       (label === "native-installed" && platform !== "ios-device") ||
@@ -62,7 +68,7 @@ export function compileInputs(value: unknown, platform: string | undefined, nati
     event.pull_request?.base?.ref !== "main" ||
     head?.repo?.full_name !== "LowGok/my-chef" ||
     head.repo.id !== 1454481532 ||
-    head.ref !== (reminder ? "feat/weekly-reminders" : "feat/native-mobile") ||
+    head.ref !== (identity ? "feat/native-app-identity" : reminder ? "feat/weekly-reminders" : "feat/native-mobile") ||
     !/^[a-f0-9]{40}$/.test(head.sha ?? "") ||
     !["android", "ios-simulator", "ios-device"].includes(platform ?? "")
   )
@@ -70,8 +76,9 @@ export function compileInputs(value: unknown, platform: string | undefined, nati
   return {
     platform: platform as Platform,
     commit: head!.sha!,
+    identityLane: lane,
     installed:
-      reminder || label === "native-installed" || label === `native-installed-${platform}`,
+      label === "native-identity-installed" || reminder || label === "native-installed" || label === `native-installed-${platform}`,
   };
 }
 export function compilePlan(
@@ -147,6 +154,8 @@ async function compile() {
     process.env.NATIVE_PLATFORM,
     process.env.NATIVE_VERIFICATION_PR,
     process.env.NATIVE_REMINDER_PR,
+    process.env.NATIVE_IDENTITY_PR,
+    process.env.NATIVE_IDENTITY_LANE,
   );
   const root = resolve(import.meta.dir, ".."),
     mobile = join(root, "mobile"),
@@ -246,7 +255,7 @@ async function compile() {
     await prepareMobileBundle(
       join(root, "web/dist/app"),
       generated,
-      createMobileConfig("https://localhost:8977"),
+      createMobileConfig("https://localhost:8977", "preview", input.identityLane),
       input.commit,
     );
     const candidate = await recordNativeCandidate(
@@ -288,6 +297,10 @@ async function compile() {
     const plan = compilePlan(input.platform, bootstrap, simulatorEntitlements, bundle.identityLane);
     run(plan, input.platform === "android" ? join(mobile, "android") : mobile);
     if (input.platform === "android") await retainDependencies();
+    const packagedMetadata=input.platform==="android"
+      ? run([join(env.ANDROID_HOME??env.ANDROID_SDK_ROOT??stop(),"build-tools/36.0.0/aapt2"),"dump","badging",join(mobile,"android/app/build/outputs/apk/debug/app-debug.apk")])
+      : run(["/usr/bin/plutil","-convert","json","-o","-",join(generated,input.platform==="ios-device"?"ios-device-build/Build/Products/Release-iphoneos/App.app/Info.plist":"ios-build/Build/Products/Release-iphonesimulator/App.app/Info.plist")]);
+    const packagedAppId=verifyCompiledIdentity(input.platform,packagedMetadata,bundle.identityLane,compilationVersion);
     const artifact =
       input.platform === "android"
         ? "mychef-compile.apk"
@@ -332,6 +345,7 @@ async function compile() {
         {
           candidate,
           platform: input.platform,
+          packagedAppId,
           tool,
           runnerImage: process.env.ImageVersion,
           compilation: "passed",

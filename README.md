@@ -36,6 +36,8 @@ Installed checks run separately on an Android emulator and iPhone simulator.
 They publish JSON receipts for the exact source and artifact, without publishing
 the packages or using store credentials. Simulator results do not cover an
 iPhone installation through TestFlight.
+The [dual-identity CI guide](docs/reference/native-identity-ci.md) records the
+public-only labels, packaged identity checks and limits of fixture receipts.
 
 Build selection distinguishes the existing `com.gkldevelopment.mychef.preview`
 from `dev.mychef.app`; Java and Swift compile namespaces remain stable. Both use
@@ -71,7 +73,9 @@ Association declarations are prepared for the new identity; publishing the
 website files and installing signed builds still require separate approval.
 The [app-link artifact handoff](docs/reference/native-app-links.md) describes
 local generation, HTTPS rehearsal and the exact website publication scope.
-The [provider operation guard](docs/reference/native-provider-operations.md) binds separately approved app-lane writes to their exact record, artifact and roster and preserves uncertain results for readback.
+The [provider operation guard](docs/reference/native-provider-operations.md)
+binds separately approved app-lane writes to their exact record, artifact and
+roster and preserves uncertain results for readback.
 
 ## Container
 

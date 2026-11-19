@@ -601,7 +601,7 @@ async function coreJourneys() {
       adb("shell", "svc", "wifi", "enable");
       adb("shell", "svc", "data", "enable");
       adb("shell", "input", "keyevent", "3");
-      adb("shell", "am", "start", "-n", app + "/.MainActivity");
+      adb("shell", "am", "start", "-n", app + "/com.gkldevelopment.mychef.preview.MainActivity");
       await expect(
         page.getByRole("heading", { name: "Your profile.", exact: true }),
       ).toBeVisible();
@@ -886,7 +886,7 @@ async function mediaJourneys() {
       }
       stage = "imported shopping reloads only after reconnect";
       adb("shell", "input", "keyevent", "3");
-      adb("shell", "am", "start", "-n", app + "/.MainActivity");
+      adb("shell", "am", "start", "-n", app + "/com.gkldevelopment.mychef.preview.MainActivity");
       await button("Shopping list").click();
       await expect(page.locator(".shopping-heading")).toBeVisible();
       for (let step = 0; step < 3; step++) {

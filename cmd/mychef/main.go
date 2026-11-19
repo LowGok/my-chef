@@ -146,6 +146,10 @@ func main() {
 		logger.Error("database schema is not ready")
 		os.Exit(1)
 	}
+	if err = configureNativeIdentityFixture(context.Background(), s, cfg, os.Getenv("MYCHEF_E2E"), nativeAppIngress, os.Getenv("MYCHEF_NATIVE_IDENTITY_FIXTURE")); err != nil {
+		logger.Error("invalid native identity fixture configuration")
+		os.Exit(1)
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	journal, err := s.OpenLifecycleJournal(ctx, cfg.LifecycleDatabase)

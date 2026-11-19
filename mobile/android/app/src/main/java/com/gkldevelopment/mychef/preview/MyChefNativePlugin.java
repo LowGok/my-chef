@@ -63,6 +63,7 @@ public class MyChefNativePlugin extends Plugin {
     private void traceNativeCheck(String path, String method, String result) {
         if (origin == null || !"localhost".equals(origin.getHost())
                 || (getContext().getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) == 0) return;
+        if (path.startsWith("/api/native/app/v1/")) path = "/api/native/v1/" + path.substring("/api/native/app/v1/".length());
         String operation;
         if ("/api/native/v1/session".equals(path) && ("GET".equals(method) || "POST".equals(method))) {
             operation = "session";
