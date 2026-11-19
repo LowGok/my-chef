@@ -94,14 +94,36 @@ def cancel_picker():
     """Send OS Back only to the focused system picker and wait for MyChef."""
     deadline = time.monotonic() + 35
     saw_documents = False
+    first_back_sent = picker_back_sent = False
+    keyboard_hidden_samples = 0
+    def keyboard_shown():
+        state = _adb("shell", "dumpsys", "input_method")
+        if re.search(r"mInputShown=true|isInputViewShown=true", state):
+            return True
+        if re.search(r"mInputShown=false|isInputViewShown=false", state):
+            return False
+        return None
     while time.monotonic() < deadline:
         owner = picker_focus()
         if saw_documents and owner == "app":
             return
         if owner == "documents":
             saw_documents = True
-            # The first Back can dismiss the filename keyboard alone.
-            _adb("shell", "input", "keyevent", "4")
+            if not first_back_sent:
+                keyboard = keyboard_shown()
+                if picker_focus() == "documents":
+                    _adb("shell", "input", "keyevent", "4")
+                    first_back_sent = True
+                    # Only an observed keyboard can justify another Back.
+                    picker_back_sent = keyboard is not True
+            elif not picker_back_sent:
+                keyboard_hidden_samples = keyboard_hidden_samples + 1 if keyboard_shown() is False else 0
+                if keyboard_hidden_samples >= 2 and picker_focus() == "documents":
+                    _adb("shell", "input", "keyevent", "4")
+                    picker_back_sent = True
+            # Wait for the actual app window after the single picker Back.
+            # A departing DocumentsUI window must not trigger repeated input
+            # that can reach the app's own dialog after the picker closes.
         time.sleep(.5)
     raise RuntimeError("Synthetic OS picker was not opened and closed")
 

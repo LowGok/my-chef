@@ -473,38 +473,51 @@ class NativeFixtureProxyTest(unittest.TestCase):
 
 
 class NativeSystemPickerTest(unittest.TestCase):
-    def test_cancel_repeats_back_only_while_the_system_picker_is_still_active(self):
-        windows = iter(['com.android.documentsui/.Pick', '', 'com.android.documentsui/.Pick', probe.APP + '/.Main'])
+    def cancel_with_delayed_window(self, keyboard=False, initial_app=False):
         commands = []
-
-        def output(*argv):
+        clock = [0.0]
+        keyboard_open = [keyboard]
+        states = (["app"] if initial_app else []) + ["documents"] * 4 + ["app"]
+        def adb(*argv):
             commands.append(argv)
-            if 'dumpsys' in argv:
-                window = next(windows)
-                return f'mCurrentFocus=Window{{42 u0 {window}}}' if window else 'mCurrentFocus=null'
-            return ''
-
-        with patch.object(probe, '_adb', side_effect=output), patch.object(probe.time, 'sleep'), \
-                patch.object(probe, '_snapshot', side_effect=probe.subprocess.CalledProcessError(1, 'dump')) as dump:
+            if argv == ("shell", "dumpsys", "input_method"):
+                return "mInputShown=" + str(keyboard_open[0]).lower()
+            if argv == ("shell", "dumpsys", "window", "displays"):
+                state = states[min(int(clock[0] * 2), len(states) - 1)]
+                package = probe.SYSTEM_PICKERS[1 if initial_app else 0]
+                window = probe.APP + "/.Main" if state == "app" else package + "/.Pick"
+                return f"mCurrentFocus=Window{{42 u0 {window}}}"
+            if argv == ("shell", "input", "keyevent", "4"):
+                keyboard_open[0] = False
+            return ""
+        def sleep(seconds):
+            clock[0] += seconds
+        with patch.object(probe, "_adb", side_effect=adb), patch.object(probe.time, "sleep", side_effect=sleep), \
+                patch.object(probe.time, "monotonic", side_effect=lambda: clock[0]), \
+                patch.object(probe, "_snapshot", side_effect=AssertionError("Must retain the existing automation owner")):
             probe.cancel_picker()
-        self.assertEqual(sum(argv[-3:] == ('input', 'keyevent', '4') for argv in commands), 2)
-        dump.assert_not_called()
+        return commands
+
+    def test_cancel_never_repeats_back_for_a_departing_picker(self):
+        commands = self.cancel_with_delayed_window()
+        self.assertEqual(commands.count(("shell", "input", "keyevent", "4")), 1)
+
+    def test_cancel_allows_one_keyboard_back_and_one_picker_back_only(self):
+        commands = self.cancel_with_delayed_window(keyboard=True)
+        self.assertEqual(commands.count(("shell", "input", "keyevent", "4")), 2)
+
+    def test_cancel_requires_two_hidden_keyboard_observations_before_second_back(self):
+        commands = self.cancel_with_delayed_window(keyboard=True)
+        backs = [i for i, command in enumerate(commands) if command == ("shell", "input", "keyevent", "4")]
+        self.assertEqual(len(backs), 2)
+        observations = commands[backs[0] + 1:backs[1]]
+        self.assertGreaterEqual(observations.count(("shell", "dumpsys", "input_method")), 2)
 
     def test_cancel_waits_for_the_system_picker_then_returns_to_mychef(self):
-        windows = iter([probe.APP + '/.Main', 'com.google.android.documentsui/.Pick', probe.APP + '/.Main'])
-        commands = []
-
-        def output(*argv):
-            commands.append(argv)
-            if 'dumpsys' in argv:
-                return f'mCurrentFocus=Window{{42 u0 {next(windows)}}}'
-            return ''
-
-        with patch.object(probe, '_adb', side_effect=output), patch.object(probe.time, 'sleep'):
-            probe.cancel_picker()
-        back = next(i for i, argv in enumerate(commands) if argv[-3:] == ('input', 'keyevent', '4'))
-        self.assertEqual(sum('dumpsys' in argv for argv in commands[:back]), 2)
-        self.assertEqual(sum('dumpsys' in argv for argv in commands[back:]), 1)
+        commands = self.cancel_with_delayed_window(initial_app=True)
+        back = commands.index(("shell", "input", "keyevent", "4"))
+        self.assertGreaterEqual(commands[:back].count(("shell", "dumpsys", "window", "displays")), 2)
+        self.assertEqual(commands.count(("shell", "input", "keyevent", "4")), 1)
 
 
 class NativeLaunchAcknowledgementTest(unittest.TestCase):
