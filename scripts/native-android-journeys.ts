@@ -18,7 +18,8 @@ import {
   personalPhoto,
 } from "../web/tests/support/personal-recipes";
 
-const app = nativeIdentity(process.env.NATIVE_IDENTITY_LANE ?? "preview").appId;
+const identity = nativeIdentity(process.env.NATIVE_IDENTITY_LANE ?? "preview");
+const app = identity.appId;
 // Native requests and emulator UI work have the same bounded wait budget.
 const expect = playwrightExpect.configure({ timeout: 30_000 });
 const interruptedConnection =
@@ -395,10 +396,21 @@ async function extras(name: string) {
   await page.getByLabel("Extra item", { exact: true }).fill(name);
   await activate("Add extra");
 }
-async function reopenShopping(phase: string, first: string, second: string) {
+async function expectPausedIdentity() {
+  await expect(
+    page.getByRole("heading", { name: "This MyChef app is paused.", exact: true }),
+  ).toBeVisible();
+  await expect(button("Shopping list")).toBeHidden();
+}
+
+async function restartApp() {
   adb("shell", "am", "force-stop", app);
   await device?.close().catch(() => undefined);
   await connect();
+}
+
+async function reopenShopping(phase: string, first: string, second: string) {
+  await restartApp();
   stage = phase;
   await button("Shopping list").click();
   await expect(page.locator(".shopping-heading")).toBeVisible();
@@ -549,7 +561,9 @@ async function coreJourneys() {
     ).toBeVisible();
   });
   await check(
-    "two shopping weeks survive offline process relaunch",
+    identity.lane === "app"
+      ? "new identity pauses offline and reloads both shopping weeks on reconnect"
+      : "two shopping weeks survive offline process relaunch",
     async () => {
       await button("Shopping list").click();
       await expect(page.getByText("Saved", { exact: true })).toBeVisible();
@@ -569,6 +583,44 @@ async function coreJourneys() {
       await expect.poll(shoppingWeek).toBe(first);
       await expect.poll(shoppingWeekInUrl).toBe(firstWeek);
       await expect(page.getByText("Saved", { exact: true })).toBeVisible();
+      if (identity.lane === "app") {
+        const marker = join(state, "native-network-offline");
+        const coffee = "Native saved coffee";
+        const tea = "Native saved tea";
+        await extras(coffee);
+        await expect(page.getByText(coffee, { exact: true })).toBeVisible();
+        await expect(page.getByText("Saved", { exact: true })).toBeVisible();
+        await button("Next shopping week").click();
+        await expect.poll(shoppingWeekInUrl).toBe(secondWeek);
+        await extras(tea);
+        await expect(page.getByText(tea, { exact: true })).toBeVisible();
+        await expect(page.getByText("Saved", { exact: true })).toBeVisible();
+        await writeFile(marker, "offline");
+        try {
+          adb("shell", "svc", "wifi", "disable");
+          adb("shell", "svc", "data", "disable");
+          await restartApp();
+          stage = "new identity cold launch without authorization";
+          await expectPausedIdentity();
+        } finally {
+          await unlink(marker);
+          adb("shell", "svc", "wifi", "enable");
+          adb("shell", "svc", "data", "enable");
+        }
+        stage = "new identity restores signed-in shopping after reconnect";
+        adb("shell", "input", "keyevent", "3");
+        adb("shell", "am", "start", "-W", "-n", app + "/com.gkldevelopment.mychef.preview.MainActivity");
+        await button("Shopping list").click();
+        const restored = await shoppingWeek();
+        expect([first, second]).toContain(restored);
+        if (restored === second) await button("Previous shopping week").click();
+        await expect.poll(shoppingWeekInUrl).toBe(firstWeek);
+        await expect(page.getByText(coffee, { exact: true })).toBeVisible();
+        await button("Next shopping week").click();
+        await expect.poll(shoppingWeekInUrl).toBe(secondWeek);
+        await expect(page.getByText(tea, { exact: true })).toBeVisible();
+        return;
+      }
       adb("shell", "svc", "wifi", "disable");
       adb("shell", "svc", "data", "disable");
       await writeFile(join(state, "native-network-offline"), "offline");
@@ -853,32 +905,38 @@ async function mediaJourneys() {
       try {
         adb("shell", "svc", "wifi", "disable");
         adb("shell", "svc", "data", "disable");
-        await expect(
-          page.getByText(
-            "Offline · Keep this tab open until your changes are saved.",
-            { exact: true },
-          ),
-        ).toBeVisible();
-        await extras(extra);
-        await expect(page.getByText(extra, { exact: true })).toBeVisible();
-        await expect(
-          page.locator(".shopping-progress [role=status]"),
-        ).toHaveText("Pending sync · 1 change");
-        adb("shell", "am", "force-stop", app);
-        await device?.close().catch(() => undefined);
-        await connect();
-        stage = "imported shopping after offline relaunch";
-        await expect(
-          page.getByText(
-            "Connect to load your shopping list for the first time.",
-            {
-              exact: true,
-            },
-          ),
-        ).toBeVisible();
-        await expect(button("Shopping list")).toHaveCount(0);
-        await expect(stock()).toHaveCount(0);
-        await expect(page.getByText(extra, { exact: true })).toHaveCount(0);
+        if (identity.lane === "app") {
+          await restartApp();
+          stage = "imported shopping remains paused offline";
+          await expectPausedIdentity();
+        } else {
+          await expect(
+            page.getByText(
+              "Offline · Keep this tab open until your changes are saved.",
+              { exact: true },
+            ),
+          ).toBeVisible();
+          await extras(extra);
+          await expect(page.getByText(extra, { exact: true })).toBeVisible();
+          await expect(
+            page.locator(".shopping-progress [role=status]"),
+          ).toHaveText("Pending sync · 1 change");
+          adb("shell", "am", "force-stop", app);
+          await device?.close().catch(() => undefined);
+          await connect();
+          stage = "imported shopping after offline relaunch";
+          await expect(
+            page.getByText(
+              "Connect to load your shopping list for the first time.",
+              {
+                exact: true,
+              },
+            ),
+          ).toBeVisible();
+          await expect(button("Shopping list")).toHaveCount(0);
+          await expect(stock()).toHaveCount(0);
+          await expect(page.getByText(extra, { exact: true })).toHaveCount(0);
+        }
       } finally {
         await unlink(marker);
         adb("shell", "svc", "wifi", "enable");

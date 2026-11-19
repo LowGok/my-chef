@@ -275,9 +275,14 @@ public final class NativeJourneyProbe extends Instrumentation {
                     sawTarget |= file != null;
                     // In the multi-file picker, select the file with a long
                     // press and use the action bar to confirm the selection.
-                    boolean sent = save ? tapDocument(automation, root, file)
-                        : touchDocument(automation, root, file,
-                            page ? ViewConfiguration.getLongPressTimeout() + 150 : 50);
+                    // Activate the labelled row for a single file. A tap on a
+                    // grid tile can hit its thumbnail instead of opening the row.
+                    boolean sent;
+                    if (page) {
+                        sent = touchDocument(automation, root, file, ViewConfiguration.getLongPressTimeout() + 150);
+                    } else {
+                        sent = tapDocument(automation, root, file);
+                    }
                     if (sent) {
                         selected = true;
                         selectionTime = SystemClock.uptimeMillis();
