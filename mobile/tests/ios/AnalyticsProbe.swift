@@ -774,7 +774,18 @@ final class AnalyticsProbe: XCTestCase {
         _ = try control("offline")
         let extraInput = app.textFields["Extra item"].firstMatch
         let extras = app.buttons.matching(NSPredicate(format: "label == %@", "A few extras?"))
-        reveal(extras.firstMatch)
+        func extraSummary() -> XCUIElement {
+            // The first match may be the enclosing details panel. The strict
+            // activation guard resolves the innermost summary, so reveal that
+            // same native control rather than a larger wrapper rectangle.
+            extras.allElementsBoundByIndex.filter {
+                guard $0.exists else { return false }
+                let frame = $0.frame
+                return !frame.isNull && !frame.isInfinite && frame.width > 1 && frame.height > 1
+                    && [frame.minX, frame.minY, frame.width, frame.height].allSatisfy { $0.isFinite }
+            }.min { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height } ?? extras.firstMatch
+        }
+        reveal(extraSummary())
         // The native tree can expose both the details container and its
         // summary as buttons. First look for an already-open field, including
         // below the current viewport, rather than toggling that panel closed.
@@ -783,7 +794,7 @@ final class AnalyticsProbe: XCTestCase {
             scrollContent(up: true)
         }
         if !extraInput.exists {
-            reveal(extras.firstMatch)
+            reveal(extraSummary())
             let visible = extras.allElementsBoundByIndex.filter {
                 $0.exists && self.tapReady($0, frame: $0.frame, nativeElement: false)
             }.sorted { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height }
