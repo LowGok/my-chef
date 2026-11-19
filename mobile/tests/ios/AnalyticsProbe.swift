@@ -1141,6 +1141,15 @@ final class AnalyticsProbe: XCTestCase {
                 app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
                 RunLoop.current.run(until: Date().addingTimeInterval(0.3))
             }
+            var touchExplored = false
+            func explore(_ element: XCUIElement, frame: CGRect) -> Bool {
+                guard voice.isEnabled, app.state == .runningForeground,
+                      app.alerts.count == 0, hasTapRegion(frame: frame),
+                      !control || element.isEnabled else { return false }
+                app.coordinate(withNormalizedOffset: voicePoint(phrase, frame: frame, window: app.frame)).tap()
+                print("Analytics iOS voice phase: fresh touch exploration")
+                return true
+            }
             var preciseScroll = false
             for _ in 0..<6 {
                 let element = target()
@@ -1180,6 +1189,14 @@ final class AnalyticsProbe: XCTestCase {
                                 && abs(sample.height - previous.height) <= 1 ? stable + 1 : 0
                             previous = sample
                             after = sample
+                            // The first page gesture can reveal the control
+                            // before the old VoiceOver focus scrolls it away.
+                            // Anchor that measured visible control immediately;
+                            // this is passive exploration, never activation.
+                            if control, explore(updated, frame: sample) {
+                                touchExplored = true
+                                break
+                            }
                             if stable >= 3 && Date().timeIntervalSince(started) >= 0.8 { break }
                         } else { stable = 0; previous = .null }
                     } else { stable = 0; previous = .null }
@@ -1192,6 +1209,7 @@ final class AnalyticsProbe: XCTestCase {
                     ? after.minY < bounds.minY : after.maxY > bounds.maxY)
                 print("Analytics iOS VoiceOver scroll geometry: moved=\(moved) region=\(hasTapRegion(target()))")
                 print("Analytics iOS VoiceOver scroll settling: stable=\(stable >= 3) toward=\(toward) crossed=\(crossed)")
+                if touchExplored { break }
                 // Page scrolling can jump from below to above a small
                 // control. Use a measured standard gesture after observing
                 // that overshoot, within the same six-attempt total bound.
@@ -1216,8 +1234,7 @@ final class AnalyticsProbe: XCTestCase {
                 let covered = keyboard.exists && keyboard.frame.intersects(frame)
                 print("Analytics iOS voice anchor frame: valid=\(finite) above=\(finite && frame.minY < bounds.minY) below=\(finite && frame.maxY > bounds.maxY) keyboard=\(covered)")
             }
-            var touchExplored = false
-            if ready {
+            if ready && !touchExplored {
                 if control {
                     if phrase == "Help improve MyChef" {
                         let frame = element.frame
@@ -1226,13 +1243,7 @@ final class AnalyticsProbe: XCTestCase {
                     // Exploration must not use the ordinary tap preparer's
                     // one-finger scrolling while VoiceOver is running.
                     // Recheck visible geometry and send one real focus touch.
-                    let frame = element.frame, bounds = app.frame
-                    if voice.isEnabled, app.state == .runningForeground,
-                       app.alerts.count == 0, hasTapRegion(frame: frame) {
-                        app.coordinate(withNormalizedOffset: voicePoint(phrase, frame: frame, window: bounds)).tap()
-                        touchExplored = true
-                        print("Analytics iOS voice phase: fresh touch exploration")
-                    }
+                    touchExplored = explore(element, frame: element.frame)
                 } else {
                     element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
                 }
