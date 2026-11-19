@@ -134,6 +134,18 @@ class IOSSessionBootstrapTest(unittest.TestCase):
                      'native traversal verified=true private', 'native traversal verified=1'):
             self.assertFalse(analytics_ios.voice_navigation('Analytics iOS VoiceOver navigation: ' + line))
 
+    def test_voice_focus_summary_drops_raw_speech_and_rejects_unbounded_fields(self):
+        prefix = "Analytics iOS voice focus facts: "
+        raw = "private fictional utterance must stay private\n" + prefix
+        self.assertEqual(analytics_ios.voice_focus(raw + "labelStart=true container=false otherLabels=0\n"),
+                         "true/false/0")
+        for fields in ("labelStart=yes container=false otherLabels=0",
+                       "labelStart=true container=false otherLabels=10",
+                       "labelStart=true container=false otherLabels=0 private",
+                       "labelStart=true container=unknown otherLabels=0"):
+            self.assertIsNone(analytics_ios.voice_focus(prefix + fields))
+        self.assertIsNone(analytics_ios.voice_focus("private@example.test"))
+
     def test_voice_environment_summary_keeps_only_closed_flags_and_counts(self):
         raw = ('private fictional utterance must stay private\n'
                'Analytics iOS voice environment: api=true native=false voices=12 english=2\n')

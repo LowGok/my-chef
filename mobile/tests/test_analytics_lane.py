@@ -36,7 +36,7 @@ class AnalyticsLaneTest(unittest.TestCase):
                 stages.append('compile')
                 return Path('owned.xctestrun')
             def ios(state, _stack, _ca, _artifact, **options):
-                self.assertIs(options.get('headless'), True)
+                self.assertIs(options.get('headless'), False)
                 options['before_boot']('owned-phone')
                 stages.append('boot')
                 return {}, lambda: stages.append('extra-launch'), lambda: stages.append('stop'), lambda: None

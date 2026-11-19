@@ -989,7 +989,22 @@ final class AnalyticsProbe: XCTestCase {
             }
             var inspectedLabelCandidate = false
             func candidate(_ output: String) -> String? {
-                if matches(output) { return output }
+                if matches(output) {
+                    if controlRole {
+                        let normalized = words(output)
+                        let starts = normalized == expected || normalized.hasPrefix(expected + " ")
+                        let container = ["web content", "group", "container"].contains {
+                            (" " + normalized + " ").contains(" " + $0 + " ")
+                        }
+                        let others = ["create an account", "sign in to mychef", "help improve mychef",
+                                      "profile", "account details"].filter {
+                            $0 != expected && normalized.contains($0)
+                        }.count
+                        // Fixed booleans/count only; no matched utterance.
+                        print("Analytics iOS voice focus facts: labelStart=\(starts) container=\(container) otherLabels=\(min(9, others))")
+                    }
+                    return output
+                }
                 guard controlRole, words(output).contains(expected), !inspectedLabelCandidate else { return nil }
                 inspectedLabelCandidate = true
                 // Do not interrupt a just-focused control's announcement.

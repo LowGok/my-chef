@@ -150,7 +150,11 @@ export function androidCrashFacts(raw: string, expectedPid?: string) {
   const frames = [...block.matchAll(/\bat\s+(?:com\.gkldevelopment\.mychef\.(?:preview|testing)|com\.getcapacitor)\.[\w.$]+\(((?:ProtectedRefresh|ProtectedShopping|MyChefNativePlugin|MainActivity|NativeBoundary|NativeRuntime|NativeMediaFiles|NativeJourneyProbe|Bridge|BridgeWebViewClient|WebViewLocalServer|PluginCall|PluginHandle)\.java):([0-9]{1,5})\)/g)]
     .map(match => match[1] + ":" + match[2]);
   const thread = block.match(/\bname:\s*([^>\n]{1,64})\s+>>>/)?.[1]?.trim() ?? "";
-  const threadRole = ([ ["main", /^main$/], ["render", /^RenderThread$/],
+  const header = lines[index];
+  if (header === undefined) return empty;
+  const identity = header.match(/\bpid:\s*([1-9][0-9]{0,9}),\s*tid:\s*([1-9][0-9]{0,9}),/);
+  const mainThread = identity !== null && identity[1] === identity[2];
+  const threadRole = mainThread ? "main" : ([ ["main", /^main$/], ["render", /^RenderThread$/],
     ["binder", /^Binder:/], ["instrumentation", /^Instr:/], ["automation", /^UiAutomation/],
     ["gc", /^(HeapTaskDaemon|FinalizerDaemon)$/], ["jit", /^Jit thread pool$/] ] as const)
     .find(([, pattern]) => pattern.test(thread))?.[0] ?? "unknown";
@@ -170,6 +174,11 @@ export function androidCrashFacts(raw: string, expectedPid?: string) {
     ["jni-call", /Call(?:Static)?(?:Void|Object|Boolean|Int)Method/],
     ["test-probe", /com[/.]gkldevelopment[/.]mychef[/.]testing[/.]NativeJourneyProbe[.$/]/],
     ["app-bridge", /com[/.]gkldevelopment[/.]mychef[/.]preview[/.](?:MyChefNativePlugin|ProtectedRefresh|ProtectedShopping|NativeRuntime)[.$/]/],
+    ["jni-weak-reference", /NewWeakGlobalRef|DeleteWeakGlobalRef|DecodeWeakGlobal/],
+    ["display-event", /NativeDisplayEventReceiver|NativeChoreographer/],
+    ["runtime-loop", /NativeMessageQueue|android_os_MessageQueue|Looper::/],
+    ["binder-object", /javaObjectForIBinder|ibinderForJavaObject|JavaDeathRecipient/],
+    ["webview-native", /android_webview::|AwContents::|AwBrowserContext::/],
   ] as const).filter(([, pattern]) => pattern.test(nativeFrames)).map(([kind]) => kind);
   return { targetProcess: true, javaCrash: block.includes("FATAL EXCEPTION:"),
     nativeCrash: /signal [0-9]{1,2} \(SIG(?:ABRT|SEGV|BUS|ILL)\)/.test(block),

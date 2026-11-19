@@ -272,3 +272,25 @@ signal 11 (SIGSEGV), code 1
   expect(report.androidCrashFacts(raw.replaceAll(/#[0-9]{2} pc/g, "message"), "200")
     .nativeFrameCategories).toEqual([]);
 });
+
+test("native crash diagnostics identify the actual main thread and fixed callback families", () => {
+  const raw = `pid: 200, tid: 200, name: private-canary >>> com.gkldevelopment.mychef.preview <<<
+signal 11 (SIGSEGV), code 1
+    #00 pc abc /private/customer/libandroid_runtime.so (android::NativeDisplayEventReceiver::dispatchVsync+77)
+    #01 pc def /private/customer/libandroid_runtime.so (android::NativeMessageQueue::pollOnce+42)
+    #02 pc abc /private/customer/libbinder.so (android::javaObjectForIBinder+33)
+    #03 pc def /private/customer/libart.so (art::JNI::NewWeakGlobalRef+12)
+    #04 pc abc /private/customer/libwebviewchromium.so (android_webview::AwContents::Destroy+22)`;
+  const result = report.androidCrashFacts(raw, "200");
+  expect(result.threadRole).toBe("main");
+  expect(result.nativeFrameCategories).toEqual([
+    "jni-weak-reference", "display-event", "runtime-loop", "binder-object", "webview-native",
+  ]);
+  for (const secret of ["private", "customer", "dispatchVsync", "pollOnce", "IBinder",
+                        "NewWeakGlobalRef", "AwContents", "200", "77", "42"])
+    expect(JSON.stringify(result)).not.toContain(secret);
+  expect(report.androidCrashFacts(raw.replace("tid: 200", "tid: 201"), "200").threadRole).toBe("unknown");
+  expect(report.androidCrashFacts(raw.replaceAll(/#[0-9]{2} pc/g, "message"), "200")
+    .nativeFrameCategories).toEqual([]);
+  expect(report.androidCrashFacts(raw, "201").targetProcess).toBe(false);
+});

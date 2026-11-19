@@ -62,6 +62,13 @@ def voice_navigation(text):
     return re.search(r'^Analytics iOS VoiceOver navigation: native traversal verified=true$', text, re.M) is not None
 
 
+def voice_focus(text):
+    """Retain fixed focus facts, never the matched utterance."""
+    rows = re.findall(r'^Analytics iOS voice focus facts: labelStart=(true|false) '
+                      r'container=(true|false) otherLabels=([0-9])$', text, re.M)
+    return ','.join('/'.join(row) for row in rows[-4:]) if rows else None
+
+
 def voice_environment(text):
     """Retain no voice identifiers, raw utterance, locale list or device paths."""
     rows = re.findall(r'^Analytics iOS voice environment: api=(true|false) native=(true|false) '
@@ -252,6 +259,9 @@ def run(state, control, account, identifier, container, layout_only=False, voice
                 detail += '; source lines ' + ', '.join(lines[-6:])
             if stages:
                 detail += '; controls ' + ', '.join(stages[-4:])
+            focus = voice_focus(text)
+            if focus:
+                detail += '; focused speech labelStart/container/otherLabels ' + focus
             environment = voice_environment(text)
             if environment:
                 detail += '; voice environment ' + environment

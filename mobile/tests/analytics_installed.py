@@ -114,8 +114,10 @@ def full_journeys(receipt, artifact):
             def prepare_primary(identifier):
                 primary_plan.append(analytics_ios.prepare(state, identifier))
                 print('Separate primary iOS probe compiled before phone boot', flush=True)
+            # Keep the owned primary phone in the selected Simulator with
+            # its per-launch software keyboard arguments, as for small layout.
             metadata, _, _, diagnostic = native.ios(state, stack, ca, artifact,
-                headless=True, before_boot=prepare_primary)
+                headless=False, before_boot=prepare_primary)
         if native.PLATFORM == 'android':
             native.verify_stage(lambda: ('POST', 'session', 201) in events and ('GET', 'session', 200) in events,
                                 'native analytics fixture session', events, rejected, diagnostic, launch=launch)
