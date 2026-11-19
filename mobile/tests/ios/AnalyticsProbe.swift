@@ -552,7 +552,12 @@ final class AnalyticsProbe: XCTestCase {
         // Keyboard presentation can cover the field focused by the real
         // coordinate touch. Scroll the actual content above that keyboard;
         // waiting alone does not move it, and typing must not be hidden.
-        if !hasTapRegion(element) { reveal(element) }
+        if !hasTapRegion(element) {
+            reveal(element)
+            // A content drag can move keyboard focus. Refocus the now-visible
+            // field with a real native touch before sending keyboard input.
+            tapSettled(element)
+        }
         waitFor({ self.app.keyboards.firstMatch.exists && self.hasTapRegion(element) },
                 "Focused text input must remain visible above the software keyboard")
         XCTAssertEqual(app.state, .runningForeground, "Native keyboard input belongs to the owned foreground app")
@@ -812,6 +817,11 @@ final class AnalyticsProbe: XCTestCase {
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5),
                       "Queued edit requires the actual software keyboard")
         print("Analytics iOS phase: queued edit keyboard ready")
+        // This uncontrolled required field must actually receive the text.
+        // Wait for its native value rather than submitting an empty form and
+        // mistaking the browser's validation focus for a queue operation.
+        waitFor({ (extraInput.value as? String) == "Analytics queued oats" },
+                "Queued item field must contain the exact fictional keyboard input")
         // Finish native keyboard editing before revealing the submit button.
         // With the keyboard open its target kept moving despite being visible.
         // The normal path requires actual dismissal, then measured stable
