@@ -1158,13 +1158,23 @@ final class AnalyticsProbe: XCTestCase {
                 RunLoop.current.run(until: Date().addingTimeInterval(0.3))
             }
             var touchExplored = false
+            func exploreInValidatedWindow(_ frame: CGRect, bounds: CGRect) -> Bool {
+                // The caller just checked the owned foreground app, VoiceOver,
+                // enabled control, absent alerts and keyboard before this
+                // passive gesture. Keep the measured frame and touch together;
+                // repeated remote queries can outlive its visible position.
+                guard !frame.isNull, !frame.isInfinite, frame.width > 1, frame.height > 1,
+                      [frame.minX, frame.minY, frame.width, frame.height].allSatisfy({ $0.isFinite }),
+                      bounds.insetBy(dx: 1, dy: 1).contains(frame) else { return false }
+                app.coordinate(withNormalizedOffset: voicePoint(phrase, frame: frame, window: bounds)).tap()
+                print("Analytics iOS voice phase: fresh touch exploration")
+                return true
+            }
             func explore(_ element: XCUIElement, frame: CGRect) -> Bool {
                 guard voice.isEnabled, app.state == .runningForeground,
                       app.alerts.count == 0, hasTapRegion(frame: frame),
                       !control || element.isEnabled else { return false }
-                app.coordinate(withNormalizedOffset: voicePoint(phrase, frame: frame, window: app.frame)).tap()
-                print("Analytics iOS voice phase: fresh touch exploration")
-                return true
+                return exploreInValidatedWindow(frame, bounds: app.frame)
             }
             var preciseScroll = false
             for _ in 0..<6 {
@@ -1175,7 +1185,9 @@ final class AnalyticsProbe: XCTestCase {
                       [frame.minX, frame.minY, frame.maxX, frame.maxY].allSatisfy({ $0.isFinite }),
                       frame.minY < bounds.minY || frame.maxY > bounds.maxY else { break }
                 guard voice.isEnabled, app.state == .runningForeground, app.alerts.count == 0,
-                      !app.keyboards.firstMatch.exists else { break }
+                      !app.keyboards.firstMatch.exists, !control || element.isEnabled,
+                      !bounds.isNull, !bounds.isInfinite, bounds.width > 100, bounds.height > 100,
+                      [bounds.minX, bounds.minY, bounds.width, bounds.height].allSatisfy({ $0.isFinite }) else { break }
                 let distance = min(bounds.height * 0.3, max(-bounds.height * 0.3, bounds.midY - frame.midY))
                 let result = preciseScroll ? AnalyticsVoiceOverFineScroll(bounds, distance)
                     : AnalyticsVoiceOverScroll(bounds, frame.midY > bounds.midY)
@@ -1209,7 +1221,7 @@ final class AnalyticsProbe: XCTestCase {
                             // before the old VoiceOver focus scrolls it away.
                             // Anchor that measured visible control immediately;
                             // this is passive exploration, never activation.
-                            if control, explore(updated, frame: sample) {
+                            if control, exploreInValidatedWindow(sample, bounds: bounds) {
                                 touchExplored = true
                                 break
                             }
@@ -1217,6 +1229,15 @@ final class AnalyticsProbe: XCTestCase {
                         } else { stable = 0; previous = .null }
                     } else { stable = 0; previous = .null }
                     RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+                }
+                // A slow native query can finish after the sampling
+                // deadline. Inspect that final position before another page
+                // gesture; the failed run first saw visibility at this point.
+                if control && !touchExplored {
+                    let updated = target()
+                    if updated.exists, exploreInValidatedWindow(updated.frame, bounds: bounds) {
+                        touchExplored = true
+                    }
                 }
                 let moved = !after.isNull && abs(after.minY - frame.minY) > 1
                 let toward = !after.isNull && (frame.midY > bounds.midY
