@@ -71,6 +71,11 @@ class IOSProbeOrderTest(unittest.TestCase):
 
             def warmup():
                 stages.append('bootstrap')
+                # Native bootstrap must see the documented discard policy
+                # before XCTest can enter fixture credentials.
+                plan = plistlib.loads((state / 'ios-probe-build/Build/Products/AnalyticsProbe.xctestrun').read_bytes())
+                self.assertEqual(plan['AnalyticsProbe']['SystemAttachmentLifetime'], 'keepNever')
+                self.assertEqual(plan['AnalyticsProbe']['UserAttachmentLifetime'], 'keepNever')
                 config = json.loads((state / 'analytics-ios-input.json').read_text())
                 self.assertEqual(config['voiceOverOnly'], 'true' if voiceover_only else 'false')
                 self.assertEqual(config['preserveBootstrap'], 'true')

@@ -615,7 +615,10 @@ final class AnalyticsProbe: XCTestCase {
         XCTAssertTrue(app.wait(for: .notRunning, timeout: 20))
         app.open(url)
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 20))
-        waitFor({ self.text("Finish signing up") }, "Fixture proof reaches real completion UI")
+        // Foreground acknowledges the cold process, not a loaded WebKit
+        // document. Use the existing cold-start UI budget; the real
+        // completion heading remains mandatory before entering a password.
+        waitFor({ self.text("Finish signing up") }, "Fixture proof reaches real completion UI", timeout: 90)
         XCTAssertEqual(checkbox().value as? String, "0")
         fill("Password", configuration["password"] ?? "", secure: true)
         fill("Confirm password", configuration["password"] ?? "", secure: true)

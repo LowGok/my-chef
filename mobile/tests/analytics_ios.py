@@ -391,8 +391,8 @@ def run(state, control, account, identifier, container, layout_only=False, voice
     target['UITargetAppPath'] = str(root / 'App.app')
     target['UITargetAppBundleIdentifier'] = native.APP
     target.setdefault('EnvironmentVariables', {})['MYCHEF_ANALYTICS_PROBE_INPUT'] = str(input_path)
-    target['SystemAttachmentLifetime'] = 'deleteAlways'
-    target['UserAttachmentLifetime'] = 'deleteAlways'
+    target['SystemAttachmentLifetime'] = 'keepNever'
+    target['UserAttachmentLifetime'] = 'keepNever'
     plans[0].write_bytes(plistlib.dumps(plan))
     if before_test is not None:
         before_test()
