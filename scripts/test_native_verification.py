@@ -30,6 +30,28 @@ import native_fixture_account
 
 
 class NativeVerificationTest(unittest.TestCase):
+    def test_identity_install_receipt_cannot_adopt_another_lane(self):
+        for lane, app_id in (("preview", "com.gkldevelopment.mychef.preview"), ("app", "dev.mychef.app")):
+            receipt = {"platform": "android", "compilation": "passed", "packagedAppId": app_id,
+                       "candidate": {"identityLane": lane, "appId": app_id}}
+            installed.verify_identity_receipt(receipt, "android", lane)
+            with self.assertRaises(ValueError):
+                installed.verify_identity_receipt(receipt, "android", "preview" if lane == "app" else "app")
+            with self.assertRaises(ValueError):
+                installed.verify_identity_receipt({**receipt, "packagedAppId": "another.app"}, "android", lane)
+            with self.assertRaises(ValueError):
+                installed.verify_identity_receipt(receipt, "ios-simulator", lane)
+
+    def test_identity_workflow_covers_both_lanes_without_signing(self):
+        workflow = (ROOT / ".github/workflows/native-compile.yml").read_text()
+        self.assertIn("NATIVE_IDENTITY_LANE: ${{ matrix.identityLane }}", workflow)
+        self.assertIn("native-identity-compile", workflow)
+        self.assertIn("native-identity-installed", workflow)
+        self.assertIn("NATIVE_IDENTITY_PR", workflow)
+        self.assertIn("matrix.identityLane }}-${{ matrix.platform", workflow)
+        self.assertIn("github.event.repository.private == false", workflow)
+        self.assertNotIn("secrets.", workflow)
+
     def test_ios_notification_actions_reach_the_same_handler_on_scene_connection(self):
         # The simulator fixture injects an opaque reference after launch and
         # cannot detect a missing UIKit cold-start callback.
@@ -288,23 +310,29 @@ class NativeFixtureProxyTest(unittest.TestCase):
                        if isinstance(node, ast.FunctionDef) and node.name == 'fixture')
         proxy = next(node for node in fixture.body
                      if isinstance(node, ast.ClassDef) and node.name == 'Proxy')
-        with tempfile.TemporaryDirectory(prefix='mychef-offline-proxy-') as scratch:
-            state = Path(scratch)
-            (state / 'native-network-offline').touch()
-            namespace = dict(http=http, re=re, state=state)
-            exec(compile(ast.Module(body=[proxy], type_ignores=[]),
-                         'actual-offline-fixture-proxy', 'exec'), namespace)
-            with http.server.ThreadingHTTPServer(('127.0.0.1', 0), namespace['Proxy']) as server:
-                worker = threading.Thread(target=lambda: server.serve_forever(poll_interval=.01), daemon=True)
-                worker.start()
-                try:
-                    with closing(http.client.HTTPConnection(*server.server_address, timeout=2)) as client:
-                        client.request('GET', '/api/native/v1/session')
-                        with self.assertRaises(http.client.RemoteDisconnected):
-                            client.getresponse()
-                finally:
-                    server.shutdown()
-                    worker.join(timeout=2)
+        for lane in ("preview", "app"):
+            with self.subTest(lane=lane), tempfile.TemporaryDirectory(prefix='mychef-offline-proxy-') as scratch:
+                state = Path(scratch)
+                (state / 'native-network-offline').touch()
+                namespace = dict(http=http, re=re, state=state, LANE=lane)
+                exec(compile(ast.Module(body=[proxy], type_ignores=[]),
+                             'actual-offline-fixture-proxy', 'exec'), namespace)
+                with http.server.ThreadingHTTPServer(('127.0.0.1', 0), namespace['Proxy']) as server:
+                    worker = threading.Thread(target=lambda: server.serve_forever(poll_interval=.01), daemon=True)
+                    worker.start()
+                    try:
+                        prefix = '/api/native/app/v1/' if lane == "app" else '/api/native/v1/'
+                        with closing(http.client.HTTPConnection(*server.server_address, timeout=2)) as client:
+                            client.request('GET', prefix + 'session')
+                            with self.assertRaises(http.client.RemoteDisconnected):
+                                client.getresponse()
+                        wrong = '/api/native/v1/' if lane == "app" else '/api/native/app/v1/'
+                        with closing(http.client.HTTPConnection(*server.server_address, timeout=2)) as client:
+                            client.request('GET', wrong + 'session')
+                            self.assertEqual(client.getresponse().status, 404)
+                    finally:
+                        server.shutdown()
+                        worker.join(timeout=2)
 
     def test_actual_proxy_preserves_native_headers_and_bounds_photo_response_loss(self):
         module = ast.parse((ROOT / 'scripts/test_native_installed.py').read_text())
@@ -350,7 +378,7 @@ class NativeFixtureProxyTest(unittest.TestCase):
                     server=http.server,
                     client=types.SimpleNamespace(HTTPConnection=Client)),
                 re=re, state=Path(scratch), closing=closing, events=[], PLATFORM="android",
-                journeys=False, json=json, shopping_lock=threading.Lock(),
+                journeys=False, json=json, LANE="preview", shopping_lock=threading.Lock(),
                 shopping_sync={})
             exec(compile(ast.Module(body=[proxy], type_ignores=[]),
                          'actual-installed-fixture-proxy', 'exec'), namespace)

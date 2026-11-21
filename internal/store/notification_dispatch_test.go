@@ -35,7 +35,7 @@ func reminderDispatchFixture(t *testing.T, count int) (*Store, *ReminderSettings
 			args []any
 		}{
 			{"INSERT INTO sessions(hash,user_id,expires_unix) VALUES(?,?,?),(?,?,?)", []any{anchor, base.UserID, at.Add(time.Hour).Unix(), session, base.UserID, at.Add(time.Hour).Unix()}},
-			{"INSERT INTO native_families VALUES(?,?,?,?)", []any{family, anchor, "android", at.Add(time.Hour).Unix()}},
+			{"INSERT INTO native_families(id,anchor_hash,platform,expires_unix) VALUES(?,?,?,?)", []any{family, anchor, "android", at.Add(time.Hour).Unix()}},
 			{"INSERT INTO native_accesses VALUES(?,?)", []any{session, family}},
 		} {
 			if err := s.DB.Exec(item.sql, item.args...).Error; err != nil {

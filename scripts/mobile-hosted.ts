@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { nativeIdentity, verifyCompiledIdentity, type NativeIdentityLane } from "./native-identity";
 import { appendFileSync } from "node:fs";
 import {
   readFile,
@@ -33,25 +34,31 @@ export function hostedInputs(env: Record<string, string | undefined>) {
     !origin
   )
     failure();
-  createMobileConfig(origin!);
+  const identity = nativeIdentity(env.NATIVE_IDENTITY_LANE ?? "preview");
+  createMobileConfig(origin!, "preview", identity.lane);
   const facts = JSON.parse(env.NATIVE_BUILD_FACTS ?? "{}");
   const approved = validateNativeDelivery(facts);
   if (
     approved.operation !== "unsigned-build" ||
-    approved.sourceCommit !== commit
+    approved.sourceCommit !== commit ||
+    facts.candidate?.identityLane !== identity.lane && !(identity.lane === "preview" && facts.candidate?.identityLane === undefined) ||
+    facts.candidate?.appId !== identity.appId
   )
     failure();
   return {
     platform: platform as "ios-simulator" | "android",
     commit: commit!,
     origin: origin!,
+    identityLane: identity.lane,
     facts,
   };
 }
 export function nativeBuildPlan(
   platform: "ios-simulator" | "android",
   version: { version: string; build: number },
+  lane: NativeIdentityLane = "preview",
 ) {
+  const identity = nativeIdentity(lane);
   if (
     !/^\d+\.\d+\.\d+$/.test(version.version) ||
     !Number.isSafeInteger(version.build) ||
@@ -79,6 +86,9 @@ export function nativeBuildPlan(
       "CODE_SIGNING_ALLOWED=NO",
       `MARKETING_VERSION=${version.version}`,
       `CURRENT_PROJECT_VERSION=${version.build}`,
+      `PRODUCT_BUNDLE_IDENTIFIER=${identity.appId}`,
+      `MYCHEF_DISPLAY_NAME=${identity.appName}`,
+      ...(lane === "app" ? ["CODE_SIGN_ENTITLEMENTS=App/AppIdentity.entitlements"] : []),
       "build",
     ];
   if (platform === "android")
@@ -88,6 +98,7 @@ export function nativeBuildPlan(
       "--dependency-verification=strict",
       `-PmychefVersionName=${version.version}`,
       `-PmychefVersionCode=${version.build}`,
+      `-PmychefIdentityLane=${identity.lane}`,
       "assembleDebug",
       "lintDebug",
       "testDebugUnitTest",
@@ -214,7 +225,7 @@ async function hostedBuild() {
   await prepareMobileBundle(
     join(root, "web/dist/app"),
     destination,
-    createMobileConfig(input.origin),
+    createMobileConfig(input.origin,"preview",input.identityLane),
     input.commit,
   );
   const candidate = await recordNativeCandidate(root, destination, version);
@@ -264,7 +275,7 @@ async function hostedBuild() {
       "Review and commit the native dependency lockfiles and verification metadata before compiling a candidate.",
     );
   run(
-    nativeBuildPlan(input.platform, version),
+    nativeBuildPlan(input.platform, version, input.identityLane),
     input.platform === "android" ? join(mobile, "android") : mobile,
   );
   // A successful compiler does not establish emulator/device behavior.
@@ -317,7 +328,12 @@ async function hostedBuild() {
     failure();
   const final = await recordNativeCandidate(root, destination, version);
   if (JSON.stringify(candidate) !== JSON.stringify(final)) failure();
+  const metadata=input.platform==="android"
+    ? run([join(env.ANDROID_HOME??env.ANDROID_SDK_ROOT??failure(),"build-tools/36.0.0/aapt2"),"dump","badging",file])
+    : run(["/usr/bin/plutil","-convert","json","-o","-",join(destination,"ios-build/Build/Products/Release-iphonesimulator/App.app/Info.plist")]);
+  const packagedAppId=verifyCompiledIdentity(input.platform,metadata,input.identityLane,version);
   const evidence = {
+    packagedAppId,
     candidate: final,
     platform: input.platform,
     tool,

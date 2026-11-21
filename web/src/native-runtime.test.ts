@@ -6,6 +6,15 @@ import {
 } from "./native-runtime";
 const origin = "https://fixture-node.tailtest.ts.net:8977";
 const proof = "a".repeat(43);
+test("app-opening handoff is exact, one-shot and separate from private proof",async()=>{
+ const events:unknown[]=[];
+ let link:string|undefined="https://mychef.dev/app/open";
+ const runtime=createNativeRuntime({async readRuntime(){const current=link;link=undefined;return {active:true,online:true,back:false,link:current};}},origin,event=>events.push(event),"app");
+ await runtime.wake();await runtime.wake();
+ expect(events).toEqual([{type:"connection",active:true,online:true},{type:"app-open"}]);
+ link=`${origin}/app/reset-password#${proof}`;await runtime.wake();
+ expect(events.at(-1)).toEqual({type:"proof",entry:{kind:"reset-password",proof}});
+});
 test("account links accept only exact private HTTPS proof routes without stored navigation", () => {
   for (const kind of [
     "signup",

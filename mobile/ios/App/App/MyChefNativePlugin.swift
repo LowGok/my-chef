@@ -126,6 +126,8 @@ public class MyChefNativePlugin: CAPPlugin, CAPBridgedPlugin, URLSessionDataDele
         runtimeObserver = NotificationCenter.default.addObserver(forName: NativeRuntime.changed, object: nil, queue: .main) { [weak self] _ in
             self?.notifyListeners("runtime", data: [:])
         }
+        guard NativeAppIdentity.matches(bundle: Bundle.main.bundleIdentifier,
+                                        lane: getConfig().getString("identityLane") ?? "preview") else { return }
         let value = getConfig().getString("apiOrigin") ?? ""
         if let url = URLComponents(string: value), url.scheme == "https", let host = url.host,
            host == "localhost" || host.range(of: "^[a-z0-9-]+\\.tail[a-z0-9]+\\.ts\\.net$", options: .regularExpression) != nil,
@@ -135,7 +137,7 @@ public class MyChefNativePlugin: CAPPlugin, CAPBridgedPlugin, URLSessionDataDele
     @objc func readRuntime(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [self] in
             guard let origin = origin else { call.reject("App state is unavailable", "native_runtime"); return }
-            var snapshot = NativeRuntime.shared.snapshot(origin: origin)
+            var snapshot = NativeRuntime.shared.snapshot(origin: origin, lane: getConfig().getString("identityLane") ?? "preview")
             let traits = bridge?.webView?.traitCollection
             let scaled = UIFontMetrics(forTextStyle: .body).scaledValue(for: 16, compatibleWith: traits)
             snapshot["textScale"] = Double(scaled / 16)
@@ -213,7 +215,7 @@ public class MyChefNativePlugin: CAPPlugin, CAPBridgedPlugin, URLSessionDataDele
 
     @objc func configuration(_ call: CAPPluginCall) {
         guard let origin = origin else { call.reject("Private API configuration is unavailable", "native_configuration"); return }
-        nativeReply(call, ["platform": "ios", "apiOrigin": origin])
+        nativeReply(call, ["platform": "ios", "apiOrigin": origin, "identityLane": getConfig().getString("identityLane") ?? "preview"])
     }
     @objc func readRefresh(_ call: CAPPluginCall) {
         storageQueue.async { [self] in
@@ -240,7 +242,8 @@ public class MyChefNativePlugin: CAPPlugin, CAPBridgedPlugin, URLSessionDataDele
                   !path.contains("\r"), !path.contains("\n"),
                   !path.split(separator: "?", maxSplits: 1)[0].contains("%"),
                   !path.split(separator: "?", maxSplits: 1)[0].split(separator: "/").contains(where: { $0 == "." || $0 == ".." }),
-                  let target = URL(string: origin + path),
+                  let routed = NativeAppIdentity.apiPath(lane: getConfig().getString("identityLane") ?? "preview", logicalPath: path),
+                  let target = URL(string: origin + routed),
                   let requestId = call.getString("requestId"), UUID(uuidString: requestId) != nil,
                   let method = call.getString("method"), ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"].contains(method)
             else { throw NativeFailure.invalid }
@@ -337,7 +340,7 @@ public class MyChefNativePlugin: CAPPlugin, CAPBridgedPlugin, URLSessionDataDele
     }
     @objc func cancelMedia(_ call: CAPPluginCall) {
         lock.lock()
-        let tasks = pending.values.filter { $0.image || $0.task.currentRequest?.url?.path.hasPrefix("/api/native/v1/personal-photos/") == true }.map { $0.task }
+        let tasks = pending.values.filter { $0.image || $0.task.currentRequest?.url?.path.hasPrefix("/api/native/v1/personal-photos/") == true || $0.task.currentRequest?.url?.path.hasPrefix("/api/native/app/v1/personal-photos/") == true }.map { $0.task }
         lock.unlock(); tasks.forEach { $0.cancel() }
         DispatchQueue.main.async { [self] in
             do {

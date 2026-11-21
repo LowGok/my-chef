@@ -11,7 +11,7 @@ import org.junit.runner.RunWith;
 public class PrivateIdentityTest {
     @Test
     public void installedCandidateUsesPrivateIdentity() {
-        assertEquals("com.gkldevelopment.mychef.preview",
+        assertEquals(InstrumentationRegistry.getInstrumentation().getTargetContext().getString(R.string.package_name),
             InstrumentationRegistry.getInstrumentation().getTargetContext().getPackageName());
     }
 }

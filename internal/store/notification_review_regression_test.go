@@ -184,7 +184,7 @@ func TestReminderRegressionFreezeBeginsAtOwnFirstDispatch(t *testing.T) {
 			args []any
 		}{
 			{"INSERT INTO sessions(hash,user_id,expires_unix) VALUES(?,?,?),(?,?,?)", []any{anchor, 2, until, access, 2, until}},
-			{"INSERT INTO native_families VALUES(?,?,?,?)", []any{family, anchor, "android", until}},
+			{"INSERT INTO native_families(id,anchor_hash,platform,expires_unix) VALUES(?,?,?,?)", []any{family, anchor, "android", until}},
 			{"INSERT INTO native_accesses VALUES(?,?)", []any{access, family}},
 		} {
 			if err := s.DB.Exec(q.sql, q.args...).Error; err != nil {
@@ -247,9 +247,9 @@ func TestReminderRegressionInactiveAdvanceDoesNotStarveCurrent(t *testing.T) {
 			args []any
 		}{
 			{"INSERT INTO sessions(hash,user_id,expires_unix) VALUES(?,?,?)", []any{anchor, id, until}},
-			{"INSERT INTO native_families VALUES(?,?,?,?)", []any{family, anchor, "android", until}},
+			{"INSERT INTO native_families(id,anchor_hash,platform,expires_unix) VALUES(?,?,?,?)", []any{family, anchor, "android", until}},
 			{"INSERT INTO reminder_preferences VALUES(?, 'Europe/Brussels', 0, 1, 1, 1019, 1, ?)", []any{owner, until}},
-			{"INSERT INTO reminder_installations VALUES(?,?,'android','fcm',randomblob(32),randomblob(100),?)", []any{family, owner, t0.Unix()}},
+			{"INSERT INTO reminder_installations(family_id,incarnation,platform,provider,token_tag,token_cipher,refreshed_unix) VALUES(?,?,'android','fcm',randomblob(32),randomblob(100),?)", []any{family, owner, t0.Unix()}},
 			{"INSERT INTO reminder_occurrences(id,incarnation,purpose,target_week,scheduled,deadline,revision,frozen) VALUES(?,?,'advance','2026-11-23',?,?,1,0)", []any{fmt.Sprintf("%032x", id+1000), owner, t0.Add(-time.Minute).Unix(), until}},
 		} {
 			if err := s.DB.Exec(q.sql, q.args...).Error; err != nil {

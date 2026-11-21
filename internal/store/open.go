@@ -18,6 +18,7 @@ import (
 type Store struct {
 	Analytics                 *analytics.Service
 	AccountWork               sync.RWMutex
+	NativeIdentityWork        sync.RWMutex
 	newsletterIdentity        atomic.Pointer[NewsletterIdentityKey]
 	newsletterJournalRequired atomic.Bool
 	newsletterJournal         atomic.Pointer[LifecycleJournal]

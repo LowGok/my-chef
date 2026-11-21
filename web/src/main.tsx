@@ -1,3 +1,4 @@
+import {NativeIdentityBoundary} from "./NativeIdentityBoundary";
 import React from "react";
 import { createRoot } from "react-dom/client";
 import "@fontsource/montserrat/latin-400.css";
@@ -34,7 +35,7 @@ async function start() {
     );
   root.render(
     <React.StrictMode>
-      <App />
+      <NativeIdentityBoundary><App /></NativeIdentityBoundary>
     </React.StrictMode>,
   );
   if (!native) registerBrowserWorker();

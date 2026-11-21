@@ -19,6 +19,23 @@ type pushConfig struct {
 	StorageKey string
 	Apple      *notifications.ApplePush
 	Google     *notifications.GooglePush
+	App        *pushIdentityConfig
+}
+
+type pushIdentityConfig struct {
+	Apple  *notifications.ApplePush
+	Google *notifications.GooglePush
+}
+
+func selectPushSender(lane string, preview, app *notifications.PushSender) *notifications.PushSender {
+	switch lane {
+	case "", "preview":
+		return preview
+	case "app":
+		return app
+	default:
+		return nil
+	}
 }
 
 func configurePush(s *store.Store, read store.PersonalEntitlementReader, fixture bool) (*store.ReminderSettings, notifications.Send, error) {
@@ -61,16 +78,36 @@ func configurePush(s *store.Store, read store.PersonalEntitlementReader, fixture
 		return nil, nil, invalid
 	}
 	defer clear(key)
-	sender, err := notifications.NewPushSender(cfg.Apple, cfg.Google)
+	sender, err := notifications.NewIdentityPushSender("preview", cfg.Apple, cfg.Google)
 	if err != nil {
 		return nil, nil, invalid
+	}
+	var appSender *notifications.PushSender
+	if cfg.App != nil {
+		appSender, err = notifications.NewIdentityPushSender("app", cfg.App.Apple, cfg.App.Google)
+		if err != nil {
+			return nil, nil, invalid
+		}
 	}
 	settings, err := store.NewReminderSettings(s, key, read, nil)
 	if err != nil {
 		return nil, nil, invalid
 	}
-	settings.SetProviderAvailability(sender.Supports)
-	return settings, sender.Send, nil
+	if err := settings.SetIdentityProviderRoute("preview", sender.Environment(), sender.Supports); err != nil {
+		return nil, nil, invalid
+	}
+	if appSender != nil {
+		if err := settings.SetIdentityProviderRoute("app", appSender.Environment(), appSender.Supports); err != nil {
+			return nil, nil, invalid
+		}
+	}
+	return settings, func(ctx context.Context, d notifications.Delivery) notifications.Result {
+		selected := selectPushSender(d.IdentityLane, sender, appSender)
+		if selected == nil {
+			return notifications.Result{State: notifications.Permanent}
+		}
+		return selected.Send(ctx, d)
+	}, nil
 }
 
 func runPushWorker(ctx context.Context, settings *store.ReminderSettings, send notifications.Send, logger *slog.Logger) {

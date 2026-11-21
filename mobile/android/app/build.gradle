@@ -1,4 +1,23 @@
+import groovy.json.JsonSlurper
+
 apply plugin: 'com.android.application'
+
+// The application ID varies; the compile namespace and activity classes do not.
+def runtimeConfig = new File(rootProject.projectDir.parentFile, '.generated/runtime-config.json')
+if (!runtimeConfig.isFile()) throw new GradleException('Prepare the reviewed native identity first')
+def runtimeIdentity = new JsonSlurper().parse(runtimeConfig)
+def identityLane = providers.gradleProperty('mychefIdentityLane').orElse('preview').get()
+def identities = [
+    preview: [appId: 'com.gkldevelopment.mychef.preview', appName: 'MyChef Preview'],
+    app: [appId: 'dev.mychef.app', appName: 'MyChef']
+]
+def identity = identities[identityLane]
+if (!identity || runtimeIdentity.appId != identity.appId ||
+        runtimeIdentity.plugins?.MyChefNative?.identityLane != identityLane) {
+    throw new GradleException('Native runtime and Android package identity differ')
+}
+
+android.sourceSets.main.manifest.srcFile(identityLane == 'app' ? 'src/appIdentity/AndroidManifest.xml' : 'src/main/AndroidManifest.xml')
 
 def pushPreview = providers.gradleProperty('mychefPushPreview').map { it == 'true' }.orElse(false).get()
 if (pushPreview) {
@@ -20,10 +39,17 @@ if (pushPreview) {
 }
 
 android {
+    buildFeatures {
+        resValues = true
+    }
     namespace = "com.gkldevelopment.mychef.preview"
     compileSdk = rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId "com.gkldevelopment.mychef.preview"
+        applicationId identity.appId
+        resValue 'string', 'app_name', identity.appName
+        resValue 'string', 'title_activity_main', identity.appName
+        resValue 'string', 'package_name', identity.appId
+        resValue 'string', 'custom_url_scheme', identity.appId
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         def requestedCode = providers.gradleProperty('mychefVersionCode').orElse('1').get()

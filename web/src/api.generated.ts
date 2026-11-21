@@ -7196,6 +7196,35 @@ export type NativeUpdateAnalyticsPreferenceResponses = {
 
 export type NativeUpdateAnalyticsPreferenceResponse = NativeUpdateAnalyticsPreferenceResponses[keyof NativeUpdateAnalyticsPreferenceResponses];
 
+export type NativeAppIdentityStatusData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/native/app/v1/identity-status';
+};
+
+export type NativeAppIdentityStatusErrors = {
+    /**
+     * Candidate ingress is not configured.
+     */
+    404: unknown;
+    /**
+     * Candidate policy could not be read.
+     */
+    503: unknown;
+};
+
+export type NativeAppIdentityStatusResponses = {
+    /**
+     * Persisted candidate activity state.
+     */
+    200: {
+        active: boolean;
+    };
+};
+
+export type NativeAppIdentityStatusResponse = NativeAppIdentityStatusResponses[keyof NativeAppIdentityStatusResponses];
+
 export interface components {
   schemas: {
     "PersonalImportSaveInput": PersonalImportSaveInput;

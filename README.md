@@ -36,6 +36,46 @@ Installed checks run separately on an Android emulator and iPhone simulator.
 They publish JSON receipts for the exact source and artifact, without publishing
 the packages or using store credentials. Simulator results do not cover an
 iPhone installation through TestFlight.
+The [dual-identity CI guide](docs/reference/native-identity-ci.md) records the
+public-only labels, packaged identity checks and limits of fixture receipts.
+
+Build selection distinguishes the existing `com.gkldevelopment.mychef.preview`
+from `dev.mychef.app`; Java and Swift compile namespaces remain stable. Both use
+a separately configured private API origin. The package manifest binds the
+selected identity and the native bridge chooses its fixed API ingress.
+
+`MYCHEF_NATIVE_APP_INGRESS=1` mounts the candidate route, which still defaults to
+a persisted paused state. The operator must separately authorize activation.
+Withdrawal fences admitted requests and can allow only existing signed-in
+families to finish shopping sync until an exact deadline. Restarting the server
+does not reopen the candidate; reactivation requires fresh sign-in. The Preview
+route remains available. The optional local operator socket controls this
+policy on the running server. See the [operator procedure](docs/reference/native-identity-ci.md#activate-or-withdraw-the-candidate).
+
+Push configuration keeps the existing top-level Apple/Google Preview settings.
+An optional `App` section contains separate settings for `dev.mychef.app`; it
+never falls back to the Preview sender. The Google configuration for this new
+section must name the exact `Package`. Each registration and queued copy keeps
+its server-selected lane and environment, and sends restrict both the APNs topic
+and FCM Android package. A candidate submission crosses a final policy fence;
+pausing cancels claims that have not crossed it and prevents retries of late
+results. Already accepted delivery may still arrive. Native taps require the
+issuing lane and current authorization. Provider files and signing material
+remain private.
+
+The candidate handles only `https://mychef.dev/app/open`. It opens Meals after
+sign-in and uses the existing unsaved-recipe guard; a private account-proof
+screen keeps control until it finishes. Candidate startup and foreground resume
+check current server authorization before showing account content. A paused
+app retains local changes and offers the fixed browser fallback. Renewing a
+withdrawn identity asks for fresh sign-in without erasing pending shopping data.
+Association declarations are prepared for the new identity; publishing the
+website files and installing signed builds still require separate approval.
+The [app-link artifact handoff](docs/reference/native-app-links.md) describes
+local generation, HTTPS rehearsal and the exact website publication scope.
+The [provider operation guard](docs/reference/native-provider-operations.md)
+binds separately approved app-lane writes to their exact record, artifact and
+roster and preserves uncertain results for readback.
 
 ## Container
 

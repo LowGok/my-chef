@@ -87,7 +87,7 @@ def main() -> None:
             assert {"cmd/mychef-import-worker/main.go", "internal/imports/worker.go",
                     "internal/imports/policy.go", "internal/imports/admission.go",
                     "migrations/016_recipe_imports.sql"}.issubset(paths), "required import worker inputs were excluded"
-            assert {"internal/auth/native.go", "internal/http/native.go",
+            assert {"cmd/mychef/native_identity_control.go", "internal/auth/native.go", "internal/http/native.go",
                     "internal/store/native_schema.go", "migrations/017_native_sessions.sql",
                     "web/src/native-platform.ts"}.issubset(paths), "required native API and web inputs were excluded"
             assert {"internal/store/entitlements.go", "internal/store/entitlement_fixture.go",

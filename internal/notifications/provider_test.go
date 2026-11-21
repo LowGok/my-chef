@@ -93,7 +93,7 @@ func TestReminderWireSeparatesDeviceRoutingFromNotificationContent(t *testing.T)
 			if provider == "fcm" {
 				want = map[string]any{"message": map[string]any{
 					"token": token, "notification": alert, "data": map[string]any{"reminder": reference},
-					"android": map[string]any{"ttl": "60s", "notification": map[string]any{"tag": reference, "channel_id": "mychef-planning"}},
+					"android": map[string]any{"restricted_package_name": "com.gkldevelopment.mychef.preview", "ttl": "60s", "notification": map[string]any{"tag": reference, "channel_id": "mychef-planning"}},
 				}}
 			}
 			now := time.Date(2026, 11, 16, 16, 0, 0, 0, time.UTC)

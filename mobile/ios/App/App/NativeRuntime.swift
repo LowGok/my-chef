@@ -89,10 +89,11 @@ final class NativeRuntime {
         reminderEnabled ? reminderToken : nil
     }
 
-    func snapshot(origin: String) -> [String:Any] {
+    func snapshot(origin: String, lane: String = "preview") -> [String:Any] {
         var value: [String:Any] = ["active": UIApplication.shared.applicationState == .active, "online": online, "back": false]
         if let link = link, (0...300).contains(ProcessInfo.processInfo.systemUptime - received) {
-            if let url = URLComponents(string: link), url.query == nil,
+            if NativeAppIdentity.appOpeningLink(lane: lane, value: link) { value["link"] = link }
+            else if let url = URLComponents(string: link), url.query == nil,
                let fragment = url.fragment, fragment.range(of: "^[A-Za-z0-9_-]{43}$", options: .regularExpression) != nil,
                ["/app/signup", "/app/verify-email", "/app/change-email", "/app/reset-password"].contains(url.percentEncodedPath),
                link == origin + url.percentEncodedPath + "#" + fragment {
@@ -105,5 +106,24 @@ final class NativeRuntime {
         reminder = nil
         link = nil
         return value
+    }
+}
+
+// The OS application identity is separate from display and Keychain service names.
+enum NativeAppIdentity {
+    static func appOpeningLink(lane: String, value: String) -> Bool {
+        lane == "app" && value == "https://mychef.dev/app/open"
+    }
+    static func apiPath(lane: String, logicalPath: String) -> String? {
+        let prefix = "/api/native/v1/"
+        guard logicalPath.hasPrefix(prefix), lane == "preview" || lane == "app" else { return nil }
+        return lane == "app" ? "/api/native/app/v1/" + String(logicalPath.dropFirst(prefix.count)) : logicalPath
+    }
+    static func matches(bundle: String?, lane: String) -> Bool {
+        switch lane {
+        case "preview": return bundle == "com.gkldevelopment.mychef.preview"
+        case "app": return bundle == "dev.mychef.app"
+        default: return false
+        }
     }
 }
