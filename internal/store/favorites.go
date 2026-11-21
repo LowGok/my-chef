@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/LowGok/my-chef/internal/analytics"
 	"github.com/LowGok/my-chef/internal/domain"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -94,7 +95,10 @@ func (s *Store) SetFavorite(ctx context.Context, user, id int64, save bool, opti
 		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
 		}
-		return tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "user_id"}, {Name: "recipe_id"}}, DoUpdates: clause.AssignmentColumns([]string{"saved", "body", "created_unix"})}).Create(&favoriteRecord{Saved: true, UserID: user, RecipeID: id, Body: string(b), CreatedUnix: time.Now().UTC().UnixNano()}).Error
+		if err := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "user_id"}, {Name: "recipe_id"}}, DoUpdates: clause.AssignmentColumns([]string{"saved", "body", "created_unix"})}).Create(&favoriteRecord{Saved: true, UserID: user, RecipeID: id, Body: string(b), CreatedUnix: time.Now().UTC().UnixNano()}).Error; err != nil {
+			return err
+		}
+		return analytics.CaptureEvent(ctx, tx, user, "favorite_saved", "")
 	})
 	return out, err
 }

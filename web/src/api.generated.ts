@@ -190,6 +190,11 @@ export type Registration = {
     username: string;
     firstName: string;
     lastName: string;
+    /**
+     * Visible signup preference. Missing metadata creates an account with analytics Off; a pending Off choice wins.
+     */
+    analyticsEnabled?: boolean;
+    analyticsNoticeVersion?: string;
 };
 
 export type PasswordChange = {
@@ -404,6 +409,11 @@ export type SignUpProfile = {
     firstName: string;
     lastName: string;
     username: string;
+    /**
+     * Visible signup preference. Missing metadata creates an account with analytics Off; a pending Off choice wins.
+     */
+    analyticsEnabled?: boolean;
+    analyticsNoticeVersion?: string;
 };
 
 export type SignUpCompletion = {
@@ -415,6 +425,11 @@ export type SignUpCompletion = {
      * Use 10 to 128 Unicode code points after NFC normalization and no more than 512 UTF-8 bytes before and after normalization.
      */
     password: string;
+    /**
+     * Visible signup preference. Missing metadata creates an account with analytics Off; a pending Off choice wins.
+     */
+    analyticsEnabled?: boolean;
+    analyticsNoticeVersion?: string;
 };
 
 export type SignUpCreated = {
@@ -607,6 +622,63 @@ export type NativeRefreshResponse = {
     native: NativeTokens;
 };
 
+export type NewsletterSubscriptionRequest = {
+    email: string;
+    locale: 'en' | 'fr-BE' | 'nl-BE';
+    consentVersion: string;
+};
+
+export type NewsletterProofRequest = {
+    proof: string;
+};
+
+export type NewsletterResult = {
+    status: 'pending-confirmation' | 'confirmed' | 'unsubscribed';
+};
+
+export type AnalyticsPreference = {
+    enabled: boolean;
+    revision: number;
+    noticeVersion: string;
+    noticeHash: string;
+    basis: string;
+    basisVersion: string;
+    source: string;
+    state: 'on' | 'off' | 'review_required' | 'deletion_in_progress';
+    deletionStatus: string;
+    available: boolean;
+};
+
+export type AnalyticsPreferenceUpdate = {
+    enabled: boolean;
+    noticeVersion: string;
+    expectedRevision: number;
+};
+
+export type AnalyticsNotice = {
+    available: boolean;
+    defaultEnabled: boolean;
+    version: string;
+    hash: string;
+    basis: string;
+    text: string;
+};
+
+export type AnalyticsPreferenceConflict = {
+    error: {
+        code: string;
+        message: string;
+        requestId: string;
+        fields?: {
+            [key: string]: string;
+        };
+        current?: PersonalRecipe;
+        changedFields?: Array<string>;
+        existingId?: string;
+    };
+    current: AnalyticsPreference;
+};
+
 export type ImportEmptyInputWritable = {
     [key: string]: never;
 };
@@ -629,6 +701,208 @@ export type EmailVerificationResendWritable = {
 };
 
 export type EmailFlowCsrf = string;
+
+export type OpenPlanningReminderData = {
+    body: {
+        reference: string;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/planning-reminders/open';
+};
+
+export type OpenPlanningReminderErrors = {
+    /**
+     * Invalid request.
+     */
+    400: unknown;
+    /**
+     * Sign in required.
+     */
+    401: unknown;
+    /**
+     * Reminder unavailable.
+     */
+    404: unknown;
+};
+
+export type OpenPlanningReminderResponses = {
+    /**
+     * Authorized week.
+     */
+    200: {
+        week: string;
+    };
+};
+
+export type OpenPlanningReminderResponse = OpenPlanningReminderResponses[keyof OpenPlanningReminderResponses];
+
+export type GetPlanningRemindersData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/planning-reminders';
+};
+
+export type GetPlanningRemindersErrors = {
+    /**
+     * Invalid request.
+     */
+    400: unknown;
+    /**
+     * Sign in required.
+     */
+    401: unknown;
+    /**
+     * Reminder not allowed.
+     */
+    403: unknown;
+    /**
+     * Reminders are unavailable.
+     */
+    404: unknown;
+};
+
+export type GetPlanningRemindersResponses = {
+    /**
+     * Current reminder state.
+     */
+    200: {
+        zone: string;
+        current: boolean;
+        advance: boolean;
+        advanceDay: number;
+        advanceMinute: number;
+        revision: number;
+        premium: boolean;
+        deviceEnabled: boolean;
+    };
+};
+
+export type GetPlanningRemindersResponse = GetPlanningRemindersResponses[keyof GetPlanningRemindersResponses];
+
+export type SetPlanningRemindersData = {
+    body: {
+        zone: string;
+        current: boolean;
+        advance: boolean;
+        advanceDay: number;
+        advanceMinute: number;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/planning-reminders';
+};
+
+export type SetPlanningRemindersErrors = {
+    /**
+     * Invalid request.
+     */
+    400: unknown;
+    /**
+     * Sign in required.
+     */
+    401: unknown;
+    /**
+     * Reminder not allowed.
+     */
+    403: unknown;
+    /**
+     * Reminders are unavailable.
+     */
+    404: unknown;
+};
+
+export type SetPlanningRemindersResponses = {
+    /**
+     * Current reminder state.
+     */
+    200: {
+        zone: string;
+        current: boolean;
+        advance: boolean;
+        advanceDay: number;
+        advanceMinute: number;
+        revision: number;
+        premium: boolean;
+        deviceEnabled: boolean;
+    };
+};
+
+export type SetPlanningRemindersResponse = SetPlanningRemindersResponses[keyof SetPlanningRemindersResponses];
+
+export type RemovePlanningReminderDeviceData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/native/v1/planning-reminders/installation';
+};
+
+export type RemovePlanningReminderDeviceErrors = {
+    /**
+     * Invalid request.
+     */
+    400: unknown;
+    /**
+     * Sign in required.
+     */
+    401: unknown;
+    /**
+     * Reminder not allowed.
+     */
+    403: unknown;
+    /**
+     * Reminders are unavailable.
+     */
+    404: unknown;
+};
+
+export type RemovePlanningReminderDeviceResponses = {
+    /**
+     * Installation updated.
+     */
+    204: void;
+};
+
+export type RemovePlanningReminderDeviceResponse = RemovePlanningReminderDeviceResponses[keyof RemovePlanningReminderDeviceResponses];
+
+export type RegisterPlanningReminderDeviceData = {
+    body: {
+        token: string;
+        osAllowed: true;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/native/v1/planning-reminders/installation';
+};
+
+export type RegisterPlanningReminderDeviceErrors = {
+    /**
+     * Invalid request.
+     */
+    400: unknown;
+    /**
+     * Sign in required.
+     */
+    401: unknown;
+    /**
+     * Reminder not allowed.
+     */
+    403: unknown;
+    /**
+     * Reminders are unavailable.
+     */
+    404: unknown;
+};
+
+export type RegisterPlanningReminderDeviceResponses = {
+    /**
+     * Installation updated.
+     */
+    204: void;
+};
+
+export type RegisterPlanningReminderDeviceResponse = RegisterPlanningReminderDeviceResponses[keyof RegisterPlanningReminderDeviceResponses];
 
 export type ExportAccountData = {
     body: AccountExportRequest;
@@ -908,6 +1182,10 @@ export type LogoutData = {
     body?: never;
     headers: {
         'X-CSRF-Token': string;
+        /**
+         * The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds.
+         */
+        'X-MyChef-Analytics-Revision'?: number;
     };
     path?: never;
     query?: never;
@@ -1009,6 +1287,10 @@ export type UpdateProfileData = {
     body: ProfileUpdate;
     headers: {
         'X-CSRF-Token': string;
+        /**
+         * The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds.
+         */
+        'X-MyChef-Analytics-Revision'?: number;
     };
     path?: never;
     query?: never;
@@ -1106,6 +1388,10 @@ export type CreateGenerationData = {
     headers: {
         'X-CSRF-Token': string;
         'Idempotency-Key': string;
+        /**
+         * The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds.
+         */
+        'X-MyChef-Analytics-Revision'?: number;
     };
     path?: never;
     query?: never;
@@ -1532,6 +1818,10 @@ export type RemoveFavoriteData = {
     body?: never;
     headers: {
         'X-CSRF-Token': string;
+        /**
+         * The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds.
+         */
+        'X-MyChef-Analytics-Revision'?: number;
     };
     path: {
         id: string;
@@ -1586,6 +1876,10 @@ export type SaveFavoriteData = {
     body?: never;
     headers: {
         'X-CSRF-Token': string;
+        /**
+         * The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds.
+         */
+        'X-MyChef-Analytics-Revision'?: number;
     };
     path: {
         id: string;
@@ -1691,6 +1985,10 @@ export type QueueFavoriteData = {
     body: FavoriteQueueInput;
     headers: {
         'X-CSRF-Token': string;
+        /**
+         * The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds.
+         */
+        'X-MyChef-Analytics-Revision'?: number;
     };
     path: {
         id: string;
@@ -1745,6 +2043,10 @@ export type SwapFavoriteData = {
     body: FavoriteSwap;
     headers: {
         'X-CSRF-Token': string;
+        /**
+         * The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds.
+         */
+        'X-MyChef-Analytics-Revision'?: number;
     };
     path: {
         id: string;
@@ -2264,6 +2566,10 @@ export type SubmitFeedbackData = {
     body: FeedbackInput;
     headers: {
         'X-CSRF-Token': string;
+        /**
+         * The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds.
+         */
+        'X-MyChef-Analytics-Revision'?: number;
     };
     path?: never;
     query?: never;
@@ -2316,6 +2622,10 @@ export type FeedbackReceiptData = {
     body: FeedbackReceiptInput;
     headers: {
         'X-CSRF-Token': string;
+        /**
+         * The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds.
+         */
+        'X-MyChef-Analytics-Revision'?: number;
     };
     path?: never;
     query?: never;
@@ -2403,6 +2713,10 @@ export type SaveRecipeRatingData = {
     body: FeedbackRatingInput;
     headers: {
         'X-CSRF-Token': string;
+        /**
+         * The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds.
+         */
+        'X-MyChef-Analytics-Revision'?: number;
     };
     path: {
         id: string;
@@ -2508,6 +2822,12 @@ export type PersonalPermissionsResponse = PersonalPermissionsResponses[keyof Per
 
 export type SearchPersonalData = {
     body: PersonalSearch;
+    headers?: {
+        /**
+         * The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds.
+         */
+        'X-MyChef-Analytics-Revision'?: number;
+    };
     path?: never;
     query?: never;
     url: '/api/v1/personal-recipes/search';
@@ -2561,6 +2881,12 @@ export type SearchPersonalResponse = SearchPersonalResponses[keyof SearchPersona
 
 export type CopyPersonalData = {
     body: PersonalCopyInput;
+    headers?: {
+        /**
+         * The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds.
+         */
+        'X-MyChef-Analytics-Revision'?: number;
+    };
     path?: never;
     query?: never;
     url: '/api/v1/personal-recipes/copy';
@@ -2614,6 +2940,12 @@ export type CopyPersonalResponse = CopyPersonalResponses[keyof CopyPersonalRespo
 
 export type CreatePersonalData = {
     body: PersonalSaveInput;
+    headers?: {
+        /**
+         * The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds.
+         */
+        'X-MyChef-Analytics-Revision'?: number;
+    };
     path?: never;
     query?: never;
     url: '/api/v1/personal-recipes';
@@ -2667,6 +2999,12 @@ export type CreatePersonalResponse = CreatePersonalResponses[keyof CreatePersona
 
 export type DeletePersonalData = {
     body: PersonalDeleteInput;
+    headers?: {
+        /**
+         * The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds.
+         */
+        'X-MyChef-Analytics-Revision'?: number;
+    };
     path: {
         id: string;
     };
@@ -2779,6 +3117,12 @@ export type ReadPersonalResponse = ReadPersonalResponses[keyof ReadPersonalRespo
 
 export type UpdatePersonalData = {
     body: PersonalSaveInput;
+    headers?: {
+        /**
+         * The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds.
+         */
+        'X-MyChef-Analytics-Revision'?: number;
+    };
     path: {
         id: string;
     };
@@ -2834,6 +3178,12 @@ export type UpdatePersonalResponse = UpdatePersonalResponses[keyof UpdatePersona
 
 export type QueuePersonalData = {
     body: PersonalQueueInput;
+    headers?: {
+        /**
+         * The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds.
+         */
+        'X-MyChef-Analytics-Revision'?: number;
+    };
     path: {
         id: string;
     };
@@ -2889,6 +3239,12 @@ export type QueuePersonalResponse = QueuePersonalResponses[keyof QueuePersonalRe
 
 export type SwapPersonalData = {
     body: PersonalSwapInput;
+    headers?: {
+        /**
+         * The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds.
+         */
+        'X-MyChef-Analytics-Revision'?: number;
+    };
     path: {
         id: string;
     };
@@ -2944,6 +3300,12 @@ export type SwapPersonalResponse = SwapPersonalResponses[keyof SwapPersonalRespo
 
 export type RemovePersonalQueueData = {
     body: PersonalQueueRemoval;
+    headers?: {
+        /**
+         * The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds.
+         */
+        'X-MyChef-Analytics-Revision'?: number;
+    };
     path: {
         id: string;
     };
@@ -3099,6 +3461,12 @@ export type RecipeImportAvailabilityResponse = RecipeImportAvailabilityResponses
 
 export type StartUrlRecipeImportData = {
     body: UrlImportInput;
+    headers?: {
+        /**
+         * The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds.
+         */
+        'X-MyChef-Analytics-Revision'?: number;
+    };
     path?: never;
     query?: never;
     url: '/api/v1/recipe-imports/url';
@@ -3152,6 +3520,12 @@ export type StartPhotoRecipeImportData = {
          */
         import: string;
         photos: Array<Blob | File>;
+    };
+    headers?: {
+        /**
+         * The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds.
+         */
+        'X-MyChef-Analytics-Revision'?: number;
     };
     path?: never;
     query?: never;
@@ -3245,6 +3619,12 @@ export type ReadRecipeImportResponse = ReadRecipeImportResponses[keyof ReadRecip
 
 export type SelectRecipeImportData = {
     body: ImportSelectionInput;
+    headers?: {
+        /**
+         * The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds.
+         */
+        'X-MyChef-Analytics-Revision'?: number;
+    };
     path: {
         id: string;
     };
@@ -3292,6 +3672,12 @@ export type SelectRecipeImportResponse = SelectRecipeImportResponses[keyof Selec
 
 export type ReadRecipeImportWithAiData = {
     body: ImportAiInput;
+    headers?: {
+        /**
+         * The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds.
+         */
+        'X-MyChef-Analytics-Revision'?: number;
+    };
     path: {
         id: string;
     };
@@ -3339,6 +3725,12 @@ export type ReadRecipeImportWithAiResponse = ReadRecipeImportWithAiResponses[key
 
 export type ReviewImportedRecipeData = {
     body: ImportReviewInput;
+    headers?: {
+        /**
+         * The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds.
+         */
+        'X-MyChef-Analytics-Revision'?: number;
+    };
     path: {
         id: string;
     };
@@ -3386,6 +3778,12 @@ export type ReviewImportedRecipeResponse = ReviewImportedRecipeResponses[keyof R
 
 export type CancelRecipeImportData = {
     body: ImportEmptyInputWritable;
+    headers?: {
+        /**
+         * The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds.
+         */
+        'X-MyChef-Analytics-Revision'?: number;
+    };
     path: {
         id: string;
     };
@@ -3433,6 +3831,12 @@ export type CancelRecipeImportResponse = CancelRecipeImportResponses[keyof Cance
 
 export type NativeExportAccountData = {
     body: AccountExportRequest;
+    headers?: {
+        /**
+         * The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds.
+         */
+        'X-MyChef-Analytics-Revision'?: number;
+    };
     path?: never;
     query?: never;
     url: '/api/native/v1/account/export';
@@ -3476,6 +3880,10 @@ export type NativeDeleteAccountData = {
     body: AccountDeletionRequestWritable;
     headers: {
         'Idempotency-Key': string;
+        /**
+         * The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds.
+         */
+        'X-MyChef-Analytics-Revision'?: number;
     };
     path?: never;
     query?: never;
@@ -3610,6 +4018,10 @@ export type NativeRegisterData = {
     body: Registration;
     headers: {
         'X-CSRF-Token': string;
+        /**
+         * The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds.
+         */
+        'X-MyChef-Analytics-Revision'?: number;
     };
     path?: never;
     query?: never;
@@ -3662,6 +4074,10 @@ export type NativeLoginData = {
     body: Login;
     headers: {
         'X-CSRF-Token': string;
+        /**
+         * The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds.
+         */
+        'X-MyChef-Analytics-Revision'?: number;
     };
     path?: never;
     query?: never;
@@ -3714,6 +4130,10 @@ export type NativeLogoutData = {
     body?: never;
     headers: {
         'X-CSRF-Token': string;
+        /**
+         * The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds.
+         */
+        'X-MyChef-Analytics-Revision'?: number;
     };
     path?: never;
     query?: never;
@@ -3815,6 +4235,10 @@ export type NativeUpdateProfileData = {
     body: ProfileUpdate;
     headers: {
         'X-CSRF-Token': string;
+        /**
+         * The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds.
+         */
+        'X-MyChef-Analytics-Revision'?: number;
     };
     path?: never;
     query?: never;
@@ -3867,6 +4291,10 @@ export type NativeChangePasswordData = {
     body: PasswordChange;
     headers: {
         'X-CSRF-Token': string;
+        /**
+         * The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds.
+         */
+        'X-MyChef-Analytics-Revision'?: number;
     };
     path?: never;
     query?: never;
@@ -3912,6 +4340,10 @@ export type NativeCreateGenerationData = {
     headers: {
         'X-CSRF-Token': string;
         'Idempotency-Key': string;
+        /**
+         * The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds.
+         */
+        'X-MyChef-Analytics-Revision'?: number;
     };
     path?: never;
     query?: never;
@@ -4238,6 +4670,12 @@ export type NativeGetShoppingResponse = NativeGetShoppingResponses[keyof NativeG
 
 export type NativeSaveShoppingData = {
     body: ShoppingListWritable;
+    headers?: {
+        /**
+         * The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds.
+         */
+        'X-MyChef-Analytics-Revision'?: number;
+    };
     path: {
         /**
          * Monday of the shopping week
@@ -4338,6 +4776,10 @@ export type NativeRemoveFavoriteData = {
     body?: never;
     headers: {
         'X-CSRF-Token': string;
+        /**
+         * The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds.
+         */
+        'X-MyChef-Analytics-Revision'?: number;
     };
     path: {
         id: string;
@@ -4392,6 +4834,10 @@ export type NativeSaveFavoriteData = {
     body?: never;
     headers: {
         'X-CSRF-Token': string;
+        /**
+         * The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds.
+         */
+        'X-MyChef-Analytics-Revision'?: number;
     };
     path: {
         id: string;
@@ -4497,6 +4943,10 @@ export type NativeQueueFavoriteData = {
     body: FavoriteQueueInput;
     headers: {
         'X-CSRF-Token': string;
+        /**
+         * The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds.
+         */
+        'X-MyChef-Analytics-Revision'?: number;
     };
     path: {
         id: string;
@@ -4551,6 +5001,10 @@ export type NativeSwapFavoriteData = {
     body: FavoriteSwap;
     headers: {
         'X-CSRF-Token': string;
+        /**
+         * The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds.
+         */
+        'X-MyChef-Analytics-Revision'?: number;
     };
     path: {
         id: string;
@@ -4605,6 +5059,10 @@ export type NativeInspectSignUpData = {
     body: EmailProof;
     headers: {
         'X-CSRF-Token': string;
+        /**
+         * The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds.
+         */
+        'X-MyChef-Analytics-Revision'?: number;
     };
     path?: never;
     query?: never;
@@ -4653,6 +5111,10 @@ export type NativeCompleteSignUpData = {
     body: SignUpCompletion;
     headers: {
         'X-CSRF-Token': string;
+        /**
+         * The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds.
+         */
+        'X-MyChef-Analytics-Revision'?: number;
     };
     path?: never;
     query?: never;
@@ -4701,6 +5163,10 @@ export type NativeResendEmailVerificationData = {
     body: EmailVerificationResendWritable;
     headers: {
         'X-CSRF-Token': string;
+        /**
+         * The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds.
+         */
+        'X-MyChef-Analytics-Revision'?: number;
     };
     path?: never;
     query?: never;
@@ -4749,6 +5215,10 @@ export type NativeConfirmEmailVerificationData = {
     body: EmailProof;
     headers: {
         'X-CSRF-Token': string;
+        /**
+         * The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds.
+         */
+        'X-MyChef-Analytics-Revision'?: number;
     };
     path?: never;
     query?: never;
@@ -4797,6 +5267,10 @@ export type NativeStartEmailChangeData = {
     body: EmailChangeStart;
     headers: {
         'X-CSRF-Token': string;
+        /**
+         * The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds.
+         */
+        'X-MyChef-Analytics-Revision'?: number;
     };
     path?: never;
     query?: never;
@@ -4845,6 +5319,10 @@ export type NativeInspectEmailChangeData = {
     body: EmailProof;
     headers: {
         'X-CSRF-Token': string;
+        /**
+         * The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds.
+         */
+        'X-MyChef-Analytics-Revision'?: number;
     };
     path?: never;
     query?: never;
@@ -4893,6 +5371,10 @@ export type NativeDecideEmailChangeData = {
     body: EmailProof;
     headers: {
         'X-CSRF-Token': string;
+        /**
+         * The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds.
+         */
+        'X-MyChef-Analytics-Revision'?: number;
     };
     path?: never;
     query?: never;
@@ -4941,6 +5423,10 @@ export type NativeRequestPasswordRecoveryData = {
     body: RecoveryRequest;
     headers: {
         'X-CSRF-Token': string;
+        /**
+         * The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds.
+         */
+        'X-MyChef-Analytics-Revision'?: number;
     };
     path?: never;
     query?: never;
@@ -4989,6 +5475,10 @@ export type NativeCompletePasswordRecoveryData = {
     body: RecoveryCompletion;
     headers: {
         'X-CSRF-Token': string;
+        /**
+         * The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds.
+         */
+        'X-MyChef-Analytics-Revision'?: number;
     };
     path?: never;
     query?: never;
@@ -5070,6 +5560,10 @@ export type NativeSubmitFeedbackData = {
     body: FeedbackInput;
     headers: {
         'X-CSRF-Token': string;
+        /**
+         * The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds.
+         */
+        'X-MyChef-Analytics-Revision'?: number;
     };
     path?: never;
     query?: never;
@@ -5122,6 +5616,10 @@ export type NativeFeedbackReceiptData = {
     body: FeedbackReceiptInput;
     headers: {
         'X-CSRF-Token': string;
+        /**
+         * The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds.
+         */
+        'X-MyChef-Analytics-Revision'?: number;
     };
     path?: never;
     query?: never;
@@ -5209,6 +5707,10 @@ export type NativeSaveRecipeRatingData = {
     body: FeedbackRatingInput;
     headers: {
         'X-CSRF-Token': string;
+        /**
+         * The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds.
+         */
+        'X-MyChef-Analytics-Revision'?: number;
     };
     path: {
         id: string;
@@ -5314,6 +5816,12 @@ export type NativePersonalPermissionsResponse = NativePersonalPermissionsRespons
 
 export type NativeSearchPersonalData = {
     body: PersonalSearch;
+    headers?: {
+        /**
+         * The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds.
+         */
+        'X-MyChef-Analytics-Revision'?: number;
+    };
     path?: never;
     query?: never;
     url: '/api/native/v1/personal-recipes/search';
@@ -5367,6 +5875,12 @@ export type NativeSearchPersonalResponse = NativeSearchPersonalResponses[keyof N
 
 export type NativeCopyPersonalData = {
     body: PersonalCopyInput;
+    headers?: {
+        /**
+         * The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds.
+         */
+        'X-MyChef-Analytics-Revision'?: number;
+    };
     path?: never;
     query?: never;
     url: '/api/native/v1/personal-recipes/copy';
@@ -5420,6 +5934,12 @@ export type NativeCopyPersonalResponse = NativeCopyPersonalResponses[keyof Nativ
 
 export type NativeCreatePersonalData = {
     body: PersonalSaveInput;
+    headers?: {
+        /**
+         * The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds.
+         */
+        'X-MyChef-Analytics-Revision'?: number;
+    };
     path?: never;
     query?: never;
     url: '/api/native/v1/personal-recipes';
@@ -5473,6 +5993,12 @@ export type NativeCreatePersonalResponse = NativeCreatePersonalResponses[keyof N
 
 export type NativeDeletePersonalData = {
     body: PersonalDeleteInput;
+    headers?: {
+        /**
+         * The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds.
+         */
+        'X-MyChef-Analytics-Revision'?: number;
+    };
     path: {
         id: string;
     };
@@ -5585,6 +6111,12 @@ export type NativeReadPersonalResponse = NativeReadPersonalResponses[keyof Nativ
 
 export type NativeUpdatePersonalData = {
     body: PersonalSaveInput;
+    headers?: {
+        /**
+         * The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds.
+         */
+        'X-MyChef-Analytics-Revision'?: number;
+    };
     path: {
         id: string;
     };
@@ -5640,6 +6172,12 @@ export type NativeUpdatePersonalResponse = NativeUpdatePersonalResponses[keyof N
 
 export type NativeQueuePersonalData = {
     body: PersonalQueueInput;
+    headers?: {
+        /**
+         * The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds.
+         */
+        'X-MyChef-Analytics-Revision'?: number;
+    };
     path: {
         id: string;
     };
@@ -5695,6 +6233,12 @@ export type NativeQueuePersonalResponse = NativeQueuePersonalResponses[keyof Nat
 
 export type NativeSwapPersonalData = {
     body: PersonalSwapInput;
+    headers?: {
+        /**
+         * The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds.
+         */
+        'X-MyChef-Analytics-Revision'?: number;
+    };
     path: {
         id: string;
     };
@@ -5750,6 +6294,12 @@ export type NativeSwapPersonalResponse = NativeSwapPersonalResponses[keyof Nativ
 
 export type NativeRemovePersonalQueueData = {
     body: PersonalQueueRemoval;
+    headers?: {
+        /**
+         * The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds.
+         */
+        'X-MyChef-Analytics-Revision'?: number;
+    };
     path: {
         id: string;
     };
@@ -5905,6 +6455,12 @@ export type NativeRecipeImportAvailabilityResponse = NativeRecipeImportAvailabil
 
 export type NativeStartUrlRecipeImportData = {
     body: UrlImportInput;
+    headers?: {
+        /**
+         * The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds.
+         */
+        'X-MyChef-Analytics-Revision'?: number;
+    };
     path?: never;
     query?: never;
     url: '/api/native/v1/recipe-imports/url';
@@ -5958,6 +6514,12 @@ export type NativeStartPhotoRecipeImportData = {
          */
         import: string;
         photos: Array<Blob | File>;
+    };
+    headers?: {
+        /**
+         * The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds.
+         */
+        'X-MyChef-Analytics-Revision'?: number;
     };
     path?: never;
     query?: never;
@@ -6051,6 +6613,12 @@ export type NativeReadRecipeImportResponse = NativeReadRecipeImportResponses[key
 
 export type NativeSelectRecipeImportData = {
     body: ImportSelectionInput;
+    headers?: {
+        /**
+         * The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds.
+         */
+        'X-MyChef-Analytics-Revision'?: number;
+    };
     path: {
         id: string;
     };
@@ -6098,6 +6666,12 @@ export type NativeSelectRecipeImportResponse = NativeSelectRecipeImportResponses
 
 export type NativeReadRecipeImportWithAiData = {
     body: ImportAiInput;
+    headers?: {
+        /**
+         * The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds.
+         */
+        'X-MyChef-Analytics-Revision'?: number;
+    };
     path: {
         id: string;
     };
@@ -6145,6 +6719,12 @@ export type NativeReadRecipeImportWithAiResponse = NativeReadRecipeImportWithAiR
 
 export type NativeReviewImportedRecipeData = {
     body: ImportReviewInput;
+    headers?: {
+        /**
+         * The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds.
+         */
+        'X-MyChef-Analytics-Revision'?: number;
+    };
     path: {
         id: string;
     };
@@ -6192,6 +6772,12 @@ export type NativeReviewImportedRecipeResponse = NativeReviewImportedRecipeRespo
 
 export type NativeCancelRecipeImportData = {
     body: ImportEmptyInputWritable;
+    headers?: {
+        /**
+         * The preference revision when this operation was admitted, including offline queueing. Missing/stale values suppress analytics while product work proceeds.
+         */
+        'X-MyChef-Analytics-Revision'?: number;
+    };
     path: {
         id: string;
     };
@@ -6273,6 +6859,342 @@ export type NativeRefreshResponses = {
 };
 
 export type NativeRefreshResponse2 = NativeRefreshResponses[keyof NativeRefreshResponses];
+
+export type RequestNewsletterSubscriptionData = {
+    body: NewsletterSubscriptionRequest;
+    headers: {
+        Origin: string;
+        /**
+         * Literal client IP set by the authenticated gateway.
+         */
+        'X-MyChef-Newsletter-Source': string;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/newsletter/subscribe';
+};
+
+export type RequestNewsletterSubscriptionErrors = {
+    /**
+     * Invalid input or proof.
+     */
+    400: Error;
+    /**
+     * Service authentication required.
+     */
+    401: Error;
+    /**
+     * Invalid public origin.
+     */
+    403: Error;
+    /**
+     * Body exceeds 4 KiB.
+     */
+    413: Error;
+    /**
+     * Rate limited. Retry-After gives seconds.
+     */
+    429: Error;
+    /**
+     * Newsletter service temporarily unavailable.
+     */
+    503: Error;
+};
+
+export type RequestNewsletterSubscriptionError = RequestNewsletterSubscriptionErrors[keyof RequestNewsletterSubscriptionErrors];
+
+export type RequestNewsletterSubscriptionResponses = {
+    /**
+     * Durably accepted with uniform acknowledgement.
+     */
+    202: NewsletterResult;
+};
+
+export type RequestNewsletterSubscriptionResponse = RequestNewsletterSubscriptionResponses[keyof RequestNewsletterSubscriptionResponses];
+
+export type ConfirmNewsletterSubscriptionData = {
+    body: NewsletterProofRequest;
+    headers: {
+        Origin: string;
+        /**
+         * Literal client IP set by the authenticated gateway.
+         */
+        'X-MyChef-Newsletter-Source': string;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/newsletter/confirm';
+};
+
+export type ConfirmNewsletterSubscriptionErrors = {
+    /**
+     * Invalid input or proof.
+     */
+    400: Error;
+    /**
+     * Service authentication required.
+     */
+    401: Error;
+    /**
+     * Invalid public origin.
+     */
+    403: Error;
+    /**
+     * Body exceeds 4 KiB.
+     */
+    413: Error;
+    /**
+     * Rate limited. Retry-After gives seconds.
+     */
+    429: Error;
+    /**
+     * Newsletter service temporarily unavailable.
+     */
+    503: Error;
+};
+
+export type ConfirmNewsletterSubscriptionError = ConfirmNewsletterSubscriptionErrors[keyof ConfirmNewsletterSubscriptionErrors];
+
+export type ConfirmNewsletterSubscriptionResponses = {
+    /**
+     * The proved action completed.
+     */
+    200: NewsletterResult;
+};
+
+export type ConfirmNewsletterSubscriptionResponse = ConfirmNewsletterSubscriptionResponses[keyof ConfirmNewsletterSubscriptionResponses];
+
+export type UnsubscribeNewsletterData = {
+    body: NewsletterProofRequest;
+    headers: {
+        Origin: string;
+        /**
+         * Literal client IP set by the authenticated gateway.
+         */
+        'X-MyChef-Newsletter-Source': string;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/newsletter/unsubscribe';
+};
+
+export type UnsubscribeNewsletterErrors = {
+    /**
+     * Invalid input or proof.
+     */
+    400: Error;
+    /**
+     * Service authentication required.
+     */
+    401: Error;
+    /**
+     * Invalid public origin.
+     */
+    403: Error;
+    /**
+     * Body exceeds 4 KiB.
+     */
+    413: Error;
+    /**
+     * Rate limited. Retry-After gives seconds.
+     */
+    429: Error;
+    /**
+     * Newsletter service temporarily unavailable.
+     */
+    503: Error;
+};
+
+export type UnsubscribeNewsletterError = UnsubscribeNewsletterErrors[keyof UnsubscribeNewsletterErrors];
+
+export type UnsubscribeNewsletterResponses = {
+    /**
+     * The proved action completed.
+     */
+    200: NewsletterResult;
+};
+
+export type UnsubscribeNewsletterResponse = UnsubscribeNewsletterResponses[keyof UnsubscribeNewsletterResponses];
+
+export type AnalyticsNoticeData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/analytics/notice';
+};
+
+export type AnalyticsNoticeResponses = {
+    /**
+     * Private, no-store response.
+     */
+    200: AnalyticsNotice;
+};
+
+export type AnalyticsNoticeResponse = AnalyticsNoticeResponses[keyof AnalyticsNoticeResponses];
+
+export type GetAnalyticsPreferenceData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/analytics/preferences';
+};
+
+export type GetAnalyticsPreferenceErrors = {
+    /**
+     * Private, no-store response.
+     */
+    401: Error;
+    /**
+     * Private, no-store response.
+     */
+    403: Error;
+    /**
+     * Private, no-store response.
+     */
+    503: Error;
+};
+
+export type GetAnalyticsPreferenceError = GetAnalyticsPreferenceErrors[keyof GetAnalyticsPreferenceErrors];
+
+export type GetAnalyticsPreferenceResponses = {
+    /**
+     * Private, no-store response.
+     */
+    200: AnalyticsPreference;
+};
+
+export type GetAnalyticsPreferenceResponse = GetAnalyticsPreferenceResponses[keyof GetAnalyticsPreferenceResponses];
+
+export type UpdateAnalyticsPreferenceData = {
+    body: AnalyticsPreferenceUpdate;
+    path?: never;
+    query?: never;
+    url: '/api/v1/analytics/preferences';
+};
+
+export type UpdateAnalyticsPreferenceErrors = {
+    /**
+     * Private, no-store response.
+     */
+    400: Error;
+    /**
+     * Private, no-store response.
+     */
+    401: Error;
+    /**
+     * Private, no-store response.
+     */
+    403: Error;
+    /**
+     * Private, no-store response.
+     */
+    409: AnalyticsPreferenceConflict;
+    /**
+     * Private, no-store response.
+     */
+    503: Error;
+};
+
+export type UpdateAnalyticsPreferenceError = UpdateAnalyticsPreferenceErrors[keyof UpdateAnalyticsPreferenceErrors];
+
+export type UpdateAnalyticsPreferenceResponses = {
+    /**
+     * Private, no-store response.
+     */
+    200: AnalyticsPreference;
+};
+
+export type UpdateAnalyticsPreferenceResponse = UpdateAnalyticsPreferenceResponses[keyof UpdateAnalyticsPreferenceResponses];
+
+export type NativeAnalyticsNoticeData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/native/v1/analytics/notice';
+};
+
+export type NativeAnalyticsNoticeResponses = {
+    /**
+     * Private, no-store response.
+     */
+    200: AnalyticsNotice;
+};
+
+export type NativeAnalyticsNoticeResponse = NativeAnalyticsNoticeResponses[keyof NativeAnalyticsNoticeResponses];
+
+export type NativeGetAnalyticsPreferenceData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/native/v1/analytics/preferences';
+};
+
+export type NativeGetAnalyticsPreferenceErrors = {
+    /**
+     * Private, no-store response.
+     */
+    401: Error;
+    /**
+     * Private, no-store response.
+     */
+    403: Error;
+    /**
+     * Private, no-store response.
+     */
+    503: Error;
+};
+
+export type NativeGetAnalyticsPreferenceError = NativeGetAnalyticsPreferenceErrors[keyof NativeGetAnalyticsPreferenceErrors];
+
+export type NativeGetAnalyticsPreferenceResponses = {
+    /**
+     * Private, no-store response.
+     */
+    200: AnalyticsPreference;
+};
+
+export type NativeGetAnalyticsPreferenceResponse = NativeGetAnalyticsPreferenceResponses[keyof NativeGetAnalyticsPreferenceResponses];
+
+export type NativeUpdateAnalyticsPreferenceData = {
+    body: AnalyticsPreferenceUpdate;
+    path?: never;
+    query?: never;
+    url: '/api/native/v1/analytics/preferences';
+};
+
+export type NativeUpdateAnalyticsPreferenceErrors = {
+    /**
+     * Private, no-store response.
+     */
+    400: Error;
+    /**
+     * Private, no-store response.
+     */
+    401: Error;
+    /**
+     * Private, no-store response.
+     */
+    403: Error;
+    /**
+     * Private, no-store response.
+     */
+    409: AnalyticsPreferenceConflict;
+    /**
+     * Private, no-store response.
+     */
+    503: Error;
+};
+
+export type NativeUpdateAnalyticsPreferenceError = NativeUpdateAnalyticsPreferenceErrors[keyof NativeUpdateAnalyticsPreferenceErrors];
+
+export type NativeUpdateAnalyticsPreferenceResponses = {
+    /**
+     * Private, no-store response.
+     */
+    200: AnalyticsPreference;
+};
+
+export type NativeUpdateAnalyticsPreferenceResponse = NativeUpdateAnalyticsPreferenceResponses[keyof NativeUpdateAnalyticsPreferenceResponses];
 
 export interface components {
   schemas: {
@@ -6357,5 +7279,12 @@ export interface components {
     "NativeStartInput": NativeStartInput;
     "NativeRefreshInput": NativeRefreshInput;
     "NativeRefreshResponse": NativeRefreshResponse;
+    "NewsletterSubscriptionRequest": NewsletterSubscriptionRequest;
+    "NewsletterProofRequest": NewsletterProofRequest;
+    "NewsletterResult": NewsletterResult;
+    "AnalyticsPreference": AnalyticsPreference;
+    "AnalyticsPreferenceUpdate": AnalyticsPreferenceUpdate;
+    "AnalyticsNotice": AnalyticsNotice;
+    "AnalyticsPreferenceConflict": AnalyticsPreferenceConflict;
   };
 }

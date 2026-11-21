@@ -47,7 +47,7 @@ INSERT INTO sessions VALUES('existing-browser-digest',1,9999999999);`); err != n
 	}
 	var after, password string
 	var sessions int
-	if err := s.SQL.QueryRow("SELECT sql FROM sqlite_master WHERE name='users'").Scan(&after); err != nil || after != before {
+	if err := s.SQL.QueryRow("SELECT sql FROM sqlite_master WHERE name='users'").Scan(&after); err != nil || withoutLoginUsernameColumn(withoutNewsletterColumn(after)) != before {
 		t.Fatal("account table was rewritten")
 	}
 	if err := s.SQL.QueryRow("SELECT password FROM users WHERE user_id=1").Scan(&password); err != nil || password != "unchanged-password-hash" {

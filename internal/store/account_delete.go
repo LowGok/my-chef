@@ -21,6 +21,7 @@ type AccountDeletionOptions struct {
 	Cleanup     func(*gorm.DB, User) error
 	Capture     func(*gorm.DB, User, string) error
 	FinalNotice func(*gorm.DB, User, string) error
+	AfterDelete func(*gorm.DB, User) error
 	Fault       func(string) error
 }
 
@@ -108,18 +109,58 @@ func (j *LifecycleJournal) DeleteAccount(ctx context.Context, actor AccountActor
 	if confirmation != "DELETE" || !opaqueLifecycleID(operation) {
 		return AccountDeletion{}, ErrAccountConfirmation
 	}
+	result, err := j.deleteAccount(ctx, actor.UserID, operation, now, opts, func(tx *gorm.DB) error { return accountAuthority(tx, actor, now) })
+	if err == nil && j.app.newsletterJournalRequired.Load() {
+		err = j.CleanupNewsletterFiles(ctx)
+	}
+	return result, err
+}
+
+func (j *LifecycleJournal) deleteAccount(ctx context.Context, userID int64, operation string, now time.Time, opts AccountDeletionOptions, authorize func(*gorm.DB) error) (AccountDeletion, error) {
 	j.app.AccountWork.Lock()
 	defer j.app.AccountWork.Unlock()
+	if err := j.CheckReady(ctx); err != nil {
+		return AccountDeletion{}, err
+	}
+	if j.app.Analytics != nil {
+		var result AccountDeletion
+		err := j.app.Analytics.WithDeletionFence(ctx, func(revoke func(string) error) error {
+			old := opts.Capture
+			opts.Capture = func(tx *gorm.DB, u User, inc string) error {
+				if err := revoke(inc); err != nil {
+					return err
+				}
+				if old != nil {
+					return old(tx, u, inc)
+				}
+				return nil
+			}
+			var err error
+			result, err = j.deleteAccountLocked(ctx, userID, operation, now, opts, authorize)
+			return err
+		})
+		return result, err
+	}
+	if j.app.analyticsRequired(ctx) {
+		return AccountDeletion{}, ErrAccountDeletion
+	}
+	return j.deleteAccountLocked(ctx, userID, operation, now, opts, authorize)
+}
+func (j *LifecycleJournal) deleteAccountLocked(ctx context.Context, userID int64, operation string, now time.Time, opts AccountDeletionOptions, authorize func(*gorm.DB) error) (AccountDeletion, error) {
+	if j.app.newsletterJournalRequired.Load() {
+		ctx = j.app.newsletterTransactionContext(ctx)
+	}
 	tx := j.app.DB.WithContext(ctx).Begin()
+	TrackNewsletterIdentity(tx, userID)
 	if tx.Error != nil {
 		return AccountDeletion{}, ErrAccountDeletion
 	}
 	defer func() { _ = tx.Rollback().Error }()
-	if err := accountAuthority(tx, actor, now); err != nil {
+	if err := authorize(tx); err != nil {
 		return AccountDeletion{}, err
 	}
 	var user User
-	if err := tx.First(&user, actor.UserID).Error; err != nil {
+	if err := tx.First(&user, userID).Error; err != nil {
 		return AccountDeletion{}, ErrAccountAccess
 	}
 	var incarnation string
@@ -139,12 +180,15 @@ func (j *LifecycleJournal) DeleteAccount(ctx context.Context, actor AccountActor
 	}
 	// Cancellation must run after rollback and survive an HTTP client disconnect.
 	committed := false
+	commitAttempted := false
+	var identityIntents []NewsletterIdentityIntent
 	defer func() {
-		if !committed {
+		if !committed && !commitAttempted {
 			_ = tx.Rollback().Error
 			repair, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			_ = j.CancelDeletion(repair, operation)
+			_ = j.cancelNewsletterTransaction(repair, identityIntents)
 		}
 	}()
 	if err := deletionFault(opts, "prepared"); err != nil {
@@ -175,12 +219,23 @@ func (j *LifecycleJournal) DeleteAccount(ctx context.Context, actor AccountActor
 	if err := deletionFault(opts, "user"); err != nil {
 		return AccountDeletion{}, ErrAccountDeletion
 	}
+	if opts.AfterDelete != nil {
+		if err := opts.AfterDelete(tx, user); err != nil {
+			return AccountDeletion{}, err
+		}
+	}
 	if err := tx.Exec("INSERT INTO lifecycle_operations(operation,incarnation,created_ns,notice) VALUES(?,?,?,?)", operation, incarnation, now.UnixNano(), notice).Error; err != nil {
 		return AccountDeletion{}, ErrAccountDeletion
 	}
 	if err := deletionFault(opts, "proof"); err != nil {
 		return AccountDeletion{}, ErrAccountDeletion
 	}
+	var identityErr error
+	identityIntents, identityErr = j.prepareNewsletterTransaction(ctx, tx, operation)
+	if identityErr != nil {
+		return AccountDeletion{}, identityErr
+	}
+	commitAttempted = true
 	if err := tx.Commit().Error; err != nil {
 		return AccountDeletion{}, ErrLifecycleUncertain
 	}
@@ -192,6 +247,9 @@ func (j *LifecycleJournal) DeleteAccount(ctx context.Context, actor AccountActor
 	repair, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := j.CommitDeletion(repair, operation); err != nil {
+		return AccountDeletion{}, ErrLifecycleUncertain
+	}
+	if err := j.finishNewsletterTransaction(repair, identityIntents); err != nil {
 		return AccountDeletion{}, ErrLifecycleUncertain
 	}
 	if err := deletionFault(opts, "marker"); err != nil {

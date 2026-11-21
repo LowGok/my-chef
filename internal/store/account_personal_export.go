@@ -15,6 +15,7 @@ import (
 )
 
 type AccountExportOptions struct {
+	analytics   []byte
 	ImportVault *imports.DraftVault
 	now         time.Time
 	// ReadPhoto returns owned bounded JPEG bytes and respects cancellation. It

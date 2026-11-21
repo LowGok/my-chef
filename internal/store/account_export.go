@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/LowGok/my-chef/internal/analytics"
 	"github.com/LowGok/my-chef/internal/domain"
 	"gorm.io/gorm"
 )
@@ -39,7 +40,7 @@ func accountAuthority(tx *gorm.DB, actor AccountActor, now time.Time) error {
 	}
 	var count int64
 	if err := tx.Raw(`SELECT COUNT(*) FROM users u JOIN sessions s ON s.user_id=u.user_id
- WHERE u.user_id=? AND u.password=? AND s.hash=? AND s.expires_unix>?`, actor.UserID, actor.PasswordHash, actor.SessionHash, now.Unix()).Scan(&count).Error; err != nil {
+ WHERE u.user_id=? AND u.password=? AND u.isNewsletterOnly=0 AND s.hash=? AND s.expires_unix>?`, actor.UserID, actor.PasswordHash, actor.SessionHash, now.Unix()).Scan(&count).Error; err != nil {
 		return ErrAccountExport
 	}
 	if count != 1 {
@@ -56,6 +57,10 @@ type exportPart struct {
 }
 
 var accountExportParts = []exportPart{
+	{Name: "newsletter.json", Query: `SELECT status,locale,consent_version AS consentVersion,source,requested_unix AS requestedUnix,confirmed_unix AS confirmedUnix,withdrawn_unix AS withdrawnUnix FROM newsletter_subscriptions WHERE user_id=?`},
+	{Name: "newsletter-proofs.json", Query: `SELECT purpose,created_unix AS createdUnix,expires_unix AS expiresUnix,consumed_unix AS consumedUnix FROM newsletter_proofs WHERE user_id=? ORDER BY created_unix,purpose`},
+	{Name: "analytics.json"},
+	{Name: "weekly-reminders.json", Query: `SELECT p.zone,p.current_enabled AS currentEnabled,p.advance_enabled AS advanceEnabled,p.advance_day AS advanceWeekday,p.advance_minute AS advanceMinute FROM reminder_preferences p JOIN account_incarnations a ON a.incarnation=p.incarnation WHERE a.user_id=?`},
 	{Name: "entitlements.json", Query: `SELECT CASE WHEN g.source='fixture' THEN 'fixture' ELSE 'other' END AS source,
 g.starts_ns AS startsNanoseconds,g.ends_ns AS endsNanoseconds,g.revoked_ns AS revokedNanoseconds
 FROM entitlement_grants g JOIN account_incarnations a ON a.incarnation=g.incarnation
@@ -247,6 +252,15 @@ func (m exportMapper) row(part exportPart, columns []string, values []any) (map[
 	return out, nil
 }
 func writeExportPart(ctx context.Context, tx *gorm.DB, part exportPart, user int64, m exportMapper, w io.Writer, options ...AccountExportOptions) error {
+	if part.Name == "analytics.json" {
+		if len(options) > 0 && len(options[0].analytics) > 0 {
+			_, e := w.Write(options[0].analytics)
+			return e
+		}
+		_, e := io.WriteString(w, `{"preference":{"enabled":false},"history":[],"events":[],"monthlyContributions":[]}`)
+		return e
+	}
+
 	if part.Name == "recipe-import-drafts.json" {
 		var opts AccountExportOptions
 		if len(options) > 0 {
@@ -304,6 +318,24 @@ func writeExportPart(ctx context.Context, tx *gorm.DB, part exportPart, user int
 // No archive or complete category is buffered or persisted by the service.
 // On any failure the ZIP is intentionally not finalized.
 func (s *Store) WriteAccountExport(ctx context.Context, actor AccountActor, w io.Writer, now time.Time, options ...AccountExportOptions) error {
+	s.AccountWork.RLock()
+	defer s.AccountWork.RUnlock()
+	var analyticsData []byte
+	if s.Analytics != nil {
+		ctxWithLimit, cancel := context.WithTimeout(ctx, analytics.ReadLeaseLimit)
+		defer cancel()
+		ctx = ctxWithLimit
+		w = analytics.OutputWriter{Context: ctx, Output: w}
+		data, release, err := s.Analytics.PersonalExportLease(ctx, actor.UserID)
+		if err != nil {
+			return err
+		}
+		defer release()
+		analyticsData = data
+	} else if s.analyticsRequired(ctx) {
+		return ErrAccountExport
+	}
+
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -319,6 +351,7 @@ func (s *Store) WriteAccountExport(ctx context.Context, actor AccountActor, w io
 	if len(options) > 0 {
 		opts = options[0]
 	}
+	opts.analytics = analyticsData
 	opts.now = now
 	var mapper exportMapper
 	if _, err := rand.Read(mapper.key[:]); err != nil {
@@ -348,7 +381,7 @@ func (s *Store) WriteAccountExport(ctx context.Context, actor AccountActor, w io
 	if err != nil {
 		return err
 	}
-	if _, err = io.WriteString(guide, "MyChef account data\n\nVersion 2. JSON files are arrays grouped by category.\nThis includes owned history, favorites, shopping choices, planning inputs, feedback and private ratings.\nPersonal recipes include every retained saved version, source links and queued snapshots. Deleted library sources may still be referenced by planned meals.\nRecipe imports include saved source attribution and still-retained private drafts. Source uploads and dispatch capabilities are excluded.\nRelated records use identifiers local to this download. Normalized uploaded photos are in photos/; personal-photos.json maps their identifiers to files. Existing generated images remain URL references.\nEntitlements include grant categories and dates; internal grant and fixture identifiers are excluded.\nNative installation metadata includes only its platform, expiry and export-local identifier. Passwords, session credentials, browser sessions, verification links, private provider targets, upload receipts, security logs and opaque legacy fields are excluded.\nKeep this archive private. MyChef does not retain a copy or send it by email.\n"); err != nil {
+	if _, err = io.WriteString(guide, "MyChef account data\n\nVersion 2. JSON files are arrays grouped by category.\nThis includes owned history, favorites, shopping choices, planning inputs, feedback and private ratings.\nPersonal recipes include every retained saved version, source links and queued snapshots. Deleted library sources may still be referenced by planned meals.\nRecipe imports include saved source attribution and still-retained private drafts. Source uploads and dispatch capabilities are excluded.\nRelated records use identifiers local to this download. Normalized uploaded photos are in photos/; personal-photos.json maps their identifiers to files. Existing generated images remain URL references.\nWeekly planning reminders include preferences and exclude push tokens.\nEntitlements include grant categories and dates; internal grant and fixture identifiers are excluded.\nNative installation metadata includes only its platform, expiry and export-local identifier. Passwords, session credentials, browser sessions, verification links, private provider targets, upload receipts, security logs and opaque legacy fields are excluded.\nKeep this archive private. MyChef does not retain a copy or send it by email.\n"); err != nil {
 		return err
 	}
 	for _, part := range accountExportParts {

@@ -1,3 +1,4 @@
+import { clearReminderOpen, enableReminderDevice, hasReminderBridge, peekReminderOpen, reminderDeviceActive } from "./reminder-device";
 import {
   takeNativeProof,
   peekNativeProof,
@@ -15,6 +16,7 @@ import {
   completeLocalLogout,
   APIError,
   getSession,
+refreshAnalyticsPreference,
   forgetSession,
   isStale,
   sessionEpoch,
@@ -206,6 +208,43 @@ export function App() {
     setImagePolls(0);
     return true;
   }
+  useEffect(() => {
+    if (!user || offlineOnly || !hasReminderBridge()) return;
+    let live = true;
+    void api<{ deviceEnabled: boolean; current: boolean; advance: boolean }>("/planning-reminders").then((value) => {
+      if (live && !reminderDeviceActive() && value.deviceEnabled && (value.current || value.advance)) return enableReminderDevice(false);
+    }).catch(() => undefined);
+    return () => { live = false; };
+  }, [user?.accountInstance, offlineOnly]);
+  useEffect(() => {
+    if (!user || offlineOnly || proofEntry) return;
+    let disposed = false;
+    let opening = "";
+    const open = () => {
+      const reference = peekReminderOpen();
+      if (!reference || opening === reference) return;
+      opening = reference;
+      void api<{ week: string }>("/planning-reminders/open", {
+        method: "POST",
+        body: JSON.stringify({ reference }),
+      }).then(({ week: target }) => {
+        if (disposed || peekReminderOpen() !== reference) return;
+        clearReminderOpen(reference);
+        if (validDate(target)) navigate({ week: target });
+      }).catch(() => {
+        if (!disposed && peekReminderOpen() === reference) {
+          clearReminderOpen(reference);
+          setError("This planning reminder is no longer available.");
+        }
+      });
+    };
+    window.addEventListener("mychef-reminder-open", open);
+    open();
+    return () => {
+      disposed = true;
+      window.removeEventListener("mychef-reminder-open", open);
+    };
+  }, [user?.accountInstance, offlineOnly, proofEntry]);
   useEffect(() => {
     if (feedbackView) window.scrollTo({ top: 0, left: 0, behavior: "instant" });
   }, [feedbackView, reportId]);
@@ -442,10 +481,17 @@ export function App() {
         if (reloadAccount) location.reload();
       }
     };
+const resumeAnalytics=()=>{if(document.visibilityState==="visible"&&sessionHasAccount()&&!signedOut())void refreshAnalyticsPreference().catch(()=>undefined)};
+ document.addEventListener("visibilitychange",resumeAnalytics);
+ window.addEventListener(nativeResumeEvent,resumeAnalytics);
+ window.addEventListener("pageshow",resumeAnalytics);
     window.addEventListener("pageshow", restored);
     window.addEventListener(SESSION_LOST, lost);
     window.addEventListener("storage", sharedLogout);
     return () => {
+document.removeEventListener("visibilitychange",resumeAnalytics);
+ window.removeEventListener(nativeResumeEvent,resumeAnalytics);
+ window.removeEventListener("pageshow",resumeAnalytics);
       window.removeEventListener("pageshow", restored);
       window.removeEventListener(SESSION_LOST, lost);
       window.removeEventListener("storage", sharedLogout);

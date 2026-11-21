@@ -18,7 +18,9 @@ import (
 	"time"
 
 	"github.com/LowGok/my-chef/internal/auth"
+	"github.com/LowGok/my-chef/internal/config"
 	"github.com/LowGok/my-chef/internal/domain"
+	"github.com/LowGok/my-chef/internal/newsletter"
 	"github.com/LowGok/my-chef/internal/providers"
 	"github.com/LowGok/my-chef/internal/store"
 	"gorm.io/gorm"
@@ -29,6 +31,10 @@ type Generator interface {
 	Status(context.Context, int64, int64) (domain.Operation, error)
 }
 type Config struct {
+	NewsletterChecks     func(context.Context) map[string]bool
+	Newsletter           *newsletter.Service
+	NewsletterSettings   config.Newsletter
+	NewsletterReady      func(context.Context) bool
 	RecipeImports        *RecipeImportService
 	PersonalRecipes      PersonalRecipeSaver
 	PersonalPhotos       PersonalPhotoReader
@@ -43,6 +49,7 @@ type Config struct {
 	FixtureInbox         http.Handler
 	PersonalFixture      http.Handler
 	PersonalEntitlements store.PersonalEntitlementReader
+	Reminders            *store.ReminderSettings
 	TrustedProxies       []netip.Addr
 	EmailRateKey         []byte
 	SignUp               *auth.SignUp
@@ -86,8 +93,12 @@ func New(s *store.Store, g Generator, c Config, logger *slog.Logger) *API {
 
 func (a *API) Handler(frontend http.Handler) http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /internal/newsletter/readiness", a.newsletterReadiness)
 	mux.HandleFunc("GET /healthz", Health)
 	mux.HandleFunc("GET /readyz", a.ready)
+	mux.HandleFunc("POST /api/v1/newsletter/subscribe", a.newsletterRoute("subscribe"))
+	mux.HandleFunc("POST /api/v1/newsletter/confirm", a.newsletterRoute("confirm"))
+	mux.HandleFunc("POST /api/v1/newsletter/unsubscribe", a.newsletterRoute("unsubscribe"))
 	if a.Config.EmailWebhook != nil {
 		mux.Handle("POST /api/v1/webhooks/email", a.Config.EmailWebhook)
 	}
@@ -132,9 +143,11 @@ func (a *API) Handler(frontend http.Handler) http.Handler {
 	}
 	mux.HandleFunc("POST /api/v1/account/export", a.guard(true, a.exportAccount))
 	mux.HandleFunc("POST /api/v1/account/deletion", a.guard(true, a.deleteAccount))
+	a.analyticsRoutes(mux)
 	a.feedbackRoutes(mux)
 	a.personalRoutes(mux)
 	a.recipeImportRoutes(mux)
+	a.reminderRoutes(mux)
 	mux.HandleFunc("GET /api/v1/profile", a.guardVerified(a.profile))
 	mux.HandleFunc("PUT /api/v1/profile", a.guardVerified(a.updateProfile))
 	mux.HandleFunc("PUT /api/v1/account/password", a.guardVerified(a.changePassword))
@@ -166,6 +179,11 @@ func (a *API) Handler(frontend http.Handler) http.Handler {
 		}
 		mux.Handle("/", frontend)
 	}
+	return a.wrap(mux)
+}
+
+// wrap applies the common request and lifecycle boundary to an explicit mux.
+func (a *API) wrap(mux http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		idBytes := make([]byte, 16)
 		if _, err := rand.Read(idBytes); err != nil {
@@ -197,7 +215,7 @@ func (a *API) Handler(frontend http.Handler) http.Handler {
 		// route which takes its own exclusive account-work lock.
 		if strings.HasPrefix(r.URL.Path, nativePrefix) {
 			suffix := strings.TrimPrefix(r.URL.Path, nativePrefix)
-			if strings.HasPrefix(suffix, "fixture/") || strings.HasPrefix(suffix, "webhooks/") {
+			if strings.HasPrefix(suffix, "fixture/") || strings.HasPrefix(suffix, "webhooks/") || strings.HasPrefix(suffix, "newsletter/") {
 				a.fail(w, r, http.StatusNotFound, "not_found", "That resource was not found.")
 				return
 			}
@@ -208,7 +226,9 @@ func (a *API) Handler(frontend http.Handler) http.Handler {
 			return
 		}
 
-		if a.Config.Lifecycle != nil && len(r.URL.Path) >= 5 && r.URL.Path[:5] == "/api/" && r.URL.Path != "/api/v1/account/deletion" && !strings.HasPrefix(r.URL.Path, "/api/v1/personal-") && !strings.HasPrefix(r.URL.Path, "/api/v1/recipe-imports") {
+		// These services own their fence, including exclusive contact retirement.
+		selfFenced := r.URL.Path == "/api/v1/account/export" || r.URL.Path == "/api/v1/account/deletion" || r.URL.Path == "/api/v1/signup/complete" || r.URL.Path == "/api/v1/email/change/decision" || r.URL.Path == "/api/v1/newsletter/confirm" || r.URL.Path == "/api/v1/newsletter/unsubscribe"
+		if a.Config.Lifecycle != nil && len(r.URL.Path) >= 5 && r.URL.Path[:5] == "/api/" && !selfFenced && !strings.HasPrefix(r.URL.Path, "/api/v1/personal-") && !strings.HasPrefix(r.URL.Path, "/api/v1/recipe-imports") {
 			a.Store.AccountWork.RLock()
 			defer a.Store.AccountWork.RUnlock()
 		}
@@ -341,7 +361,7 @@ func (a *API) guard(required bool, next http.HandlerFunc) http.HandlerFunc {
 		current := info(r)
 		current.Session = session
 		current.Token = cookie.Value
-		next(w, r.WithContext(context.WithValue(r.Context(), contextKey{}, current)))
+		next(w, a.instrument(r.WithContext(context.WithValue(r.Context(), contextKey{}, current)), current))
 	}
 }
 func (a *API) cookie(w http.ResponseWriter, token string, authenticated bool) {
@@ -431,14 +451,15 @@ func (a *API) login(w http.ResponseWriter, r *http.Request) {
 	if !a.decodeCredentials(w, r, &body) {
 		return
 	}
-	_, accountKey, err := store.EmailIdentity(body.Email)
+	target, err := a.Auth.ResolveLogin(r.Context(), body.Email)
 	if err != nil {
-		accountKey = body.Email
-	}
-	if !a.throttle(w, r, "account:"+auth.Hash(accountKey), 10) {
+		a.err(w, r, err)
 		return
 	}
-	u, token, err := a.Auth.LoginSession(r.Context(), body.Email, body.Password, info(r).Token)
+	if !a.throttle(w, r, target.RateLimitKey(), 10) {
+		return
+	}
+	u, token, err := a.Auth.LoginResolvedSession(r.Context(), target, body.Password, info(r).Token)
 	if err != nil {
 		a.err(w, r, err)
 		return

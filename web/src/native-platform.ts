@@ -1,3 +1,4 @@
+import { forgetReminderDevice, setReminderBridge, syncReminderDevice, type NativeReminderBridge } from "./reminder-device";
 import {
   Capacitor,
   registerPlugin,
@@ -50,6 +51,7 @@ const requestHeaders = new Set([
   "content-type",
   "authorization",
   "idempotency-key",
+  "x-mychef-analytics-revision",
   "if-match",
   "if-none-match",
 ]);
@@ -86,12 +88,12 @@ export async function createNativeTransport(
   return new NativeTransport({
     platform,
     onForget() {
-      return Promise.all([clearPlatformMedia(), forgetShoppingDevice()]).then(
+      return Promise.all([clearPlatformMedia(), forgetShoppingDevice(), forgetReminderDevice()]).then(
         () => undefined,
       );
     },
     async beforeAccount(user) {
-      await clearPlatformMedia();
+      await Promise.all([clearPlatformMedia(), forgetReminderDevice()]);
       const saved = cachedOwner()?.profile;
       const next = user as { id?: unknown; accountInstance?: unknown } | null;
       if (
@@ -232,7 +234,8 @@ export async function initializeNativePlatform() {
     NativeBridge &
       NativeShoppingBridge &
       NativeMediaBridge &
-      NativeRuntimeBridge
+      NativeRuntimeBridge &
+      NativeReminderBridge
   >(raw);
   const transport = await runNativeStartupStep("configuration", () =>
     createNativeTransport(bridge, platform),
@@ -254,11 +257,15 @@ export async function initializeNativePlatform() {
   });
   setPlatformTransport(transport);
   setMediaPlatform(createNativeMedia(bridge));
+  setReminderBridge(bridge);
   await runNativeStartupStep("device", async () =>
     installNativeRuntime(
       bridge,
       (await bridge.configuration()).apiOrigin,
-      (wake) => raw.addListener("runtime", wake),
+      (wake) => raw.addListener("runtime", () => {
+        wake();
+        void syncReminderDevice().catch(() => undefined);
+      }),
     ),
   );
   return true;

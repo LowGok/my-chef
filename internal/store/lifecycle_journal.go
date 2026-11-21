@@ -92,7 +92,7 @@ func (s *Store) OpenLifecycleJournalReadOnly(ctx context.Context, path string) (
 func validateLifecycleJournal(ctx context.Context, external *Store, binding string, allowLegacy bool) error {
 	var saved string
 	var version int
-	if err := external.SQL.QueryRowContext(ctx, "SELECT version,binding FROM lifecycle_journal_meta WHERE singleton=1").Scan(&version, &saved); err != nil || version != 2 && (!allowLegacy || version != 1) || saved != binding {
+	if err := external.SQL.QueryRowContext(ctx, "SELECT version,binding FROM lifecycle_journal_meta WHERE singleton=1").Scan(&version, &saved); err != nil || version != 3 && (!allowLegacy || version != 1 && version != 2) || saved != binding {
 		return ErrLifecycleJournal
 	}
 	rows, err := external.SQL.QueryContext(ctx, "SELECT id,incarnation,kind,target,root,provider,started_ns,finished,confirmed,cleanup_ns FROM lifecycle_work LIMIT 0")
@@ -100,12 +100,25 @@ func validateLifecycleJournal(ctx context.Context, external *Store, binding stri
 		return ErrLifecycleJournal
 	}
 	_ = rows.Close()
-	if version == 2 {
+	if version >= 2 {
 		rows, err := external.SQL.QueryContext(ctx, "SELECT delivery_type,purpose FROM lifecycle_work LIMIT 0")
 		if err != nil {
 			return ErrLifecycleJournal
 		}
 		_ = rows.Close()
+	}
+	if version == 3 {
+		for _, query := range []string{
+			"SELECT high_water,next_sequence,checkpoint,complete FROM newsletter_identity_key LIMIT 0",
+			"SELECT user_id,incarnation,class,ownership_epoch,sequence FROM newsletter_identity_registry LIMIT 0",
+			"SELECT operation,sequence,record_json,record_hash FROM newsletter_identity_intents LIMIT 0",
+		} {
+			rows, err := external.SQL.QueryContext(ctx, query)
+			if err != nil {
+				return ErrLifecycleJournal
+			}
+			_ = rows.Close()
+		}
 	}
 	if err := external.validateIntegrity(ctx); err != nil {
 		return ErrLifecycleJournal
@@ -204,6 +217,9 @@ func (s *Store) lifecycleJournal(ctx context.Context, path string, initialize, r
 		if err = migratePersonalPhotoJournal(ctx, external); err != nil {
 			return nil, ErrLifecycleJournal
 		}
+		if err = migrateNewsletterIdentityJournal(ctx, external); err != nil {
+			return nil, ErrLifecycleJournal
+		}
 	}
 	if err = validateLifecycleJournal(ctx, external, binding, false); err != nil {
 		return nil, err
@@ -234,7 +250,11 @@ func (s *Store) lifecycleJournal(ctx context.Context, path string, initialize, r
 		return nil, ErrLifecycleJournal
 	}
 	ok = true
-	return &LifecycleJournal{store: external, app: s, Path: absolute, identity: identity, binding: binding}, nil
+	j := &LifecycleJournal{store: external, app: s, Path: absolute, identity: identity, binding: binding}
+	if !readOnly {
+		s.newsletterJournal.Store(j)
+	}
+	return j, nil
 }
 func (j *LifecycleJournal) CheckAvailable(ctx context.Context) error {
 	current, err := os.Lstat(j.Path)
@@ -248,6 +268,7 @@ func (j *LifecycleJournal) CheckAvailable(ctx context.Context) error {
 	return nil
 }
 func (j *LifecycleJournal) Close() error {
+	j.app.newsletterJournal.CompareAndSwap(j, nil)
 	j.workMu.Lock()
 	var cancellations []context.CancelFunc
 	for _, group := range j.active {
@@ -261,6 +282,21 @@ func (j *LifecycleJournal) Close() error {
 		cancel()
 	}
 	return j.store.Close()
+}
+
+// CheckReady excludes unresolved cross-database operations from new identity work.
+func (j *LifecycleJournal) CheckReady(ctx context.Context) error {
+	if err := j.CheckAvailable(ctx); err != nil {
+		return err
+	}
+	var pending int64
+	if err := j.store.DB.WithContext(ctx).Model(&lifecycleDeletion{}).Where("state='prepared'").Count(&pending).Error; err != nil {
+		return ErrLifecycleJournal
+	}
+	if pending != 0 {
+		return ErrLifecycleUncertain
+	}
+	return j.checkNewsletterIdentityJournalReady(ctx)
 }
 
 func (j *LifecycleJournal) PrepareDeletion(ctx context.Context, operation, incarnation string) error {

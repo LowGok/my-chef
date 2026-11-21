@@ -55,3 +55,33 @@ var NativeSessions string
 
 //go:embed 018_entitlement_grants.sql
 var EntitlementGrants string
+
+//go:embed 019_analytics.sql
+var Analytics string
+
+//go:embed 020_analytics_generation.sql
+var AnalyticsGeneration string
+
+//go:embed 021_analytics_installation.sql
+var AnalyticsInstallation string
+
+//go:embed 022_analytics_signup_source.sql
+var AnalyticsSignupSource string
+
+//go:embed 023_analytics_gaps.sql
+var AnalyticsGaps string
+
+//go:embed 024_newsletter.sql
+var Newsletter string
+
+//go:embed 025_weekly_reminders.sql
+var WeeklyReminders string
+
+//go:embed 026_reminder_dispatch_expiry.sql
+var ReminderDispatchExpiry string
+
+//go:embed 027_newsletter_identity_minimisation.sql
+var NewsletterIdentityMinimisation string
+
+//go:embed 028_login_username_keys.sql
+var LoginUsernameKeys string

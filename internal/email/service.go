@@ -32,6 +32,19 @@ func New(q Queue, cfg config.Email) *Service {
 	return NewWithFixtureInbox(q, cfg, nil)
 }
 
+// NewNewsletter restricts a dedicated namespace to newsletter mail. It exposes
+// neither a delivery webhook nor a fixture inbox.
+func NewNewsletter(q Queue, cfg config.Email) *Service {
+	s := New(q, cfg)
+	s.worker.newsletterOnly = true
+	s.webhook = nil
+	if cfg.Disabled || cfg.NewsletterFrom == "" || cfg.NewsletterReplyTo == "" {
+		s.disabled = true
+		s.failed.Store(true)
+	}
+	return s
+}
+
 func NewWithFixtureInbox(q Queue, cfg config.Email, inbox *FixtureInbox) *Service {
 	if cfg.Disabled {
 		inbox.close()
@@ -50,7 +63,9 @@ func NewWithFixtureInbox(q Queue, cfg config.Email, inbox *FixtureInbox) *Servic
 		}}
 	}
 	q.AllowLoopbackProofLinks = inbox != nil && inbox.settings.AllowLoopbackLinks
-	return &Service{worker: Worker{Queue: q, sender: p, From: cfg.From, ReplyTo: cfg.ReplyTo, FingerprintKey: cfg.FingerprintKey}, webhook: q.Webhook(cfg.WebhookKey), inbox: inbox}
+	return &Service{worker: Worker{Queue: q, sender: p, From: cfg.From, ReplyTo: cfg.ReplyTo,
+		NewsletterFrom: cfg.NewsletterFrom, NewsletterReplyTo: cfg.NewsletterReplyTo,
+		FingerprintKey: cfg.FingerprintKey}, webhook: q.Webhook(cfg.WebhookKey), inbox: inbox}
 }
 
 func (s *Service) Webhook() http.Handler { return s.webhook }
@@ -64,6 +79,9 @@ func (s *Service) FixtureInbox() http.Handler {
 
 func (s *Service) Ready(ctx context.Context) bool {
 	if s.failed.Load() {
+		return false
+	}
+	if s.worker.Queue.Lifecycle != nil && s.worker.Queue.Lifecycle.CheckReady(ctx) != nil {
 		return false
 	}
 	return s.worker.Queue.Store.SQL.QueryRowContext(ctx, "SELECT count(*) FROM (SELECT id FROM email_outbox LIMIT 1)").Scan(new(int)) == nil

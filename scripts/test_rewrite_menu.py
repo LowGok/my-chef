@@ -60,7 +60,7 @@ def audit_credential_artifacts(directory: Path, state: Path, database: Path, pas
     if database.is_file():
         with closing(sqlite3.connect(database.as_uri() + "?mode=ro", uri=True)) as db:
             if db.execute("SELECT 1 FROM sqlite_master WHERE name = 'users' AND type = 'table'").fetchone():
-                canaries.extend(value.encode() for (value,) in db.execute("SELECT password FROM users"))
+                canaries.extend(value.encode() for (value,) in db.execute("SELECT password FROM users") if value)
     for file in directory.rglob("*"):
         if not file.is_file():
             continue

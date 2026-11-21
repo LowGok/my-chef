@@ -52,7 +52,7 @@ func TestLifecycleMigrationPreservesRecordsAndIncarnations(t *testing.T) {
 	if err := s.SQL.QueryRowContext(ctx, "SELECT incarnation FROM account_incarnations WHERE user_id=1").Scan(&again); err != nil || again != first {
 		t.Fatal("migration changed incarnation", err)
 	}
-	if err := s.SQL.QueryRowContext(ctx, "SELECT sql FROM sqlite_schema WHERE name='users'").Scan(&after); err != nil || after != definition {
+	if err := s.SQL.QueryRowContext(ctx, "SELECT sql FROM sqlite_schema WHERE name='users'").Scan(&after); err != nil || withoutLoginUsernameColumn(withoutNewsletterColumn(after)) != definition {
 		t.Fatal("existing users schema changed", err)
 	}
 	if err := s.SQL.QueryRowContext(ctx, "SELECT email,password FROM users WHERE user_id=1").Scan(&email, &password); err != nil || email != "owner@example.test" || password != "legacy-hash" {

@@ -12,7 +12,9 @@ import (
 
 	"github.com/LowGok/my-chef/internal/auth"
 	"github.com/LowGok/my-chef/internal/config"
+	"github.com/LowGok/my-chef/internal/email/mailqueue"
 	"github.com/LowGok/my-chef/internal/importer"
+	"github.com/LowGok/my-chef/internal/newsletter"
 	"github.com/LowGok/my-chef/internal/store"
 	"gorm.io/gorm"
 )
@@ -62,6 +64,13 @@ func run() error {
 				manager := &auth.Manager{RecoveryRateKey: settings.RateKey}
 				return manager.EraseAccountLinks(ctx, tx, u, time.Now().UTC())
 			}}
+			if len(settings.RateKey) == 32 {
+				key, err := store.DeriveNewsletterIdentityKey(settings.RateKey)
+				if err != nil {
+					return err
+				}
+				options.NewsletterIdentityKey = key
+			}
 			if err := store.Restore(ctx, *file, *path, options); err != nil {
 				return err
 			}
@@ -130,6 +139,11 @@ func run() error {
 }
 
 func prepareLifecycle(ctx context.Context, s *store.Store, path string) error {
+	unlockJournal, err := store.LockApplication(path)
+	if err != nil {
+		return err
+	}
+	defer unlockJournal()
 	journal, err := s.InitializeLifecycleJournal(ctx, path)
 	if err != nil {
 		return err
@@ -139,9 +153,59 @@ func prepareLifecycle(ctx context.Context, s *store.Store, path string) error {
 	if err != nil {
 		return err
 	}
+	var identityKey *store.NewsletterIdentityKey
+	if len(settings.RateKey) == 32 {
+		identityKey, err = store.DeriveNewsletterIdentityKey(settings.RateKey)
+		if err != nil {
+			return err
+		}
+	}
+	bound, err := s.ConfigureNewsletterIdentityIfBound(ctx, identityKey)
+	if err != nil {
+		return err
+	}
+	none := os.Getenv("MYCHEF_NEWSLETTER_PENDING_DAYS") == "none" && os.Getenv("MYCHEF_NEWSLETTER_WITHDRAWN_DAYS") == "none"
+	mode := os.Getenv("MYCHEF_NEWSLETTER_MODE")
+	wanted := none && (mode == "enabled" || mode == "fixture" || bound)
+	if bound && !none {
+		return errors.New("newsletter namespace retention configuration unavailable")
+	}
+	if wanted {
+		if identityKey == nil {
+			return errors.New("newsletter namespace key unavailable")
+		}
+		if err := journal.InitializeNewsletterIdentity(ctx, identityKey); err != nil {
+			return err
+		}
+	}
 	manager := &auth.Manager{RecoveryRateKey: settings.RateKey}
 	opts := store.AccountDeletionOptions{Cleanup: func(tx *gorm.DB, u store.User) error { return manager.EraseAccountLinks(ctx, tx, u, time.Now().UTC()) }, Capture: func(tx *gorm.DB, u store.User, inc string) error {
 		return journal.CaptureAccountTraces(ctx, tx, u.ID, inc, os.Getenv("MYCHEF_TRACE_DIR"))
 	}}
-	return journal.ReconcileAccountDeletions(ctx, opts)
+	if err := journal.ReconcileAccountDeletions(ctx, opts); err != nil {
+		return err
+	}
+	if !wanted {
+		return nil
+	}
+	if err := journal.ReconcileNewsletterIdentityIntents(ctx); err != nil {
+		return err
+	}
+	if err := journal.BackfillNewsletterIdentities(ctx, identityKey); err != nil {
+		return err
+	}
+	keys, err := mailqueue.NewProofKeys(settings.Active, settings.Keys)
+	if err != nil {
+		return err
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	origin := os.Getenv("MYCHEF_NEWSLETTER_ORIGIN")
+	if origin == "" {
+		origin = cfg.Origin
+	}
+	service := &newsletter.Service{Store: s, Keys: keys, RateKey: settings.RateKey, Origin: origin, ConsentVersion: os.Getenv("MYCHEF_NEWSLETTER_CONSENT_VERSION"), Lifecycle: journal}
+	return service.Maintain(ctx, journal, config.NewsletterRetention{NoExpiry: true}, config.NewsletterRetention{NoExpiry: true}, opts)
 }

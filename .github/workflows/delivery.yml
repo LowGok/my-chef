@@ -26,7 +26,7 @@ concurrency:
 jobs:
   checks:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     env:
       CGO_ENABLED: '0'
     steps:
@@ -54,7 +54,7 @@ jobs:
       - name: Check concurrent persistence and workers with the race detector
         env:
           CGO_ENABLED: '1'
-        run: go test -race ./...
+        run: go test -race -timeout 20m ./...
       - name: Rehearse read-only PostgreSQL import
         run: python3 scripts/test_postgres_import.py
       - name: Install browser and build candidate binaries
@@ -69,6 +69,8 @@ jobs:
           python3 scripts/test_rewrite_menu.py
       - name: Preserve existing SQLite data through upgrade and restore
         run: python3 scripts/test_sqlite_upgrade.py
+      - name: Rehearse the isolated newsletter executable and recovery
+        run: python3 scripts/test_newsletter_runtime.py
 
   tooling-checks:
     runs-on: ubuntu-24.04

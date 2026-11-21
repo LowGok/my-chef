@@ -1,2 +1,32 @@
 <!doctype html>
-<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>MyChef</title></head><body><div id="root">Loading MyChef</div><script type="module" src="/src/main.tsx"></script></body></html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#f9f5ea" />
+    <meta
+      name="description"
+      content="Plan homemade meals around your household, your time, and the things you love to eat."
+    />
+    <title>MyChef · Your meals. Your week. Made easier.</title>
+  </head>
+  <body>
+    <div id="root">
+      <div class="startup-screen" role="status" aria-label="Loading MyChef">
+        <h1 class="brand">
+          <img
+            src="./src/mychef-logo.png"
+            alt="MyChef"
+            width="1000"
+            height="249"
+          />
+        </h1>
+        <p>Your week, made easier.</p>
+        <span class="startup-dots" aria-hidden="true"
+          ><i></i><i></i><i></i
+        ></span>
+      </div>
+    </div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

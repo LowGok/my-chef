@@ -15,7 +15,7 @@ public final class NativeBoundary {
     public static final int MAX_REQUEST = 24 * 1024 * 1024;
     public static final int MAX_RESPONSE = 32 * 1024 * 1024;
     private static final Set<String> HEADERS = new HashSet<>(Arrays.asList(
-        "accept", "content-type", "authorization", "idempotency-key", "if-match", "if-none-match"));
+        "accept", "content-type", "authorization", "idempotency-key", "x-mychef-analytics-revision", "if-match", "if-none-match"));
 
     public static URI origin(String value) {
         URI uri = URI.create(value);

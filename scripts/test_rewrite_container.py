@@ -7,8 +7,10 @@ from contextlib import closing
 import json
 import io
 import os
+import re
 from pathlib import Path
 import secrets
+import socket
 import sqlite3
 import subprocess
 import tarfile
@@ -50,6 +52,12 @@ def main() -> None:
     capability = ""
     try:
         email, capability = fixture_email(state)
+        newsletter_token = secrets.token_urlsafe(40)
+        newsletter_credentials = state / "newsletter-credentials.json"
+        newsletter_credentials.write_text(json.dumps({"newsletter_service_token": newsletter_token,
+            "newsletter_email_from": "MyChef <newsletter@mychef.dev>",
+            "newsletter_email_reply_to": "feedback@gkldevelopment.com"}))
+        newsletter_credentials.chmod(0o444)
         for setting in ("MYCHEF_FIXTURE_INBOX_FILE", "MYCHEF_EMAIL_PROOF_KEYS_FILE"):
             # Docker binds these individual files; their parent is still private
             # on the host and the unprivileged container can only read the bind.
@@ -84,6 +92,32 @@ def main() -> None:
                     "web/src/native-platform.ts"}.issubset(paths), "required native API and web inputs were excluded"
             assert {"internal/store/entitlements.go", "internal/store/entitlement_fixture.go",
                     "migrations/018_entitlement_grants.sql"}.issubset(paths), "entitlement resolver and migration were excluded"
+            assert {"migrations/024_newsletter.sql", "internal/newsletter/capture.go",
+                    "internal/newsletter/proofs.go", "internal/newsletter/expiry.go",
+                    "internal/auth/newsletter.go", "internal/config/newsletter.go", "internal/email/mailqueue/newsletter.go",
+                    "internal/http/newsletter.go", "internal/store/newsletter.go", "internal/store/newsletter_lifecycle.go",
+                    "cmd/mychef/newsletter.go", "cmd/mychef/newsletter_runtime.go",
+                    "cmd/mychef/newsletter_serve.go", "internal/config/newsletter_email.go"}.issubset(paths), "newsletter runtime inputs were excluded"
+            required_minimisation_inputs = {
+                "migrations/027_newsletter_identity_minimisation.sql",
+                "internal/store/account_restore.go", "internal/store/newsletter_minimisation_schema.go",
+                "internal/store/newsletter_identity.go", "internal/store/newsletter_identity_journal.go",
+                "internal/store/newsletter_identity_transaction.go", "internal/store/newsletter_identity_backfill.go",
+                "internal/store/newsletter_file_cleanup.go", "internal/newsletter/minimisation.go",
+                "internal/newsletter/maintenance.go", "internal/email/mailqueue/account_expiry.go",
+            }
+            assert required_minimisation_inputs.issubset(paths), "newsletter minimisation runtime inputs were excluded"
+            required_analytics_inputs = {
+                "cmd/mychef/analytics.go", "internal/analytics/contract.go",
+                "internal/analytics/delivery.go", "internal/analytics/worker.go",
+                "internal/analyticsdataset/production.go", "internal/analyticsdataset/schema.sql",
+                "internal/analyticsdataset/queries.sql", "internal/http/analytics.go",
+                "internal/store/analytics_schema.go", "migrations/019_analytics.sql",
+                "migrations/023_analytics_gaps.sql", "web/src/AnalyticsPreferences.tsx",
+                "web/src/analytics-state.ts",
+            }
+            assert required_analytics_inputs.issubset(paths), "analytics runtime inputs were excluded"
+            assert not any(p.startswith("docs/") for p in paths), "private planning documents entered the app container context"
             assert not any(p.startswith("mobile/") for p in paths), "native projects entered the app container context"
             assert not any(any(word in p for word in ("secret", "canary", "node_modules", "test-results", ".streamlit", ".git/", "mychefApp", "_test.go")) for p in paths), "private or generated file entered the build context"
         if "MYCHEF_CONTAINER_IMAGE" not in env:
@@ -134,6 +168,77 @@ def main() -> None:
                 for name in files:
                     entry = archive.getmember(target.strip("/") + "/" + name)
                     assert entry.uid == uid and entry.gid == 65532 and entry.mode & 0o777 == 0o400, "private fixture file ownership changed during Docker copy"
+        # Exercise the actual dedicated role in the same final nonroot image.
+        role_sql = output("volume", "create", f"mychef-newsletter-sql-{suffix}")
+        role_journal = output("volume", "create", f"mychef-newsletter-journal-{suffix}")
+        volumes.extend([role_sql, role_journal])
+        # Populate each fresh volume from the image's UID-65532 /data directory.
+        for role_volume in (role_sql, role_journal):
+            holder = output("create", "--mount", f"type=volume,src={role_volume},dst=/data", image, "--version")
+            containers.append(holder)
+        role_mounts = ["--mount", f"type=volume,src={role_sql},dst=/data",
+                       "--mount", f"type=volume,src={role_journal},dst=/journal",
+                       "--mount", f"type=bind,src={newsletter_credentials},dst=/run/secrets/newsletter.json,readonly",
+                       "--mount", f"type=bind,src={email['MYCHEF_EMAIL_PROOF_KEYS_FILE']},dst=/run/secrets/proofs.json,readonly"]
+        with socket.socket() as role_socket:
+            role_socket.bind(("127.0.0.1", 0))
+            role_port = role_socket.getsockname()[1]
+        role_settings = {"MYCHEF_ADDR": f"127.0.0.1:{role_port}", "MYCHEF_DB": "/data/mychef.db",
+            "MYCHEF_LIFECYCLE_DB": "/journal/mychef.lifecycle", "MYCHEF_ORIGIN": "https://mychef.dev",
+            "MYCHEF_DEV": "1", "MYCHEF_E2E": "1", "MYCHEF_PROVIDER": "fixture", "MYCHEF_EMAIL_MODE": "fake",
+            "MYCHEF_CREDENTIALS": "/run/secrets/newsletter.json", "MYCHEF_EMAIL_PROOF_KEYS_FILE": "/run/secrets/proofs.json",
+            "MYCHEF_NEWSLETTER_MODE": "fixture", "MYCHEF_NEWSLETTER_CONSENT_VERSION": "newsletter-v1",
+            "MYCHEF_NEWSLETTER_ORIGIN": "https://mychef.dev", "MYCHEF_NEWSLETTER_CONTACT": "preview@example.test",
+            "MYCHEF_NEWSLETTER_PENDING_DAYS": "none", "MYCHEF_NEWSLETTER_WITHDRAWN_DAYS": "none",
+            "MYCHEF_NEWSLETTER_OPERATIONS_READY": "1", "MYCHEF_NEWSLETTER_COLLECT": "0"}
+        role_flags = [part for name, value in role_settings.items() for part in ("--env", f"{name}={value}")]
+        run("run", "--rm", *options, "--network=none", *role_mounts, *role_flags,
+            "--entrypoint", "/app/mychef-migrate", image, "up", "--db", "/data/mychef.db",
+            "--lifecycle-db", "/journal/mychef.lifecycle")
+        role_container = output("run", "--detach", *options, "--network=host", *role_mounts, *role_flags,
+                                image, "newsletter", "serve")
+        containers.append(role_container)
+        role_http = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        for _ in range(150):
+            try:
+                with role_http.open(f"http://127.0.0.1:{role_port}/readyz", timeout=1) as response:
+                    if response.status == 200:
+                        break
+            except OSError:
+                time.sleep(.1)
+        else:
+            raise AssertionError("final-image newsletter role never became operational")
+        role_request = urllib.request.Request(f"http://127.0.0.1:{role_port}/internal/newsletter/readiness",
+            headers={"Authorization": "Bearer " + newsletter_token})
+        with role_http.open(role_request, timeout=2) as response:
+            role_ready = json.load(response)
+        assert role_ready["role"] == "newsletter" and role_ready["mode"] == "fixture"
+        assert role_ready["version"] == expected_version and not role_ready["ready"]
+        assert all(value == (key != "collectionEnabled") for key, value in role_ready["checks"].items())
+        for forbidden in ("/app/", "/api/v1/login", "/api/native/v1/login", "/fixture/inbox", "/api/v1/webhooks/email"):
+            try:
+                role_http.open(f"http://127.0.0.1:{role_port}" + forbidden, timeout=2)
+            except urllib.error.HTTPError as error:
+                assert error.code == 404
+                error.close()
+            else:
+                raise AssertionError("final-image newsletter role exposed an app route")
+        run("stop", "--time=20", role_container)
+        assert output("inspect", "--format={{.State.ExitCode}}", role_container) == "0"
+        role_repeat = output("run", "--detach", *options, "--network=host", *role_mounts, *role_flags,
+                             image, "newsletter", "serve")
+        containers.append(role_repeat)
+        for _ in range(150):
+            try:
+                with role_http.open(f"http://127.0.0.1:{role_port}/readyz", timeout=1) as response:
+                    if response.status == 200:
+                        break
+            except OSError:
+                time.sleep(.1)
+        else:
+            raise AssertionError("newsletter final-image restart did not recover")
+        run("stop", "--time=20", role_repeat)
+        assert output("inspect", "--format={{.State.ExitCode}}", role_repeat) == "0"
         import_worker = "/app/mychef-import-worker"
         worker_options = ["--read-only", "--user", "65531:65532", "--cap-drop=ALL",
                           "--security-opt=no-new-privileges:true", "--network=none", "--no-healthcheck",
@@ -173,7 +278,7 @@ def main() -> None:
                                     "--entrypoint", entrypoint, image, *arguments], env=env,
                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             assert denied.returncode != 0, "web UID could access protected worker state"
-        def start(storage: str, *, inbox: bool = False, lifecycle_volume: str | None = None) -> str:
+        def start(storage: str, *, inbox: bool = False, lifecycle_volume: str | None = None, newsletter: bool = False) -> str:
             settings = ("MYCHEF_EMAIL_PROOF_KEYS_FILE", "MYCHEF_FIXTURE_INBOX_FILE") if inbox else ("MYCHEF_EMAIL_PROOF_KEYS_FILE",)
             email_mounts = []
             for setting in settings:
@@ -190,10 +295,17 @@ def main() -> None:
             import_mounts = [*worker_volumes["channel"], "--env", "MYCHEF_IMPORT_WORKER_SOCKET=/import-channel/import-worker.sock",
                              "--env", "MYCHEF_IMPORT_CHANNEL_KEY_FILE=/data/import-channel.key",
                              "--env", "MYCHEF_IMPORT_TEMP_DIR=/tmp/import-pages"]
+            newsletter_settings = []
+            if newsletter:
+                newsletter_settings = ["--mount", f"type=bind,src={newsletter_credentials},dst=/tmp/newsletter-credentials.json,readonly",
+                    "--env", "MYCHEF_CREDENTIALS=/tmp/newsletter-credentials.json", "--env", "MYCHEF_NEWSLETTER_MODE=fixture",
+                    "--env", "MYCHEF_NEWSLETTER_ORIGIN=https://mychef.dev", "--env", "MYCHEF_NEWSLETTER_CONTACT=preview@example.test",
+                    "--env", "MYCHEF_NEWSLETTER_PENDING_DAYS=none", "--env", "MYCHEF_NEWSLETTER_WITHDRAWN_DAYS=none",
+                    "--env", "MYCHEF_NEWSLETTER_OPERATIONS_READY=1"]
             container = output("run", "--detach", *options, *import_mounts, *lifecycle_mounts, "--network=host", "--mount", f"type=volume,src={storage},dst=/data",
                                "--env", "MYCHEF_ADDR=127.0.0.1:18138", "--env", "MYCHEF_ORIGIN=http://127.0.0.1:18138",
                                "--env", "MYCHEF_DEV=1", "--env", "MYCHEF_EMAIL_MODE=fake",
-                               "--env", "MYCHEF_E2E=1", "--env", "MYCHEF_PROVIDER=fixture", *email_mounts, *photo_settings, image)
+                               "--env", "MYCHEF_E2E=1", "--env", "MYCHEF_PROVIDER=fixture", *email_mounts, *photo_settings, *newsletter_settings, image)
             containers.append(container)
             mounts = json.loads(output("inspect", container))[0]["Mounts"]
             assert not any(mount["Destination"] in ("/import-state", "/import-policy") for mount in mounts)
@@ -233,6 +345,44 @@ def main() -> None:
         def imported(phase: str, *, premium: bool = False) -> None:
             env = dict(personal_env, MYCHEF_EXPECT_FIXTURE_PREMIUM="1" if premium else "0")
             subprocess.run(import_command + [phase], env=env, cwd=ROOT / "web", check=True)
+        def newsletter_call(action: str, body: dict, *, expected: int):
+            request = urllib.request.Request("http://127.0.0.1:18138/api/v1/newsletter/" + action,
+                method="POST", headers={"Origin": "https://mychef.dev", "Content-Type": "application/json",
+                    "Authorization": "Bearer " + newsletter_token, "X-MyChef-Newsletter-Source": "192.0.2.144"},
+                data=json.dumps(body).encode())
+            with urllib.request.urlopen(request, timeout=10) as response:
+                assert response.status == expected
+                return json.load(response)
+        newsletter_container = start(volume, inbox=True, newsletter=True)
+        readiness_request = urllib.request.Request("http://127.0.0.1:18138/internal/newsletter/readiness",
+            headers={"Authorization": "Bearer " + newsletter_token})
+        with urllib.request.urlopen(readiness_request, timeout=10) as response:
+            readiness = json.load(response)
+            assert readiness["ready"] and all(readiness["checks"].values()), "explicit no-expiry fixture was not ready"
+        assert newsletter_call("subscribe", {"email": "container-newsletter@example.test", "locale": "fr-BE", "consentVersion": "newsletter-v1"}, expected=202) == {"status": "pending-confirmation"}
+        message = ""
+        for _ in range(150):
+            request = urllib.request.Request("http://127.0.0.1:18138/api/v1/fixture/inbox", method="POST",
+                headers={"Origin": "http://127.0.0.1:18138", "Content-Type": "application/json", "Authorization": "Bearer " + capability},
+                data=json.dumps({"recipient": "container-newsletter@example.test"}).encode())
+            with urllib.request.urlopen(request, timeout=10) as response:
+                if response.status == 200:
+                    message = json.load(response)["text"]
+                    break
+            time.sleep(.1)
+        assert message, "container newsletter fake delivery was unavailable"
+        confirmation = re.search(r"/newsletter/confirm/#([A-Za-z0-9_-]{43})", message).group(1)
+        withdrawal = re.search(r"/newsletter/unsubscribe/#([A-Za-z0-9_-]{43})", message).group(1)
+        assert newsletter_call("confirm", {"proof": confirmation}, expected=200) == {"status": "confirmed"}
+        stop(newsletter_container)
+        newsletter_container = start(volume, inbox=True, newsletter=True)
+        assert newsletter_call("unsubscribe", {"proof": withdrawal}, expected=200) == {"status": "unsubscribed"}
+        run("exec", newsletter_container, "/app/mychef-migrate", "backup", "--db", "/data/mychef.db", "--file", "/data/newsletter-backup.db")
+        run("cp", f"{newsletter_container}:/data/newsletter-backup.db", str(state / "newsletter-backup.db"))
+        with closing(sqlite3.connect(state / "newsletter-backup.db")) as database:
+            newsletter_identity = database.execute("SELECT u.user_id,u.isNewsletterOnly,n.status FROM users u JOIN newsletter_subscriptions n ON n.user_id=u.user_id WHERE u.email_key='container-newsletter@example.test'").fetchone()
+            assert newsletter_identity and newsletter_identity[1:] == (1, "unsubscribed"), "withdrawal lost its retained contact"
+        stop(newsletter_container)
         first = start(volume, inbox=True)
         assert subprocess.run(docker + ["exec", first, "/app/mychef-migrate", "up", "--db", "/forbidden.db"], env=env,
                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode != 0
@@ -281,6 +431,8 @@ def main() -> None:
         with closing(sqlite3.connect(state / "restored.db")) as database:
             assert database.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
             assert database.execute("PRAGMA foreign_key_check").fetchall() == []
+            retained = database.execute("SELECT u.user_id,u.isNewsletterOnly,n.status FROM users u JOIN newsletter_subscriptions n ON n.user_id=u.user_id WHERE u.email_key='container-newsletter@example.test'").fetchone()
+            assert retained == (newsletter_identity[0], 1, "pending"), "restore lost the contact ID or revived newsletter consent"
             assert database.execute("SELECT COUNT(*) FROM generations").fetchone()[0] == 1
             assert database.execute("SELECT quantity FROM ingredients").fetchone()[0] == "0.12345678901234567890123456789"
             for table in ("personal_recipes", "personal_recipe_versions", "personal_recipe_queue", "personal_photo_assets", "personal_photo_attempts", "personal_photo_requests", "recipe_import_operations", "personal_recipe_import_sources"):
@@ -310,7 +462,7 @@ def main() -> None:
                 "aquasec/trivy:0.76.1@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c",
                 "image", "--exit-code", "1", "--severity", "HIGH,CRITICAL", "--scanners", "vuln", image)
         result = {"outcome":"passed", "image":image, "imageId":metadata["Id"], "version":expected_version,
-                  "checks":["context canaries", "offline worker served", "nonroot shell-free runtime", "read-only root", "writable tmpfs", "health", "browser menu", "personal versions/photos/export", "volume restart", "online backup/fresh-volume restore", "personal deletion replay", "active grant persists on restart", "restored grant is cleared", "normal runtime ignores stored grants", "separate worker UID", "protected ledger/policy", "ephemeral import sources", "import save/restart/restore/deletion", "independent admission replay", "SIGTERM"], "scan":args.scan}
+                  "checks":["dedicated newsletter role, paused vector, forbidden routes and restart", "newsletter SQL capture/fake delivery/confirm/restart/withdrawal", "context canaries", "offline worker served", "nonroot shell-free runtime", "read-only root", "writable tmpfs", "health", "browser menu", "personal versions/photos/export", "volume restart", "online backup/fresh-volume restore", "personal deletion replay", "active grant persists on restart", "restored grant is cleared", "normal runtime ignores stored grants", "separate worker UID", "protected ledger/policy", "ephemeral import sources", "import save/restart/restore/deletion", "independent admission replay", "SIGTERM"], "scan":args.scan}
         (artifacts / "result.json").write_text(json.dumps(result, indent=2))
         print(json.dumps(result))
     finally:
@@ -327,6 +479,10 @@ def main() -> None:
                 for file in artifacts.rglob("*"):
                     if file.is_file() and any(value in file.read_bytes() for value in markers):
                         raise RuntimeError("private import content entered retained container evidence")
+            newsletter_canaries = [value.encode() for value in (locals().get("newsletter_token"), locals().get("confirmation"), locals().get("withdrawal")) if value]
+            for file in artifacts.rglob("*"):
+                if file.is_file() and any(value in file.read_bytes() for value in newsletter_canaries):
+                    raise RuntimeError("private newsletter authority entered retained evidence")
             audit_credential_artifacts(artifacts, state, state / "restored.db", password, capability)
         finally:
             private.cleanup()

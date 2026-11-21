@@ -126,6 +126,16 @@ func Render(name string, fields map[string]string) (Message, error) {
 			return Message{}, ErrProofUnavailable
 		}
 		subject, text, html = "Reset your MyChef password", recoveryText, recoveryHTML
+	case NewsletterENTemplate, NewsletterFRTemplate, NewsletterNLTemplate:
+		if !validProofFields(name, fields, 1) {
+			return Message{}, ErrProofUnavailable
+		}
+		subject, text, html = newsletterTemplates(name)
+	case NewsletterWithdrawalENTemplate, NewsletterWithdrawalFRTemplate, NewsletterWithdrawalNLTemplate:
+		if !validProofFields(name, fields, 1) {
+			return Message{}, ErrProofUnavailable
+		}
+		subject, text, html = newsletterWithdrawalTemplates(name)
 	case SignUpProofTemplate:
 		if len(fields) != 2 || !validProofLink(fields["link"]) {
 			return Message{}, ErrProofUnavailable

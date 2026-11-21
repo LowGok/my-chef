@@ -167,7 +167,7 @@ func TestEntitlementUpgradeFrom17LeavesAccountsFree(t *testing.T) {
 	if err := s.CheckSchema(ctx); err == nil {
 		t.Fatal("startup accepted schema 17 without an explicit upgrade")
 	}
-	if err := s.Migrate(ctx); err != nil {
+	if err := s.migrateEntitlements(ctx); err != nil {
 		t.Fatal(err)
 	}
 	var count int
@@ -177,6 +177,9 @@ func TestEntitlementUpgradeFrom17LeavesAccountsFree(t *testing.T) {
 	var currentSchema string
 	if err := s.SQL.QueryRow("SELECT sql FROM sqlite_schema WHERE name='users'").Scan(&currentSchema); err != nil || currentSchema != schema || entitlementIdentity(t, s, 1) != owner {
 		t.Fatal("upgrade rewrote account data", err)
+	}
+	if err := s.Migrate(ctx); err != nil {
+		t.Fatal(err)
 	}
 	if err := s.CheckSchema(ctx); err != nil {
 		t.Fatal(err)

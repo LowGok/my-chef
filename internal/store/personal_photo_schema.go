@@ -50,7 +50,7 @@ func migratePersonalPhotoJournal(ctx context.Context, external *Store) error {
 		if err := tx.Raw("SELECT version,binding FROM lifecycle_journal_meta WHERE singleton=1").Row().Scan(&version, &binding); err != nil {
 			return ErrLifecycleJournal
 		}
-		if version == 2 {
+		if version == 2 || version == 3 {
 			return nil
 		}
 		if version != 1 || !opaqueLifecycleID(binding) {

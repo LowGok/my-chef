@@ -174,7 +174,7 @@ func (r *Recovery) step(ctx context.Context, order int64) (bool, error) {
 				return tx.Delete(&job).Error
 			}
 			var user store.User
-			err = tx.Where("email_key = ? AND email_verified_at IS NOT NULL", key).Take(&user).Error
+			err = tx.Where("email_key = ? AND email_verified_at IS NOT NULL AND isNewsletterOnly=0", key).Take(&user).Error
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return tx.Delete(&job).Error
 			}
@@ -286,7 +286,7 @@ func (r *Recovery) readRecoveryProof(tx *gorm.DB, hash string, now time.Time) (s
 		}
 		return proof, user, err
 	}
-	if err := tx.Where("user_id = ? AND email_verified_at IS NOT NULL", proof.UserID).Take(&user).Error; err != nil {
+	if err := tx.Where("user_id = ? AND email_verified_at IS NOT NULL AND isNewsletterOnly=0", proof.UserID).Take(&user).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			err = ErrRecoveryProof
 		}

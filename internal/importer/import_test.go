@@ -208,6 +208,10 @@ func TestPostgresSnapshotPreservesDataAndLogin(t *testing.T) {
 	if err != nil {
 		t.Fatal("legacy bcrypt login failed")
 	}
+	alias, err := auth.New(s).Login(ctx, strings.ToUpper(user.Username), "LegacyPass2026!")
+	if err != nil || alias.ID != user.ID || alias.Username != user.Username {
+		t.Fatal("imported username does not resolve to the preserved account")
+	}
 	if !reflect.DeepEqual(user.Preferences().Diet, []string{"Vegetarian", "Gluten-Free"}) {
 		t.Fatal("legacy preferences changed")
 	}

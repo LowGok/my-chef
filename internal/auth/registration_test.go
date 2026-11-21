@@ -98,7 +98,7 @@ func TestSignUpDoesNotCreateUsableAccountBeforeMailboxProof(t *testing.T) {
 	}
 	proof := signUpLink(t, signup, *now)
 	got, err := signup.Inspect(ctx, proof)
-	if err != nil || got != details {
+	if err != nil || got.FirstName != details.FirstName || got.LastName != details.LastName || got.Username != details.Username || got.AnalyticsEnabled == nil || *got.AnalyticsEnabled {
 		t.Fatal("the proof did not return its editable suggestions")
 	}
 	confirmed := SignUpDetails{FirstName: "Mailbox", LastName: "Owner", Username: "confirmed"}
