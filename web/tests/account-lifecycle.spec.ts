@@ -21,6 +21,68 @@ const deleteButton = (page: Page) =>
 const modal = (page: Page, name: string) =>
   page.getByRole("dialog", { name, exact: true });
 
+test("the deletion dialog points to the selling store and does not require a store visit", async ({
+  page,
+}) => {
+  await account(page, "lifecyclebilling");
+  const session = await (await page.request.get("/api/v1/session")).json();
+  let stores: string[] | null = ["play"];
+  await page.route("**/api/v1/account/deletion-advice", (route) =>
+    stores === null
+      ? route.fulfill({ status: 503, json: {} })
+      : route.fulfill({
+          status: 200,
+          headers: { "X-MyChef-User": String(session.user.id) },
+          json: { stores },
+        }),
+  );
+  await page.setViewportSize({ width: 320, height: 780 });
+  await page.evaluate(() => {
+    document.documentElement.style.fontSize = "200%";
+  });
+  const dialog = modal(page, "Delete my account");
+  await deleteButton(page).click();
+  await expect(
+    dialog.getByRole("link", { name: "Open Google Play subscriptions" }),
+  ).toHaveAttribute(
+    "href",
+    "https://play.google.com/store/account/subscriptions",
+  );
+  await expect(
+    dialog.getByRole("link", { name: "Open Apple subscriptions" }),
+  ).toHaveCount(0);
+  await expect(dialog).toContainText(
+    "Deleting MyChef does not stop store charges",
+  );
+  expect(await dialog.evaluate((e) => e.scrollWidth <= e.clientWidth + 1)).toBe(
+    true,
+  );
+  await page.keyboard.press("Escape");
+  stores = ["apple"];
+  await deleteButton(page).click();
+  await expect(
+    dialog.getByRole("link", { name: "Open Apple subscriptions" }),
+  ).toHaveAttribute("href", "https://apps.apple.com/account/subscriptions");
+  await expect(
+    dialog.getByRole("link", { name: "Open Google Play subscriptions" }),
+  ).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  stores = null;
+  await deleteButton(page).click();
+  await expect(
+    dialog.getByRole("link", { name: "Open Apple subscriptions" }),
+  ).toBeVisible();
+  await expect(
+    dialog.getByRole("link", { name: "Open Google Play subscriptions" }),
+  ).toBeVisible();
+  await dialog.getByLabel("Current password", { exact: true }).fill(password);
+  await dialog.getByLabel(/type DELETE/i).fill("DELETE");
+  await dialog
+    .getByRole("button", { name: "Permanently delete account", exact: true })
+    .click();
+  await expect(dialog).not.toBeVisible();
+});
+
 test("account actions fit phones and enlarged text with keyboard focus", async ({
   page,
 }) => {
@@ -214,9 +276,7 @@ test("account deletion confirms once, clears this device and permits empty signu
       (e as HTMLButtonElement).click();
     });
   await expect(page).toHaveURL(/^https?:\/\/[^/]+\/$/);
-  await expect(
-    page.getByRole("heading", { name: "MyChef" }),
-  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: "MyChef" })).toBeVisible();
   await page.goBack();
   await expect(
     page.getByRole("heading", { name: "Welcome back." }),

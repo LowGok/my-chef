@@ -21,17 +21,22 @@ import { addDays, dateLabel, monday, today } from "./dates";
 import { menuInputError, validDate } from "./validation";
 import type { FavoriteWeek } from "./Favorites";
 import { effortLevels } from "./effort";
+import type { PlanningCalendar } from "./PlanningZone";
 
 export function Planner({
   onSubmit,
   onCancel,
   preferences,
   initialInput,
+  calendar,
+  week,
 }: {
   onSubmit: (input: MenuInput) => void;
   onCancel: () => void;
   preferences: Profile["preferences"];
   initialInput?: MenuInput | null;
+  calendar?: PlanningCalendar;
+  week: string;
 }) {
   const [queued, setQueued] = useState<FavoriteWeek[]>([]);
   const [input, setInput] = useState<MenuInput | null>(null),
@@ -39,6 +44,38 @@ export function Planner({
   const [draft, setDraft] = useState<MenuInput | null>(initialInput ?? null);
   const [confirmation, setConfirmation] = useState<MenuInput | null>(null);
   const [checking, setChecking] = useState(false);
+  const [savedDates, setSavedDates] = useState<string[] | null>(null);
+  const [replaceSlots, setReplaceSlots] = useState(
+    !!initialInput?.replaceExisting,
+  );
+  const weekDates = Array.from({ length: calendar?.premium ? 7 : 3 }, (_, i) =>
+    addDays(week, i),
+  );
+  const openDates = weekDates.filter((date) => !savedDates?.includes(date));
+  const occupiedDates = weekDates.filter((date) => savedDates?.includes(date));
+  const availableDates = replaceSlots ? occupiedDates : openDates;
+  const singleReplacement = replaceSlots && !calendar?.premium;
+
+  useEffect(() => {
+    if (!calendar) return;
+    let active = true;
+    setSavedDates(null);
+    api<RecipePage>(`/menus?from=${week}&to=${addDays(week, 7)}`)
+      .then((page) => {
+        if (!active) return;
+        const dates = page.recipes.map((r) => r.date);
+        setSavedDates(dates);
+        if (weekDates.every((date) => dates.includes(date)))
+          setReplaceSlots(true);
+      })
+      .catch((err) => {
+        if (active && !isStale(err)) setError(message(err));
+      });
+    return () => {
+      active = false;
+    };
+  }, [calendar?.premium, week]);
+
   const dialog = useRef<HTMLDialogElement>(null);
   const panel = useRef<HTMLElement>(null),
     reviewHeading = useRef<HTMLHeadingElement>(null);
@@ -58,17 +95,33 @@ export function Planner({
     const form = new FormData(e.currentTarget);
     const date = String(form.get("date")),
       count = Number(form.get("count"));
-    if (
-      !validDate(date) ||
-      !Number.isInteger(count) ||
-      count < 1 ||
-      count > 7
-    ) {
-      setError("Choose one to seven meals and a valid date.");
-      return;
+    let dates: string[];
+    if (calendar) {
+      dates = form.getAll("slot").map(String).sort();
+      if (
+        !savedDates ||
+        dates.length === 0 ||
+        (singleReplacement && dates.length !== 1) ||
+        dates.some((day) => !availableDates.includes(day))
+      ) {
+        setError("Choose an available dinner date.");
+        return;
+      }
+    } else {
+      if (
+        !validDate(date) ||
+        !Number.isInteger(count) ||
+        count < 1 ||
+        count > 7
+      ) {
+        setError("Choose one to seven meals and a valid date.");
+        return;
+      }
+      dates = Array.from({ length: count }, (_, i) => addDays(date, i));
     }
     const value: MenuInput = {
-      dates: Array.from({ length: count }, (_, i) => addDays(date, i)),
+      dates,
+      ...(calendar && replaceSlots ? { replaceExisting: true } : {}),
       adults: Number(form.get("adults")),
       children: Number(form.get("children")),
       maxMinutes: Number(form.get("minutes")),
@@ -116,6 +169,22 @@ export function Planner({
           );
           return;
         }
+      }
+      if (calendar) {
+        const latest = await api<RecipePage>(
+          `/menus?from=${week}&to=${addDays(week, 7)}`,
+        );
+        const dates = latest.recipes.map((r) => r.date);
+        if (value.dates.some((day) => dates.includes(day) !== replaceSlots)) {
+          setSavedDates(dates);
+          if (weekDates.every((day) => dates.includes(day)))
+            setReplaceSlots(true);
+          setError("This week changed. Choose your dinner dates again.");
+          return;
+        }
+        if (replaceSlots) setConfirmation(value);
+        else setInput(value);
+        return;
       }
       const saved = await Promise.all(
         weeks.map((week) =>
@@ -206,20 +275,26 @@ export function Planner({
       >
         <h3 id="replacement-title">You have meals planned.</h3>
         <p id="replacement-description">
-          Planning again will replace all meals in{" "}
-          {confirmation && new Set(confirmation.dates.map(monday)).size > 1
-            ? "these weeks"
-            : "this week"}
-          . Your current meals stay until the new plan is ready.
+          {calendar
+            ? "Only the selected dinners will be replaced. Your other meals will stay."
+            : `Planning again will replace all meals in ${
+                confirmation && new Set(confirmation.dates.map(monday)).size > 1
+                  ? "these weeks"
+                  : "this week"
+              }. Your current meals stay until the new plan is ready.`}
         </p>
         <ul className="replacement-weeks">
-          {Array.from(new Set(confirmation?.dates.map(monday) ?? []))
-            .sort()
-            .map((week) => (
-              <li key={week}>
-                {dateLabel(week)} – {dateLabel(addDays(week, 6))}
-              </li>
-            ))}
+          {calendar
+            ? confirmation?.dates.map((day) => (
+                <li key={day}>{dateLabel(day)}</li>
+              ))
+            : Array.from(new Set(confirmation?.dates.map(monday) ?? []))
+                .sort()
+                .map((week) => (
+                  <li key={week}>
+                    {dateLabel(week)} – {dateLabel(addDays(week, 6))}
+                  </li>
+                ))}
         </ul>
         <div className="button-row replacement-actions">
           <button
@@ -406,23 +481,74 @@ export function Planner({
               />
             </div>
           </fieldset>
-          <div className="form-row">
-            <Field label="First meal date">
-              <input
-                name="date"
-                type="date"
-                defaultValue={draft?.dates[0] ?? today()}
-                required
+          {calendar ? (
+            <fieldset
+              className="planning-slots"
+              key={String(replaceSlots) + availableDates.join()}
+            >
+              <legend>Dinner dates</legend>
+              {!savedDates ? (
+                <p role="status">Checking saved dinners…</p>
+              ) : (
+                <>
+                  {!calendar.premium && (
+                    <p className="muted">Free includes Monday to Wednesday.</p>
+                  )}
+                  {openDates.length > 0 && occupiedDates.length > 0 && (
+                    <button
+                      className="button secondary"
+                      type="button"
+                      onClick={() => setReplaceSlots(!replaceSlots)}
+                    >
+                      {replaceSlots
+                        ? "Plan open dinners"
+                        : "Replace saved dinners"}
+                    </button>
+                  )}
+                  {availableDates.map((day, index) => (
+                    <label className="planning-slot" key={day}>
+                      <input
+                        name="slot"
+                        type={singleReplacement ? "radio" : "checkbox"}
+                        value={day}
+                        defaultChecked={
+                          draft && !!draft.replaceExisting === replaceSlots
+                            ? draft.dates.includes(day)
+                            : !replaceSlots ||
+                              (singleReplacement && index === 0)
+                        }
+                      />
+                      <span>
+                        {new Date(day + "T12:00:00Z").toLocaleDateString(
+                          undefined,
+                          { weekday: "long", timeZone: "UTC" },
+                        )}{" "}
+                        · {dateLabel(day)}
+                      </span>
+                    </label>
+                  ))}
+                </>
+              )}
+            </fieldset>
+          ) : (
+            <div className="form-row">
+              <Field label="First meal date">
+                <input
+                  name="date"
+                  type="date"
+                  defaultValue={draft?.dates[0] ?? today()}
+                  required
+                />
+              </Field>
+              <NumberStepper
+                label="Number of meals"
+                name="count"
+                min={1}
+                max={7}
+                initial={draft?.dates.length ?? 3}
               />
-            </Field>
-            <NumberStepper
-              label="Number of meals"
-              name="count"
-              min={1}
-              max={7}
-              initial={draft?.dates.length ?? 3}
-            />
-          </div>
+            </div>
+          )}
           <fieldset className="menu-preferences">
             <legend>Your preferences</legend>
             <div className="form-row">
@@ -470,7 +596,10 @@ export function Planner({
               </div>
             )}
           </fieldset>
-          <button className="button primary" disabled={checking}>
+          <button
+            className="button primary"
+            disabled={checking || (!!calendar && !savedDates)}
+          >
             {checking ? "Checking your week…" : "Review menu"}
             <Icon name="arrow" />
           </button>

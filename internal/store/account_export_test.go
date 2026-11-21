@@ -30,7 +30,7 @@ func lifecycleExportFixture(t *testing.T) (*Store, AccountActor) {
  INSERT INTO generations(id,user_id,request_key,request_hash,request_json,status,stage,menu_id) VALUES(11,1,'planning-key-secret','request-hash-secret','{"dates":["2026-11-09"],"adults":2,"children":0,"maxMinutes":30,"budget":"medium","region":"BE","creativity":3,"preferences":{"diet":["vegetarian"]}}','succeeded','finished',17);
  INSERT INTO meals(meal_id,creator_id,menu_id,creationdate,recipetitle,legacy_raw,cloudinary_public_id) VALUES(27,1,17,'2026-11-09','Owned dinner','{"password":"legacy-opaque-secret"}','provider-secret-id'),(28,2,18,'2026-11-09','OTHER-ACCOUNT-CANARY',NULL,NULL);
  INSERT INTO ingredients(pk_ingredients,recipe_id,ingredient_name,quantity,unit) VALUES(37,27,'Carrot','2','piece'),(38,28,'OTHER-INGREDIENT-CANARY','1','kg');
- INSERT INTO shopping_lists VALUES(1,'2026-11-09',2,'{"week":"2026-11-09","meals":[{"recipeId":"27","title":"Owned dinner"}],"items":[{"id":"raw-item-id","name":"Carrot","contributions":[{"recipeId":"27","title":"Owned dinner"}]}]}');
+ INSERT INTO shopping_lists VALUES(1,'2026-11-09',2,'{"week":"2026-11-09","meals":[{"recipeId":"27","title":"Owned dinner"}],"items":[{"id":"raw-item-id","name":"Carrot","contributions":[{"recipeId":"27","title":"Owned dinner"}]}],"fullWeekChecks":{"raw-full-week-id":{"item":"private-fingerprint","state":"basket","name":"Checked leek","quantity":"50","unit":"g"}}}');
  INSERT INTO favorites(user_id,recipe_id,body,created_unix) VALUES(1,27,'{"id":"27","menuId":"17","title":"Owned dinner","ingredients":[{"id":"37","name":"Carrot"}],"legacyRaw":{"password":"favorite-opaque-secret"}}',125);
  INSERT INTO favorite_queue(user_id,recipe_id,week,body) VALUES(1,27,'2026-11-16','{"id":"27","menuId":"17","title":"Owned dinner"}');
  INSERT INTO favorite_swaps VALUES(1,'swap-key-secret','swap-hash-secret','{"id":"27","menuId":"17","title":"Owned dinner"}');
@@ -83,12 +83,12 @@ func TestAccountExportOwnedInventoryAndLocalRelationships(t *testing.T) {
 	for _, v := range files {
 		joined += string(v)
 	}
-	for _, secret := range []string{"legacy-hash", "export-session-secret", "request-hash-secret", "planning-key-secret", "legacy-opaque-secret", "favorite-opaque-secret", "provider-secret-id", "operator-secret@example.test", "outbox-payload-secret", "feedback-key-secret", "rating-key-secret", "swap-key-secret", "swap-hash-secret", "OTHER-ACCOUNT-CANARY", "OTHER-INGREDIENT-CANARY"} {
+	for _, secret := range []string{"private-fingerprint", "raw-full-week-id", "legacy-hash", "export-session-secret", "request-hash-secret", "planning-key-secret", "legacy-opaque-secret", "favorite-opaque-secret", "provider-secret-id", "operator-secret@example.test", "outbox-payload-secret", "feedback-key-secret", "rating-key-secret", "swap-key-secret", "swap-hash-secret", "OTHER-ACCOUNT-CANARY", "OTHER-INGREDIENT-CANARY"} {
 		if strings.Contains(joined, secret) {
 			t.Fatal("forbidden export canary", secret)
 		}
 	}
-	for _, owned := range []string{"owner@example.test", "Owned dinner", "Carrot", "Owned feedback message", "vegetarian"} {
+	for _, owned := range []string{"owner@example.test", "Owned dinner", "Checked leek", "Carrot", "Owned feedback message", "vegetarian"} {
 		if !strings.Contains(joined, owned) {
 			t.Fatal("missing owned data", owned)
 		}

@@ -79,7 +79,7 @@ public final class NativeJourneyProbe extends Instrumentation {
         if (!Arrays.asList("Save preferences", "Save password", "Send feedback", "Save rating", "Save", "Retry save",
                 "Review menu", "Plan my week", "Add extra", "Check page", "Read recipe pages",
                 "Download ZIP", "Permanently delete account", "Current password",
-                "Choose recipe photo", "Recipe-page photos").contains(label))
+                "Choose recipe photo", "Recipe-page photos", "Subscribe monthly", "Restore purchases").contains(label))
             throw new IllegalStateException("native-control");
         double[][] point = {null};
         CountDownLatch evaluated = new CountDownLatch(1);
@@ -300,8 +300,7 @@ public final class NativeJourneyProbe extends Instrumentation {
     }
 
     private void checkAccessibility(String group) {
-        boolean reminder = group.startsWith("reminder-");
-        if (reminder) {
+        if (group.startsWith("reminder-") || group.startsWith("billing-")) {
             boolean[] scaled = {false};
             runOnMainSync(() -> scaled[0] = Math.abs(web.getResources().getConfiguration().fontScale - 1.5f) < 0.01f
                 && web.getSettings().getTextZoom() >= 140);
@@ -311,6 +310,9 @@ public final class NativeJourneyProbe extends Instrumentation {
             case "nav" -> new String[]{"Meals", "Shopping list", "Profile"};
             case "reminder-opt-in" -> new String[]{"Monday reminder"};
             case "reminder-save" -> new String[]{"Save reminder preferences"};
+            case "billing-monthly" -> new String[]{"Subscribe monthly"};
+            case "billing-annual" -> new String[]{"Subscribe annually"};
+            case "billing-restore" -> new String[]{"Restore purchases"};
             default -> new String[]{"Cancel", "Download ZIP"};
         };
         long end = SystemClock.uptimeMillis() + 25_000;
@@ -370,7 +372,7 @@ public final class NativeJourneyProbe extends Instrumentation {
                         String[] parts = value.split(":", 3);
                         selectSystemDocument(parts[2]);
                         Files.write(done.toPath(), parts[1].getBytes(StandardCharsets.UTF_8));
-                    } else if (value.matches("accessibility:[1-9][0-9]{0,3}:(nav|export-dialog|reminder-opt-in|reminder-save)")) {
+                    } else if (value.matches("accessibility:[1-9][0-9]{0,3}:(nav|export-dialog|reminder-opt-in|reminder-save|billing-monthly|billing-annual|billing-restore)")) {
                         String[] parts = value.split(":", 3);
                         checkAccessibility(parts[2]);
                         Files.write(done.toPath(), parts[1].getBytes(StandardCharsets.UTF_8));

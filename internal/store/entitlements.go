@@ -8,6 +8,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/LowGok/my-chef/internal/billing"
 	"github.com/LowGok/my-chef/migrations"
 	"gorm.io/gorm"
 )
@@ -55,11 +56,44 @@ func EntitlementReader(lease FixtureEntitlementLease, now func() time.Time) Pers
 		if lease.ID == "" || !at.Before(lease.Expires) {
 			return PersonalEntitlement{}, nil
 		}
-		eligible, err := fixtureSyntheticAccount(tx.WithContext(ctx), user, incarnation)
+		eligible, err := SyntheticFixtureAccount(tx.WithContext(ctx), user, incarnation)
 		if err != nil || !eligible {
 			return PersonalEntitlement{}, err
 		}
 		return resolveEntitlement(ctx, tx, user, incarnation, lease, at)
+	}
+}
+
+// NativeBillingEntitlementReader joins an approved environment to the shared
+// reader. Leave it unconfigured until lifecycle fencing and restore are wired.
+// The fallback remains available for the existing disposable fixture mode.
+func NativeBillingEntitlementReader(journal *billing.Journal, env billing.Environment, fallback PersonalEntitlementReader, now func() time.Time) PersonalEntitlementReader {
+	if now == nil {
+		now = time.Now
+	}
+	return func(ctx context.Context, tx *gorm.DB, user int64, incarnation string) (PersonalEntitlement, error) {
+		if journal != nil {
+			var owned bool
+			if err := tx.WithContext(ctx).Raw(`SELECT EXISTS(
+SELECT 1 FROM account_incarnations a JOIN users u ON u.user_id=a.user_id
+WHERE a.user_id=? AND a.incarnation=? AND u.email_verified_at>0)`, user, incarnation).Row().Scan(&owned); err != nil {
+				return PersonalEntitlement{}, err
+			}
+			if !owned {
+				return PersonalEntitlement{}, nil
+			}
+			period, err := journal.Active(ctx, incarnation, env, now())
+			if err != nil {
+				return PersonalEntitlement{}, err
+			}
+			if period != nil {
+				return PersonalEntitlement{Premium: true, ExpiresUnix: (period.PaidThrough.UnixNano()-1)/int64(time.Second) + 1}, nil
+			}
+		}
+		if fallback == nil {
+			return PersonalEntitlement{}, nil
+		}
+		return fallback(ctx, tx, user, incarnation)
 	}
 }
 

@@ -21,6 +21,7 @@ import {
   type RecipePage,
 } from "./api";
 import { Alert, Field, FoodPlaceholder } from "./components";
+import type { PlanningCalendar } from "./PlanningZone";
 import { addDays, monday, today } from "./dates";
 import { focusContentTop } from "./scroll";
 import { DurationPicker } from "./DurationPicker";
@@ -120,7 +121,11 @@ export function PersonalRecipes({
   onDirty,
   onPlanned,
   onCopyResolved,
+  calendar,
+  canPlan = true,
 }: {
+  calendar?: PlanningCalendar;
+  canPlan?: boolean;
   copySource?: string;
   onBack: () => void;
   onDirty: (dirty: boolean) => void;
@@ -253,9 +258,9 @@ export function PersonalRecipes({
     load();
   }
   function queue() {
-    if (!selected) return;
-    const date = today(),
-      week = addDays(monday(date), 7);
+    if (!selected || !canPlan) return;
+    const date = calendar?.today ?? today(),
+      week = addDays(calendar?.firstWeek ?? monday(date), 7);
     void run(
       (signal) =>
         personalApi.queue(
@@ -276,7 +281,8 @@ export function PersonalRecipes({
     );
   }
   function chooseSwap() {
-    const week = monday(today());
+    if (!canPlan) return;
+    const week = calendar?.firstWeek ?? monday(today());
     setTarget("");
     setMeals([]);
     setSwap(true);
@@ -395,6 +401,11 @@ export function PersonalRecipes({
               still read or delete it.
             </p>
           )}
+          {permission?.canWrite && !canPlan && (
+            <p className="notice">
+              Confirm your household time zone to plan this recipe.
+            </p>
+          )}
           <div className="button-row personal-actions">
             <button
               className="button secondary"
@@ -413,14 +424,14 @@ export function PersonalRecipes({
             </button>
             <button
               className="button primary"
-              disabled={busy || !permission?.canWrite}
+              disabled={busy || !permission?.canWrite || !canPlan}
               onClick={queue}
             >
               Add to next week
             </button>
             <button
               className="button secondary"
-              disabled={busy || !permission?.canWrite}
+              disabled={busy || !permission?.canWrite || !canPlan}
               onClick={chooseSwap}
             >
               Swap this week’s meal
@@ -622,8 +633,8 @@ export function PersonalRecipes({
                           selected.id,
                           {
                             versionId: selected.versionId,
-                            week: monday(today()),
-                            today: today(),
+                            week: calendar?.firstWeek ?? monday(today()),
+                            today: calendar?.today ?? today(),
                             targetId: target,
                             requestKey: assignment.current.key,
                           },

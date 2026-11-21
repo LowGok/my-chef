@@ -10,11 +10,15 @@ export function Shopping({
   week,
   onWeek,
   offlineOnly = false,
+  firstWeek,
+  lastWeek,
 }: {
   profile: Profile;
   week: string;
   onWeek: (week: string) => void;
   offlineOnly?: boolean;
+  firstWeek?: string;
+  lastWeek?: string;
 }) {
   const {
     list,
@@ -25,6 +29,8 @@ export function Shopping({
     offline,
     conflict,
     notice,
+    downgradeNotice,
+    dismissDowngradeNotice,
     pending,
     blockedWeek,
     recoveryKeepsRemoved,
@@ -51,7 +57,12 @@ export function Shopping({
   }
   const counts = { buy: 0, basket: 0, home: 0 };
   list?.items.forEach((i) => counts[i.state]++);
-  const ordered = orderShopping(list?.items ?? [], tab, order);
+  const locked = !!list?.customizationLocked;
+  const ordered = orderShopping(
+    list?.items ?? [],
+    tab,
+    locked ? "category" : order,
+  );
   const groups = ordered.groups.map(
     (group) => [group.label, group.items] as const,
   );
@@ -69,6 +80,7 @@ export function Shopping({
         <button
           className="button"
           aria-label="Previous shopping week"
+          disabled={!!firstWeek && week <= firstWeek}
           onClick={() => onWeek(addDays(week, -7))}
         >
           ←
@@ -79,6 +91,7 @@ export function Shopping({
         <button
           className="button"
           aria-label="Next shopping week"
+          disabled={!!lastWeek && week >= lastWeek}
           onClick={() => onWeek(addDays(week, 7))}
         >
           →
@@ -122,6 +135,18 @@ export function Shopping({
           {notice}
         </p>
       )}
+      {downgradeNotice && (
+        <div className="shopping-notice" role="status">
+          <p>{downgradeNotice}</p>
+          <button
+            className="text-button"
+            disabled={busy}
+            onClick={dismissDowngradeNotice}
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
       {!list ? (
         <p role="status">
           {offline
@@ -130,56 +155,66 @@ export function Shopping({
         </p>
       ) : (
         <>
-          <div className="shopping-layout">
-            <aside className="shopping-meals panel">
-              <button
-                className="shopping-meal-toggle"
-                aria-expanded={mealsOpen}
-                onClick={() => setMealsOpen((v) => !v)}
-              >
-                <Icon name="meal" />
-                Choose meals
-                <span>
-                  {list.meals.filter((m) => m.selected).length}/
-                  {list.meals.length}
-                </span>
-              </button>
-              {mealsOpen && (
-                <div className="shopping-meal-options">
-                  <p className="muted small">
-                    Only selected meals contribute to this week’s list.
-                  </p>
-                  {list.meals.length === 0 && (
-                    <p>
-                      No saved meals for this week. You can still add household
-                      extras.
+          <div
+            className={`shopping-layout${locked ? " shopping-layout-locked" : ""}`}
+          >
+            {!locked && (
+              <aside className="shopping-meals panel">
+                <button
+                  className="shopping-meal-toggle"
+                  aria-expanded={mealsOpen}
+                  onClick={() => setMealsOpen((v) => !v)}
+                >
+                  <Icon name="meal" />
+                  Choose meals
+                  <span>
+                    {list.meals.filter((m) => m.selected).length}/
+                    {list.meals.length}
+                  </span>
+                </button>
+                {mealsOpen && (
+                  <div className="shopping-meal-options">
+                    <p className="muted small">
+                      Only selected meals contribute to this week’s list.
                     </p>
-                  )}
-                  {list.meals.map((m) => (
-                    <label key={m.position} className="shopping-meal">
-                      <input
-                        type="checkbox"
-                        checked={m.selected}
-                        disabled={offline || busy || pending > 0}
-                        aria-label={`Include ${m.title} on ${dateLabel(m.date)}`}
-                        onChange={(e) =>
-                          void edit({
-                            kind: "meal",
-                            id: m.position,
-                            selected: e.target.checked,
-                          })
-                        }
-                      />
-                      <span>
-                        <small>{dateLabel(m.date)}</small>
-                        <strong>{m.title.replace(/^\[TEST\]\s*/, "")}</strong>
-                      </span>
-                    </label>
-                  ))}
-                </div>
-              )}
-            </aside>
+                    {list.meals.length === 0 && (
+                      <p>
+                        No saved meals for this week. You can still add
+                        household extras.
+                      </p>
+                    )}
+                    {list.meals.map((m) => (
+                      <label key={m.position} className="shopping-meal">
+                        <input
+                          type="checkbox"
+                          checked={m.selected}
+                          disabled={offline || busy || pending > 0}
+                          aria-label={`Include ${m.title} on ${dateLabel(m.date)}`}
+                          onChange={(e) =>
+                            void edit({
+                              kind: "meal",
+                              id: m.position,
+                              selected: e.target.checked,
+                            })
+                          }
+                        />
+                        <span>
+                          <small>{dateLabel(m.date)}</small>
+                          <strong>{m.title.replace(/^\[TEST\]\s*/, "")}</strong>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </aside>
+            )}
             <div className="shopping-list-body">
+              {locked && (
+                <p className="muted">
+                  Free includes all dinners this week. You can still check off
+                  saved extras.
+                </p>
+              )}
               <div className="shopping-progress">
                 <span>
                   {counts.basket + counts.home} of {list.items.length} items
@@ -222,21 +257,23 @@ export function Shopping({
                   </button>
                 ))}
               </div>
-              <label className="shopping-sort">
-                Sort by
-                <select
-                  aria-label="Sort by"
-                  value={order}
-                  onChange={(event) =>
-                    setOrder(event.target.value as ShoppingOrder)
-                  }
-                >
-                  <option value="category">Category</option>
-                  <option value="fresh">Fresh items first</option>
-                  <option value="name">Name (A–Z)</option>
-                  <option value="quantity">Quantity (high to low)</option>
-                </select>
-              </label>
+              {!locked && (
+                <label className="shopping-sort">
+                  Sort by
+                  <select
+                    aria-label="Sort by"
+                    value={order}
+                    onChange={(event) =>
+                      setOrder(event.target.value as ShoppingOrder)
+                    }
+                  >
+                    <option value="category">Category</option>
+                    <option value="fresh">Fresh items first</option>
+                    <option value="name">Name (A–Z)</option>
+                    <option value="quantity">Quantity (high to low)</option>
+                  </select>
+                </label>
+              )}
               {groups.length === 0 && (
                 <div className="shopping-empty panel">
                   <Icon name="leaf" />
@@ -247,7 +284,9 @@ export function Shopping({
                   </h3>
                   <p>
                     {tab === "buy"
-                      ? "Choose meals or add an extra below."
+                      ? locked
+                        ? "Ingredients from your saved dinners will appear here."
+                        : "Choose meals or add an extra below."
                       : "Move an item here from your list whenever you’re ready."}
                   </p>
                 </div>
@@ -325,7 +364,7 @@ export function Shopping({
                             name={item.state === "home" ? "arrow" : "home"}
                           />
                         </button>
-                        {item.manual && (
+                        {item.manual && !locked && (
                           <button
                             className="shopping-icon-button"
                             disabled={conflict}
@@ -342,36 +381,46 @@ export function Shopping({
                   </div>
                 </section>
               ))}
-              <details className="shopping-add panel">
-                <summary>
-                  <Icon name="plus" />A few extras?
-                </summary>
-                <form onSubmit={addExtra}>
-                  <p>For the things your recipes don’t cover.</p>
-                  <label>
-                    Extra item
-                    <input
-                      name="name"
-                      required
-                      maxLength={200}
-                      placeholder="Dish soap, coffee, a treat…"
-                    />
-                  </label>
-                  <div className="shopping-add-amount">
+              {!locked && (
+                <details className="shopping-add panel">
+                  <summary>
+                    <Icon name="plus" />A few extras?
+                  </summary>
+                  <form onSubmit={addExtra}>
+                    <p>For the things your recipes don’t cover.</p>
                     <label>
-                      Amount
-                      <input name="quantity" maxLength={100} placeholder="1" />
+                      Extra item
+                      <input
+                        name="name"
+                        required
+                        maxLength={200}
+                        placeholder="Dish soap, coffee, a treat…"
+                      />
                     </label>
-                    <label>
-                      Unit
-                      <input name="unit" maxLength={80} placeholder="bottle" />
-                    </label>
-                  </div>
-                  <button className="button primary" disabled={conflict}>
-                    Add extra
-                  </button>
-                </form>
-              </details>
+                    <div className="shopping-add-amount">
+                      <label>
+                        Amount
+                        <input
+                          name="quantity"
+                          maxLength={100}
+                          placeholder="1"
+                        />
+                      </label>
+                      <label>
+                        Unit
+                        <input
+                          name="unit"
+                          maxLength={80}
+                          placeholder="bottle"
+                        />
+                      </label>
+                    </div>
+                    <button className="button primary" disabled={conflict}>
+                      Add extra
+                    </button>
+                  </form>
+                </details>
+              )}
             </div>
           </div>
         </>

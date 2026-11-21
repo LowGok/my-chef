@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/LowGok/my-chef/internal/analytics"
+	"github.com/LowGok/my-chef/internal/billing"
 	"github.com/ncruces/go-sqlite3/driver"
 	"gorm.io/gorm"
 )
@@ -180,7 +181,7 @@ func Restore(ctx context.Context, backup, destination string, options ...Account
 	}
 	unlockJournal, err := LockApplication(opts.JournalPath)
 	if err != nil {
-		return err
+		return ErrLifecycleJournal
 	}
 	defer unlockJournal()
 	// Older snapshots cannot receive new incarnations and bypass old markers.
@@ -258,9 +259,13 @@ func Restore(ctx context.Context, backup, destination string, options ...Account
 				return err
 			}
 		}
+		var billingActivity bool
+		if err := paired.store.SQL.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM billing_attempts)`).Scan(&billingActivity); err != nil {
+			return ErrLifecycleJournal
+		}
 		// Old snapshots must never resurrect consumed refresh credentials.
 		// The trigger also removes native access actors and their anchors.
-		return copy.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := copy.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 			if !newsletterBound {
 				if err := resetRestoredNewsletter(ctx, tx, time.Now().UTC()); err != nil {
 					return err
@@ -268,6 +273,13 @@ func Restore(ctx context.Context, backup, destination string, options ...Account
 			}
 			if err := tx.Exec("DELETE FROM native_families").Error; err != nil {
 				return err
+			}
+			// Preserve the existing browser-session policy for databases
+			// that have never participated in native billing.
+			if billingActivity {
+				if err := tx.Exec("DELETE FROM sessions").Error; err != nil {
+					return err
+				}
 			}
 			// Fixture authorization is ephemeral across a restore, even when
 			// the account and its configured test lease are still valid.
@@ -278,7 +290,15 @@ func Restore(ctx context.Context, backup, destination string, options ...Account
 				return err
 			}
 			return retireFixtureEntitlements(tx)
-		})
+		}); err != nil {
+			return err
+		}
+		// Invalidate workers before publishing the new app file. This only
+		// resets fresh-proof marks and leases in the separate journal.
+		if _, err := billing.StartRuntime(ctx, paired.store.SQL); err != nil {
+			return ErrLifecycleJournal
+		}
+		return nil
 	})
 }
 

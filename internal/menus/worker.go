@@ -23,6 +23,7 @@ import (
 
 type Options struct {
 	PersonalEntitlements store.PersonalEntitlementReader
+	Planning             *store.PlanningPolicy
 	AssetProvider        string
 	Lifecycle            *store.LifecycleJournal
 	TraceDir             string
@@ -105,24 +106,37 @@ func (s *Service) Close() {
 	s.wg.Wait()
 }
 func (s *Service) Status(ctx context.Context, user, id int64) (domain.Operation, error) {
+	if s.options.Planning != nil {
+		return s.store.PlanningOperation(ctx, user, id, s.options.Planning)
+	}
 	var row store.Generation
 	err := s.store.DB.WithContext(ctx).Where("id = ? AND user_id = ?", id, user).First(&row).Error
 	return row.Operation(), err
 }
 
 func (s *Service) Start(ctx context.Context, user int64, key string, input domain.MenuInput) (domain.Operation, error) {
-	return s.start(ctx, user, key, input, store.PersonalActor{})
+	return s.start(ctx, user, key, input, store.PersonalActor{}, 0)
 }
 
 func (s *Service) StartPersonal(ctx context.Context, actor store.PersonalActor, key string, input domain.MenuInput) (domain.Operation, error) {
-	return s.start(ctx, actor.UserID, key, input, actor)
+	return s.start(ctx, actor.UserID, key, input, actor, 0)
 }
 
-func (s *Service) start(ctx context.Context, user int64, key string, input domain.MenuInput, actor store.PersonalActor) (domain.Operation, error) {
-	if input.Validate() != nil || !keyPattern.MatchString(key) {
+func (s *Service) StartCorrection(ctx context.Context, user int64, key string, mealID int64) (domain.Operation, error) {
+	if mealID < 1 || s.options.Planning == nil {
+		return domain.Operation{}, store.ErrPlanningTier
+	}
+	return s.start(ctx, user, key, domain.MenuInput{}, store.PersonalActor{}, mealID)
+}
+
+func (s *Service) start(ctx context.Context, user int64, key string, input domain.MenuInput, actor store.PersonalActor, correctionID int64) (domain.Operation, error) {
+	if (correctionID == 0 && input.Validate() != nil) || !keyPattern.MatchString(key) {
 		return domain.Operation{}, providers.Failure("invalid_input")
 	}
 	payload, _ := json.Marshal(input)
+	if correctionID != 0 {
+		payload, _ = json.Marshal(struct{ CorrectionMealID int64 }{correctionID})
+	}
 	hash := sha256.Sum256(payload)
 	requestHash := hex.EncodeToString(hash[:])
 	s.mu.Lock()
@@ -135,6 +149,9 @@ func (s *Service) start(ctx context.Context, user int64, key string, input domai
 	if err == nil {
 		if existing.RequestHash != requestHash {
 			return domain.Operation{}, providers.Failure("conflict")
+		}
+		if s.options.Planning != nil {
+			return s.store.PlanningOperation(ctx, user, existing.ID, s.options.Planning)
 		}
 		return existing.Operation(), nil
 	}
@@ -153,23 +170,33 @@ func (s *Service) start(ctx context.Context, user int64, key string, input domai
 		if active > 0 {
 			return providers.Failure("conflict")
 		}
-		if err := store.CheckMenuReplacement(tx, user, input); err != nil {
+		var owner store.User
+		if err := tx.First(&owner, user).Error; err != nil {
+			return err
+		}
+		var allocation *store.PlanningAllocation
+		var err error
+		if correctionID == 0 {
+			allocation, err = s.options.Planning.ReserveGeneration(ctx, tx, user, input)
+		} else {
+			input, allocation, err = s.options.Planning.ReserveCorrection(ctx, tx, owner, correctionID)
+		}
+		if err != nil {
 			if errors.Is(err, domain.ErrMenuExists) {
 				return providers.Failure("menu_exists")
 			}
 			return err
 		}
-		shuffle := s.options.Shuffle
-		if shuffle == nil {
-			shuffle = func(d []string) { rand.Shuffle(len(d), func(i, j int) { d[i], d[j] = d[j], d[i] }) }
-		}
-		favorites, err := store.CaptureFavorites(tx, user, input, shuffle, store.PersonalPlanning{Actor: actor, Entitlements: s.options.PersonalEntitlements, Now: time.Now()})
-		if err != nil {
-			return err
-		}
-		var owner store.User
-		if err := tx.First(&owner, user).Error; err != nil {
-			return err
+		var favorites []domain.PlannedFavorite
+		if correctionID == 0 {
+			shuffle := s.options.Shuffle
+			if shuffle == nil {
+				shuffle = func(d []string) { rand.Shuffle(len(d), func(i, j int) { d[i], d[j] = d[j], d[i] }) }
+			}
+			favorites, err = store.CaptureFavorites(tx, user, input, shuffle, store.PersonalPlanning{Actor: actor, Entitlements: s.options.PersonalEntitlements, Now: time.Now(), Tier: s.options.Planning})
+			if err != nil {
+				return err
+			}
 		}
 		if err := tx.Create(&row).Error; err != nil {
 			return err
@@ -177,7 +204,11 @@ func (s *Service) start(ctx context.Context, user int64, key string, input domai
 		if err := analytics.SaveGenerationCapture(ctx, tx, row.ID); err != nil {
 			return err
 		}
-		snapshot := domain.GenerationRequest{MenuInput: input, Preferences: owner.Preferences(), CurrentDate: time.Now().UTC().Format(time.DateOnly), OperationID: strconv.FormatInt(row.ID, 10), Favorites: favorites}
+		today := time.Now().UTC().Format(time.DateOnly)
+		if allocation != nil {
+			today = allocation.Today
+		}
+		snapshot := store.GenerationSnapshot{Allocation: allocation, GenerationRequest: domain.GenerationRequest{MenuInput: input, Preferences: owner.Preferences(), CurrentDate: today, OperationID: strconv.FormatInt(row.ID, 10), Favorites: favorites}}
 		b, e := json.Marshal(snapshot)
 		if e != nil {
 			return e
@@ -293,12 +324,16 @@ func (s *Service) process(id int64) {
 		s.failed(id, "storage_unavailable")
 		return
 	}
-	menu, err := s.store.SaveMenu(ctx, row.UserID, id, request.MenuInput, recipes, s.options.PersonalEntitlements)
+	menu, err := s.store.SaveMenuForPlan(ctx, row.UserID, id, request.MenuInput, recipes, s.options.PersonalEntitlements, s.options.Planning)
 	if err != nil {
 		if errors.Is(err, domain.ErrMenuExists) {
 			s.failed(id, "menu_exists")
 		} else if errors.Is(err, store.ErrPersonalPermission) {
 			s.failed(id, "premium_required")
+		} else if errors.Is(err, store.ErrPlanningCorrection) {
+			s.failed(id, "correction_unavailable")
+		} else if errors.Is(err, store.ErrPlanningTier) || errors.Is(err, store.ErrPlanningTimezone) {
+			s.failed(id, "planning_limit")
 		} else {
 			s.failed(id, "storage_unavailable")
 		}

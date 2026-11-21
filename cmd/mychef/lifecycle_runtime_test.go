@@ -196,8 +196,22 @@ func TestLifecycleRuntimeReconcilesBeforeReadyAndBlocksJournalLoss(t *testing.T)
 			t.Fatalf("unresolved intent allowed %s: %d", path, response.StatusCode)
 		}
 	}
-	if err := j.CancelDeletion(ctx, operation); err != nil {
+	// A matching fixture commit receipt, rather than an administrative
+	// cancellation without rollback proof, lets the journal serve again.
+	if err := s.DB.Exec("INSERT INTO lifecycle_operations(operation,incarnation,created_ns) VALUES(?,?,?)",
+		operation, strings.Repeat("e", 32), time.Now().UnixNano()).Error; err != nil {
 		t.Fatal(err)
+	}
+	if err := j.ReconcileIntents(ctx); err != nil {
+		t.Fatal(err)
+	}
+	response, err := client.Get(origin + "/readyz")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = response.Body.Close()
+	if response.StatusCode != 200 {
+		t.Fatal("settled fixture was not ready before removing its sidecar", response.StatusCode)
 	}
 	if err := os.Rename(j.Path, j.Path+".lost"); err != nil {
 		t.Fatal(err)

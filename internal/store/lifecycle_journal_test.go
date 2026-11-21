@@ -91,7 +91,7 @@ func TestLifecycleJournalCommitProofReplayAndUncertainCrash(t *testing.T) {
 	if err := j.ReconcileIntents(ctx); err != nil {
 		t.Fatal("commit proof not recovered", err)
 	}
-	if err := j.CancelDeletion(ctx, op); err == nil {
+	if err := j.cancelRolledBackDeletion(ctx, op); err == nil {
 		t.Fatal("cancelled committed deletion")
 	}
 	if err := j.CommitDeletion(ctx, op); err != nil {
@@ -126,7 +126,7 @@ func TestLifecycleJournalCancelledIntentAndDurableWork(t *testing.T) {
 	if err := j.PrepareDeletion(ctx, op, incarnation); err != nil {
 		t.Fatal(err)
 	}
-	if err := j.CancelDeletion(ctx, op); err != nil {
+	if err := j.cancelRolledBackDeletion(ctx, op); err != nil {
 		t.Fatal(err)
 	}
 	if err := j.ReconcileIntents(ctx); err != nil {

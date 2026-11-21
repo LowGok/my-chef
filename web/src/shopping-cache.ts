@@ -1,5 +1,9 @@
 import type { Profile } from "./api";
-import type { ShoppingList, QueuedShoppingEdit } from "./shopping-state";
+import type {
+  ShoppingList,
+  QueuedShoppingEdit,
+  ShoppingBlockedChange,
+} from "./shopping-state";
 
 const prefix = "mychef.shopping.";
 export type ShoppingStorage = Pick<
@@ -39,6 +43,7 @@ export type ShoppingCache = {
   base: ShoppingList;
   queue: QueuedShoppingEdit[];
   reviewRequired?: true;
+  blockedChanges?: ShoppingBlockedChange[];
   privateImports?: true;
 };
 const privateLists = new Map<

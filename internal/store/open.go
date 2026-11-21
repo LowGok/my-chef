@@ -24,6 +24,7 @@ type Store struct {
 	DB                        *gorm.DB
 	SQL                       *sql.DB
 	Path                      string
+	identity                  os.FileInfo
 }
 
 func Open(path string, create bool) (*Store, error) {
@@ -85,7 +86,12 @@ func open(path string, create, readOnly bool) (*Store, error) {
 			return nil, fmt.Errorf("database secure deletion unavailable")
 		}
 	}
-	s := &Store{DB: db, SQL: pool, Path: absolute}
+	identity, err := os.Stat(absolute)
+	if err != nil {
+		_ = pool.Close()
+		return nil, err
+	}
+	s := &Store{DB: db, SQL: pool, Path: absolute, identity: identity}
 	if err := db.Callback().Create().Before("gorm:before_create").Register("mychef:newsletter-identity-key", func(tx *gorm.DB) {
 		if tx.Statement.Table == "users" {
 			tx.Statement.Settings.Store(newsletterIdentitySetting, &s.newsletterIdentity)

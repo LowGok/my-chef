@@ -28,12 +28,30 @@ import {
   queueShoppingEdit,
   replayShopping,
   ShoppingConflict,
+  stageFreeShopping,
+  type ShoppingBlockedChange,
   type ShoppingEdit,
   type ShoppingList,
 } from "./shopping-state";
 
 const reviewMessage =
   "This list or its meals changed. Review the latest list and retry your pending changes.";
+const blockedLabels: Record<ShoppingBlockedChange, string> = {
+  meals: "meal selection",
+  extras: "edits to extras",
+  order: "item order",
+  unavailable: "check-offs for items no longer on the list",
+};
+
+function blockedShoppingNotice(changes: ShoppingBlockedChange[] | undefined) {
+  const labels = Object.entries(blockedLabels)
+    .filter(([key]) => changes?.includes(key as ShoppingBlockedChange))
+    .map(([, label]) => label);
+  return labels.length
+    ? `Some shopping changes weren’t synced on Free: ${labels.join(", ")}.`
+    : "";
+}
+
 const needsReview = (error: unknown) =>
   error instanceof ShoppingConflict ||
   (error instanceof APIError && error.status === 409);
@@ -120,7 +138,28 @@ export function useShopping(
       ];
       for (const targetWeek of weeks) {
         syncingWeek = targetWeek;
-        const latest = await api<ShoppingList>(`/shopping/${targetWeek}`);
+        let latest: ShoppingList;
+        try {
+          latest = await api<ShoppingList>(`/shopping/${targetWeek}`);
+        } catch (err) {
+          // Stop showing a cached week after an authoritative denial.
+          // Its edits stay on the device and do not block other weeks.
+          if (err instanceof APIError && err.status === 404) {
+            if (
+              targetWeek === week &&
+              active.current &&
+              shoppingCacheEpoch() === cacheEpoch
+            ) {
+              current.current = null;
+              setPacket(null);
+            }
+            setNotice(
+              "Some weeks are unavailable. Unsynced edits stay on this device until that week is available.",
+            );
+            continue;
+          }
+          throw err;
+        }
         if (
           !active.current ||
           signedOut() ||
@@ -134,6 +173,7 @@ export function useShopping(
         if (
           targetWeek === week &&
           saved &&
+          saved.base.customizationLocked === latest.customizationLocked &&
           saved.base.sourceVersion !== latest.sourceVersion
         )
           setNotice(
@@ -142,22 +182,27 @@ export function useShopping(
         const queue = saved?.queue ?? [];
         if (queue.length) {
           const reviewed = force && targetWeek === week;
-          if (saved?.reviewRequired && !reviewed) {
+          const staged = latest.customizationLocked
+            ? stageFreeShopping(latest, queue, reviewed)
+            : undefined;
+          if (!staged && saved?.reviewRequired && !reviewed) {
             reviewWeek.current = targetWeek;
             throw new ShoppingConflict(reviewMessage);
           }
           let result: ShoppingList;
           try {
-            const desired = replayShopping(latest, queue, reviewed);
-            result = await api<ShoppingList>(`/shopping/${targetWeek}`, {
-              method: "PUT",
-              body: JSON.stringify(desired),
-              headers: {
-                "X-MyChef-Analytics-Revision": String(
-                  queuedAnalyticsRevision(queue),
-                ),
-              },
-            });
+            const desired =
+              staged?.desired ?? replayShopping(latest, queue, reviewed);
+            result =
+              staged?.applied === 0
+                ? latest
+                : await api<ShoppingList>(`/shopping/${targetWeek}`, {
+                    method: "PUT",
+                    body: JSON.stringify(desired),
+                    headers: {
+                      "X-MyChef-Analytics-Revision": String(queuedAnalyticsRevision(queue)),
+                    },
+                  });
           } catch (err) {
             if (needsReview(err)) {
               reviewWeek.current = targetWeek;
@@ -170,7 +215,12 @@ export function useShopping(
               const pending =
                 loadShoppingCache(owner, targetWeek)?.queue ?? queue;
               await publish(
-                { base, queue: pending, reviewRequired: true },
+                {
+                  base,
+                  queue: pending,
+                  reviewRequired: true,
+                  blockedChanges: saved?.blockedChanges,
+                },
                 targetWeek,
               );
             }
@@ -182,13 +232,45 @@ export function useShopping(
             shoppingCacheEpoch() !== cacheEpoch
           )
             return;
-          const sent = new Set(queue.map((op) => op.key));
+          const keepForReview = new Set(staged?.review.map((op) => op.key));
+          const sent = new Set(
+            queue
+              .filter((op) => !keepForReview.has(op.key))
+              .map((op) => op.key),
+          );
           const remaining = (
             loadShoppingCache(owner, targetWeek)?.queue ?? queue
           ).filter((op) => !sent.has(op.key));
-          await publish({ base: result, queue: remaining }, targetWeek);
+          const blockedChanges = [
+            ...new Set([
+              ...(saved?.blockedChanges ?? []),
+              ...(staged?.blocked ?? []),
+              ...(result.blockedChanges ?? []),
+            ]),
+          ];
+          const requiresReview = !!staged?.review.length;
+          await publish(
+            {
+              base: result,
+              queue: remaining,
+              reviewRequired: requiresReview ? true : undefined,
+              blockedChanges,
+            },
+            targetWeek,
+          );
+          if (requiresReview) {
+            reviewWeek.current = targetWeek;
+            throw new ShoppingConflict(
+              "Some item amounts or check-offs changed. Review the latest list and retry the remaining check-offs.",
+            );
+          }
           if (remaining.length) repeat = true;
-        } else await publish({ base: latest, queue: [] }, targetWeek);
+        } else {
+          await publish(
+            { base: latest, queue: [], blockedChanges: saved?.blockedChanges },
+            targetWeek,
+          );
+        }
         if (reviewWeek.current === targetWeek) reviewWeek.current = null;
       }
       setBlockedWeek(null);
@@ -261,7 +343,8 @@ export function useShopping(
   }, []);
   async function edit(edit: ShoppingEdit) {
     const saved = loadShoppingCache(owner, week) ?? current.current;
-    if (!saved) return;
+    if (!saved || (saved.base.customizationLocked && edit.kind !== "state"))
+      return;
     let visible = saved.base;
     for (const op of saved.queue) visible = editShopping(visible, op.edit);
     const op = {
@@ -300,15 +383,23 @@ export function useShopping(
     offline,
     conflict,
     notice,
+    downgradeNotice: blockedShoppingNotice(packet?.blockedChanges),
+    dismissDowngradeNotice: () => {
+      const saved = loadShoppingCache(owner, week) ?? current.current;
+      if (saved)
+        void publish({ ...saved, blockedChanges: [] }).catch(() => undefined);
+    },
     blockedWeek,
-    recoveryKeepsRemoved: !!packet?.queue.some(
-      (op) =>
-        op.edit.kind === "state" &&
-        !packet.base.items.some(
-          (item) =>
-            item.id === op.edit.id || item.id === `recovered-${op.edit.id}`,
-        ),
-    ),
+    recoveryKeepsRemoved:
+      !list?.customizationLocked &&
+      !!packet?.queue.some(
+        (op) =>
+          op.edit.kind === "state" &&
+          !packet.base.items.some(
+            (item) =>
+              item.id === op.edit.id || item.id === `recovered-${op.edit.id}`,
+          ),
+      ),
     pending: pendingShoppingWeeks(owner).reduce(
       (count, pendingWeek) =>
         count + (loadShoppingCache(owner, pendingWeek)?.queue.length ?? 0),

@@ -19,6 +19,12 @@ Start `.test-artifacts/rewrite-tools/mychef` with `MYCHEF_DB=/tmp/mychef-demo.db
 Keep credentials outside source control. Fixture mode uses synthetic providers.
 Production provider configuration requires separate operator setup.
 
+To exercise the server-owned planning calendar on a disposable fixture, start it
+with `MYCHEF_PLANNING_TIERS=1`. For browser verification, run
+`MYCHEF_PLANNING_TIERS=1 python3 scripts/rewrite.py e2e planning-calendar.spec.ts`
+or use `shopping-downgrade.spec.ts` to verify offline shopping after a downgrade.
+Build first. The flag defaults to off and does not enable store checkout.
+
 ## Sign-in identifiers
 
 The sign-in APIs keep the existing `email` request field. It accepts either a

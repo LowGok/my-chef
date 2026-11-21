@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/LowGok/my-chef/internal/auth"
+	"github.com/LowGok/my-chef/internal/billing"
 	"github.com/LowGok/my-chef/internal/domain"
 	"github.com/LowGok/my-chef/internal/store"
 )
@@ -22,6 +23,100 @@ import (
 const lifecyclePassword = "Garden table lifecycle 2026!"
 const exportPath = "/api/v1/account/export"
 const deletePath = "/api/v1/account/deletion"
+
+func TestBillingExportAndDeletionAdviceUseTheSellingStore(t *testing.T) {
+	a, _, member, token := lifecycleHTTPFixture(t)
+	ctx := t.Context()
+	journal, err := a.Config.Lifecycle.Billing(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.Config.NativeBilling = &NativeBilling{Journal: journal, Environment: billing.Sandbox}
+	h := a.Handler(nil)
+	now := time.Now().UTC().Add(-time.Second)
+	var owner string
+	if err := a.Store.SQL.QueryRowContext(ctx, "SELECT incarnation FROM account_incarnations WHERE user_id=?", member.ID).Scan(&owner); err != nil {
+		t.Fatal(err)
+	}
+	attempt, err := journal.Reserve(ctx, owner, billing.Sandbox, billing.Play, billing.Annual, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := journal.Launch(ctx, attempt, now); err != nil {
+		t.Fatal(err)
+	}
+	period := billing.VerifiedPeriod{Store: billing.Play, Environment: billing.Sandbox, Binding: attempt.Binding, Interval: billing.Annual,
+		Subscription: "private-provider-lineage-canary", Transaction: "private-order-ref-canary", StartsAt: now, PaidThrough: now.Add(time.Hour), ObservedAt: now}
+	if err := journal.Fulfil(ctx, period); err != nil {
+		t.Fatal(err)
+	}
+	other, err := journal.Reserve(ctx, "1234567890abcdef1234567890abcdef", billing.Sandbox, billing.Apple, billing.Monthly, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := journal.Launch(ctx, other, now); err != nil {
+		t.Fatal(err)
+	}
+	const advice = "/api/v1/account/deletion-advice"
+	r := httptest.NewRequest("GET", advice, nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatal("signed-out request could read billing advice", w.Code)
+	}
+	r = httptest.NewRequest("GET", advice, nil)
+	r.AddCookie(&http.Cookie{Name: "mychef_session", Value: token})
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	var response struct {
+		Stores []string `json:"stores"`
+	}
+	if w.Code != http.StatusOK || w.Header().Get("Cache-Control") != "private, no-store" || json.Unmarshal(w.Body.Bytes(), &response) != nil ||
+		len(response.Stores) != 1 || response.Stores[0] != "play" {
+		t.Fatal("advice did not use the verified account's seller", w.Code, w.Body.String())
+	}
+	w = lifecycleRequest(h, exportPath, credentialJSON(t, map[string]string{"currentPassword": lifecyclePassword}), token, auth.CSRF(token), a.Config.Origin, "")
+	if w.Code != http.StatusOK {
+		t.Fatal("export failed", w.Code)
+	}
+	archive, err := zip.NewReader(bytes.NewReader(w.Body.Bytes()), int64(w.Body.Len()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var exported bool
+	for _, f := range archive.File {
+		if f.Name != "billing.json" {
+			continue
+		}
+		file, err := f.Open()
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, err := io.ReadAll(file)
+		_ = file.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		var rows []map[string]any
+		if json.Unmarshal(raw, &rows) != nil || len(rows) != 1 || rows[0]["store"] != "play" || rows[0]["interval"] != "annual" || rows[0]["status"] != "active" ||
+			rows[0]["startsAt"] == nil || rows[0]["paidThrough"] == nil {
+			t.Fatal("safe billing period missing from export", string(raw))
+		}
+		for _, secret := range []string{period.Subscription, period.Transaction, period.Binding, owner, other.Binding} {
+			if strings.Contains(string(raw), secret) {
+				t.Fatal("export leaked an internal billing reference")
+			}
+		}
+		exported = true
+	}
+	if !exported {
+		t.Fatal("billing.json absent")
+	}
+	w = lifecycleRequest(h, deletePath, credentialJSON(t, map[string]string{"currentPassword": lifecyclePassword, "confirmation": "DELETE"}), token, auth.CSRF(token), a.Config.Origin, strings.Repeat("7", 32))
+	if w.Code != http.StatusOK {
+		t.Fatal("deletion required an unavailable store or cancelling first", w.Code, w.Body.String())
+	}
+}
 
 func lifecycleHTTPFixture(t *testing.T) (*API, http.Handler, store.User, string) {
 	t.Helper()

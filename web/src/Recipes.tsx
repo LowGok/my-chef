@@ -9,11 +9,13 @@ import { ImportSourceLink } from "./ImportReview";
 export function RecipeCard({
   recipe,
   onOpen,
+  todayHighlight = today(),
 }: {
   recipe: Recipe;
+  todayHighlight?: string | null;
   onOpen: () => void;
 }) {
-  const isToday = recipe.date === today();
+  const isToday = recipe.date === todayHighlight;
   const weekday = new Date(`${recipe.date}T12:00:00Z`).toLocaleDateString(
     undefined,
     { weekday: "long", timeZone: "UTC" },
@@ -77,6 +79,7 @@ export function RecipeDetail({
   onReport,
   rating,
   copyAction,
+  correctionAction,
   fromProfile = false,
 }: {
   recipe: Recipe;
@@ -85,6 +88,7 @@ export function RecipeDetail({
   onReport: () => void;
   rating: ReactNode;
   copyAction?: ReactNode;
+  correctionAction?: ReactNode;
   fromProfile?: boolean;
 }) {
   return (
@@ -182,6 +186,7 @@ export function RecipeDetail({
             : "AI suggestions cannot guarantee allergy safety."}
         </p>
       </div>
+      {correctionAction}
       <div className="recipe-report">
         <button className="text-button" onClick={onReport}>
           Report an issue

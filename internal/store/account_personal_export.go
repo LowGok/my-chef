@@ -4,20 +4,26 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"image/jpeg"
 	"io"
 	"time"
 
+	"github.com/LowGok/my-chef/internal/billing"
 	"github.com/LowGok/my-chef/internal/imports"
 	"gorm.io/gorm"
 )
 
 type AccountExportOptions struct {
-	analytics   []byte
-	ImportVault *imports.DraftVault
-	now         time.Time
+	analytics          []byte
+	ImportVault        *imports.DraftVault
+	Billing            *LifecycleJournal
+	BillingEnvironment billing.Environment
+	billingRead        *sql.Tx
+	billingOwner       string
+	now                time.Time
 	// ReadPhoto returns owned bounded JPEG bytes and respects cancellation. It
 	// must not query this Store: the export already holds a consistent snapshot.
 	// The exporter clears the returned buffer after each bounded pass.

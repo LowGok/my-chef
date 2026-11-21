@@ -369,9 +369,16 @@ func TestPersonalRestoreUpgradesPriorSnapshotBeforeReconcilingPrivateAssets(t *t
 	if err := s.Migrate(ctx); err != nil {
 		t.Fatal(err)
 	}
-	// Upgrade the current authoritative journal explicitly; the SQL backup
-	// above remains the untouched historical schema-14 snapshot.
-	j, err := s.InitializeLifecycleJournal(ctx, journalPath)
+	// Upgrade the live sidecar explicitly as well; the saved schema-14 app
+	// snapshot remains untouched and still exercises the restore upgrade.
+	upgradedJournal, err := s.InitializeLifecycleJournal(ctx, journalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := upgradedJournal.Close(); err != nil {
+		t.Fatal(err)
+	}
+	j, err := s.OpenLifecycleJournal(ctx, journalPath)
 	if err != nil {
 		t.Fatal(err)
 	}

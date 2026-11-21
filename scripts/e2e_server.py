@@ -1,6 +1,6 @@
 """Start the candidate against an isolated SQLite database for browser tests."""
 import base64
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 import http.client
 import socket
 import time
@@ -113,6 +113,26 @@ def fixture_imports(root: Path, directory: Path, app_env: dict[str, str]):
                 process.wait()
 
 
+def fixture_billing_binaries(root: Path, directory: Path) -> tuple[Path, Path]:
+    """Build exactly this candidate, without replacing ordinary test binaries."""
+    from rewrite import environment
+    pinned = environment()
+    names = {"PATH", "HOME", "LANG", "LC_ALL", "GOFLAGS", "GOCACHE", "GOMODCACHE", "GOTMPDIR"}
+    build = {key: pinned[key] for key in names if key in pinned}
+    for name in ("GOCACHE", "GOMODCACHE"):
+        if os.environ.get(name):
+            build[name] = os.environ[name]
+    build.update(CGO_ENABLED="0", GOPROXY="off")
+    app, migration = directory / "mychef", directory / "mychef-migrate"
+    for executable, package, flags in (
+        (app, "./cmd/mychef", ["-tags=mychef_billing_fixture"]),
+        (migration, "./cmd/mychef-migrate", []),
+    ):
+        subprocess.run(["go", "build", *flags, "-trimpath", "-o", str(executable), package],
+                       cwd=root, env=build, check=True)
+    return app, migration
+
+
 def main():
     root = Path(__file__).resolve().parent.parent
     os.umask(0o077)
@@ -123,20 +143,34 @@ def main():
             and key != "MYCHEF_CREDENTIALS"
         }
         capability = env.pop("MYCHEF_TEST_INBOX_CAPABILITY", None)
+        billing_ui = env.pop("MYCHEF_BILLING_UI_E2E", "") == "1"
+        env.pop("MYCHEF_BILLING_FIXTURE", None)
+        env.pop("MYCHEF_BILLING_FIXTURE_ROOT", None)
         if not capability:
             raise SystemExit("Start this fixture through Playwright.")
         email, _ = fixture_email(Path(directory), capability)
         env.update(email)
-        env.update(MYCHEF_ADDR="127.0.0.1:18137", MYCHEF_ORIGIN="http://127.0.0.1:18137",
-                   MYCHEF_DB=str(Path(directory) / "test.db"),
-                   MYCHEF_LIFECYCLE_DB=str(Path(directory) / "test.db.lifecycle"), MYCHEF_DEV="1",
+        port = env.get("MYCHEF_E2E_PORT", "18137")
+        if not port.isascii() or not port.isdecimal() or not 1024 <= int(port) <= 65535:
+            raise SystemExit("Use an unprivileged loopback test port.")
+        addr = "127.0.0.1:" + port
+        fixture_root = Path(directory).resolve()
+        name = "app.db" if billing_ui else "test.db"
+        env.update(MYCHEF_ADDR=addr, MYCHEF_ORIGIN="http://" + addr,
+                   MYCHEF_DB=str(fixture_root / name),
+                   MYCHEF_LIFECYCLE_DB=str(fixture_root / (name + ".lifecycle")), MYCHEF_DEV="1",
                    MYCHEF_PROVIDER="fixture", MYCHEF_E2E="1", MYCHEF_PUSH_FIXTURE="1",
                    MYCHEF_FEEDBACK_TO="operator@example.test")
         tools = root / ".test-artifacts/rewrite-tools"
-        subprocess.run([str(tools / "mychef-migrate"), "up", "--db", env["MYCHEF_DB"]], check=True)
-        with fixture_imports(root, Path(directory), env) as import_env:
+        app, migration = tools / "mychef", tools / "mychef-migrate"
+        if billing_ui:
+            app, migration = fixture_billing_binaries(root, fixture_root)
+            env.update(MYCHEF_BILLING_FIXTURE="1", MYCHEF_BILLING_FIXTURE_ROOT=str(fixture_root))
+        subprocess.run([str(migration), "up", "--db", env["MYCHEF_DB"]], check=True)
+        imports = nullcontext({}) if billing_ui else fixture_imports(root, Path(directory), env)
+        with imports as import_env:
             env.update(import_env)
-            server = subprocess.Popen([str(tools / "mychef")], env=env, cwd=root)
+            server = subprocess.Popen([str(app)], env=env, cwd=root)
             def stop(_signal, _frame):
                 server.terminate()
             signal.signal(signal.SIGTERM, stop)

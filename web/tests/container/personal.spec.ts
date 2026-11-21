@@ -64,6 +64,8 @@ async function verifyPhotos(page: Page, value: Evidence) {
 
 test("personal create versions photos queue and export in the container", async ({
   page,
+  playwright,
+  baseURL,
 }) => {
   const marker = "container-private-" + randomBytes(16).toString("hex"),
     canaries = [
@@ -74,6 +76,39 @@ test("personal create versions photos queue and export in the container", async 
     ];
   writeFileSync(filename(), JSON.stringify({ canaries }), { mode: 0o600 });
   await personalFixture(page, "personalcontainer");
+  await privateAction(async () => {
+    const native = await playwright.request.newContext({ baseURL });
+    try {
+      const base = "/api/native/v1";
+      const initial = await native.post(base + "/session", {
+        data: { platform: "ios" },
+      });
+      expect(initial.status()).toBe(201);
+      const signedIn = await native.post(base + "/login", {
+        headers: {
+          Authorization: "Bearer " + (await initial.json()).native.accessToken,
+        },
+        data: { email: "personalcontainer@example.test", password },
+      });
+      expect(signedIn.status()).toBe(200);
+      const headers = {
+        Authorization: "Bearer " + (await signedIn.json()).native.accessToken,
+      };
+      expect(
+        (await native.get(base + "/personal-recipes/permissions", { headers })).status(),
+      ).toBe(200);
+      expect(
+        (await native.get(base + "/billing/status", { headers })).status(),
+      ).toBe(404);
+      expect(
+        (await native.post(base + "/billing/checkouts", {
+          headers, data: { interval: "monthly" },
+        })).status(),
+      ).toBe(404);
+    } finally {
+      await native.dispose();
+    }
+  });
   await openPersonalLibrary(page);
   await page
     .getByRole("button", { name: "Create a recipe", exact: true })

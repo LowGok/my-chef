@@ -11,6 +11,7 @@ import {
 import { join } from "node:path";
 import { readFile, unlink, writeFile } from "node:fs/promises";
 import { safeJourneyError } from "./native-android-report";
+import { billingFixtureKey, installBillingStoreFixture } from "./native-billing-webview";
 import { addDays, monday } from "../web/src/dates";
 import {
   fillPersonalDraft,
@@ -31,7 +32,10 @@ if (
   (group !== "core" &&
     group !== "media" &&
     group !== "pages" &&
-    group !== "account" && group !== "reminders" && group !== "reminder-text") ||
+    group !== "account" &&
+    group !== "reminders" &&
+    group !== "reminder-text" &&
+    group !== "billing") ||
   !state ||
   !/^\/.*mychef-installed-[A-Za-z0-9_-]+$/.test(state)
 )
@@ -125,7 +129,7 @@ const button = (name: string) =>
 let controlSequence = 0;
 function probeCommand(value: string) {
   if (
-    !/^(pinch|activate:[1-9][0-9]{0,3}:[A-Za-z -]{1,50}|document:[1-9][0-9]{0,3}:(?:SAVE|native-(?:dish|page)\.png)|accessibility:[1-9][0-9]{0,3}:(?:nav|export-dialog|reminder-opt-in|reminder-save))$/.test(
+    !/^(pinch|activate:[1-9][0-9]{0,3}:[A-Za-z -]{1,50}|document:[1-9][0-9]{0,3}:(?:SAVE|native-(?:dish|page)\.png)|accessibility:[1-9][0-9]{0,3}:(?:nav|export-dialog|reminder-opt-in|reminder-save|billing-monthly|billing-annual|billing-restore))$/.test(
       value,
     )
   )
@@ -1117,6 +1121,52 @@ async function reminderJourney() {
   });
 }
 
+async function billingJourneys() {
+  const fixture = JSON.parse(await readFile(join(state, "fixture-inbox.json"), "utf8"));
+  const proofKey = billingFixtureKey(fixture.capability, "android");
+  privateValues.push(fixture.capability, proofKey);
+  await check("Android large text and Play purchase controls are accessible", async () => {
+    await page.getByLabel("Email", { exact: true }).waitFor();
+    await page.evaluate(installBillingStoreFixture, {
+      platform: "android", proofKey, expiresAt: Date.parse(fixture.expires), loseResult: true,
+    });
+    await login();
+    await profile();
+    const summary = page.locator("summary").filter({ hasText: /^Subscription$/ });
+    await summary.click();
+    const panel = page.locator("details").filter({ has: summary }).last();
+    await expect(panel.getByText(/€6\.99 per month/)).toBeVisible();
+    await expect(panel.getByText(/€69\.90 per year/)).toBeVisible();
+    for (const [name, probe] of [
+      ["Subscribe monthly", "billing-monthly"],
+      ["Subscribe annually", "billing-annual"],
+      ["Restore purchases", "billing-restore"],
+    ]) {
+      const control = button(name);
+      await expect(control).toBeEnabled();
+      await control.scrollIntoViewIfNeeded();
+      await probeAction("accessibility", probe);
+      expect(await control.evaluate((node) => {
+        const bounds = node.getBoundingClientRect();
+        return bounds.left >= 0 && bounds.right <= window.innerWidth + 1 &&
+          node.scrollWidth <= node.clientWidth + 1;
+      })).toBe(true);
+    }
+    const subscribe = button("Subscribe monthly");
+    await activate("Subscribe monthly");
+    await expect(panel.getByRole("status")).toContainText("Your purchase is still being checked.");
+    await expect(subscribe).toHaveCount(0);
+  });
+  await check("Play restores the lost simulated result before completion", async () => {
+    await activate("Restore purchases");
+    await expect(page.getByRole("status").filter({ hasText: "Purchase verified." })).toBeVisible();
+    await expect(page.getByText("Premium · Monthly", { exact: true })).toBeVisible();
+    await expect(page.getByText(/^Renews on /)).toBeVisible();
+    await expect(page.getByRole("link", { name: "Open Google Play subscriptions", exact: true })).toBeVisible();
+    await expect(button("Subscribe monthly")).toHaveCount(0);
+  });
+}
+
 async function reminderTextJourney() {
   const group = await openReminderSettings();
   await check("Android system large text and reminder accessibility nodes", async () => {
@@ -1146,6 +1196,7 @@ try {
     account: accountJourneys,
     reminders: reminderJourney,
     "reminder-text": reminderTextJourney,
+    billing: billingJourneys,
   }[group]();
   await writeFile(
     join(state, `native-android-journeys-${group}.json`),

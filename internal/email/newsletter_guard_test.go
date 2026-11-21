@@ -3,7 +3,6 @@ package email
 import (
 	"bytes"
 	"errors"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -13,9 +12,9 @@ import (
 )
 
 func TestNewsletterDispatchWaitsForJournalReconciliation(t *testing.T) {
-	for _, phase := range []string{"prepared", "marker-commit", "failed-cancellation"} {
+	for _, phase := range []string{"prepared", "marker-commit", "missing-rollback-proof"} {
 		t.Run(phase, func(t *testing.T) {
-			locale := map[string]string{"prepared": "en", "marker-commit": "fr-BE", "failed-cancellation": "nl-BE"}[phase]
+			locale := map[string]string{"prepared": "en", "marker-commit": "fr-BE", "missing-rollback-proof": "nl-BE"}[phase]
 			db, initial, now, keys := newsletterFixture(t, locale, phase != "prepared")
 			id := initial.ID
 			j, err := db.InitializeLifecycleJournal(t.Context(), db.Path+".lifecycle")
@@ -33,17 +32,8 @@ func TestNewsletterDispatchWaitsForJournalReconciliation(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			if phase == "failed-cancellation" {
-				if err := os.Rename(j.Path, j.Path+".held"); err != nil {
-					t.Fatal(err)
-				}
-				cancelErr := j.CancelDeletion(t.Context(), operation)
-				if err := os.Rename(j.Path+".held", j.Path); err != nil {
-					t.Fatal(err)
-				}
-				if cancelErr == nil {
-					t.Fatal("fault did not prevent cancellation")
-				}
+			if phase == "missing-rollback-proof" && !errors.Is(j.ReconcileIntents(t.Context()), store.ErrLifecycleUncertain) {
+				t.Fatal("missing app receipt incorrectly cleared the prepared deletion")
 			}
 			if !errors.Is(j.CheckReady(t.Context()), store.ErrLifecycleUncertain) {
 				t.Fatal("fixture is not unsettled")
@@ -62,12 +52,13 @@ func TestNewsletterDispatchWaitsForJournalReconciliation(t *testing.T) {
 			if service.Ready(t.Context()) {
 				t.Fatal("mail readiness ignored unsettled journal")
 			}
-			if phase == "marker-commit" {
-				err = j.ReconcileIntents(t.Context())
-			} else {
-				err = j.CancelDeletion(t.Context(), operation)
+			if phase != "marker-commit" {
+				if err := db.DB.Exec("INSERT INTO lifecycle_operations(operation,incarnation,created_ns) VALUES(?,?,?)",
+					operation, incarnation, now.UnixNano()).Error; err != nil {
+					t.Fatal(err)
+				}
 			}
-			if err != nil {
+			if err := j.ReconcileIntents(t.Context()); err != nil {
 				t.Fatal(err)
 			}
 			if worked, err := worker.Step(t.Context()); !worked || err != nil || len(provider.bodies) != 1 {
