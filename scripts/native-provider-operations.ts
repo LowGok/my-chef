@@ -42,7 +42,7 @@ function parse(input:unknown):NativeProviderPlan{
  case "create-app":
   exact(t,provider==="apple"?["name","sku","platform","userAccess","appUserIds"]:["name","platform"]);
   if(!["apple","google"].includes(provider as string) || t.name!=="MyChef" || t.platform!==(provider==="apple"?"IOS":"ANDROID"))fail();
-  if(provider==="apple" && (typeof t.sku!=="string" || !/^[a-z0-9._-]{1,120}$/.test(t.sku) || t.userAccess!=="limited" || !list(t.appUserIds,id)))fail();
+  if(provider==="apple" && (typeof t.sku!=="string" || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,119}$/.test(t.sku) || t.userAccess!=="limited" || !list(t.appUserIds,id)))fail();
   break;
  case "register-bundle":
   exact(t,["name","platform"]);if(provider!=="apple" || t.name!=="MyChef" || t.platform!=="IOS")fail();break;

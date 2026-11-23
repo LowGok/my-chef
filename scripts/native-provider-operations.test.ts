@@ -137,3 +137,20 @@ test("Apple app creation binds Limited Access and the complete effective user ro
   await expect(runNativeOperation(value, consent, mismatchedReadback.client, await journal(), 1000)).rejects.toThrow();
   expect(mismatchedReadback.writes()).toBe(1);
 });
+
+test("Apple app creation preserves the approved SKU spelling", async () => {
+  const baseline = plan();
+  const approved = { ...baseline, target: { ...baseline.target, sku: "MYCHEF-APP" } };
+  const consent = approval(approved);
+  const differentCase = { ...approved, target: { ...approved.target, sku: "mychef-app" } };
+  const remote = fixture(approved);
+
+  await expect(runNativeOperation(differentCase, consent, remote.client, await journal(), 1000)).rejects.toThrow();
+  expect(remote.writes()).toBe(0);
+  const result = await runNativeOperation(approved, consent, remote.client, await journal(), 1000);
+  expect(result.target.sku).toBe("MYCHEF-APP");
+
+  for (const sku of ["-MYCHEF-APP", ".MYCHEF-APP", "_MYCHEF-APP", "MYCHEF APP"]) {
+    expect(() => nativeOperationDigest({ ...approved, target: { ...approved.target, sku } })).toThrow();
+  }
+});
