@@ -51,6 +51,23 @@ receipts do not establish store signing, co-installation through the real
 stores, live push, sandbox purchases or OS link association. Those remain the
 separately approved native identity pilot.
 
+## Prepare Android push for the private app lane
+
+The private Android build can enable the existing Firebase push variant for
+`dev.mychef.app`. Supply `-PmychefIdentityLane=app`,
+`-PmychefPushPreview=true` and `-PmychefFirebaseResources` pointing at
+resources generated from the approved Firebase Android client. The resource
+directory needs `values/mychef-firebase.xml` and its `mychef-package.txt`
+marker generated for `dev.mychef.app`. Keep these inputs outside Git. Verify
+the exact private candidate ingress and keep dependency verification strict.
+
+Build `:app:bundleRelease` for the new lane with this configuration. Verify its
+application ID and merged manifest, including the non-exported messaging
+service, disabled Firebase automatic registration, and disabled analytics.
+The Preview push variant remains debug-only. Builds without the explicit push
+setting continue to exclude the Firebase messaging dependency. This variant
+does not construct a signed artifact or activate checkout.
+
 ## Rehearse upgrade and withdrawal
 
 Build the app and migration binaries from the last schema-28 source and from
