@@ -116,7 +116,7 @@ func (w *Worker) Step(ctx context.Context) (bool, error) {
 			return fail("newsletter_role_template")
 		}
 		if mailqueue.NewsletterTemplate(row.Template) {
-			allowed, err := mailqueue.NewsletterDispatchAllowed(ctx, tx, row, now)
+			allowed, err := mailqueue.NewsletterDispatchAllowed(ctx, w.Queue.Store, tx, row, now)
 			if err != nil {
 				return err
 			}
