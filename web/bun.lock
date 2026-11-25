@@ -5,7 +5,7 @@
     "": {
       "name": "mychef-web",
       "dependencies": {
-        "@capacitor/core": "8.6.0",
+        "@capacitor/core": "8.6.3",
         "@fontsource/montserrat": "5.3.0",
         "react": "19.3.1",
         "react-dom": "19.3.1",
@@ -26,7 +26,7 @@
     "js-yaml": "4.3.2",
   },
   "packages": {
-    "@capacitor/core": ["@capacitor/core@8.6.0", "", { "dependencies": { "tslib": "^2.1.0" } }, "sha512-9F2zzuGYTJu+wqmQSEmqnFBfGrhC/njjMCfmxbvg9mq8xJT4wNh5pxbMFZxvW/yDhYJWPEBFQxeqzfo1gKrvxg=="],
+    "@capacitor/core": ["@capacitor/core@8.6.3", "", { "dependencies": { "tslib": "^2.1.0" } }, "sha512-WJ/DM2OTriEED5sI4jUyJU0NL3QJ/YenS2+SepW/nghMA5ixFJhm8NqGWdqDYYg+eRtJkjD8PcXtIxy4zTP0PA=="],
 
     "@emnapi/core": ["@emnapi/core@2.0.0-beta.2", "", { "dependencies": { "@emnapi/wasi-threads": "2.2.0", "tslib": "^2.4.0" } }, "sha512-MzCVoWtcg4Pm2B3je5mMvYMvj3MmBKw+fU7vbsJc9/iT8ip6/eYIHo/Dsm/mr+wsHB6SEyJDuxB09Yy6r/8+4A=="],
 
