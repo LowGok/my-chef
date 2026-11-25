@@ -346,6 +346,18 @@ export class NativeTransport implements PlatformTransport {
       throw error;
     }
   }
+  // Only the fixed native Apple billing operations use this callback. The
+  // shared billing flow never sees the access or refresh token.
+  async authorizeAppleBilling<T>(operation: (access: string) => Promise<T>): Promise<T> {
+    if (this.options.platform !== "ios") throw stale();
+    const epoch = this.#epoch;
+    await this.#credentials(epoch);
+    this.#check(epoch);
+    if (!this.#access) throw stale();
+    const result = await operation(this.#access);
+    this.#check(epoch);
+    return result;
+  }
   request(path: string, options: RequestInit = {}) {
     return this.#request(path, options, true);
   }

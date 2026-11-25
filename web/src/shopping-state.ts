@@ -185,3 +185,47 @@ export function replayShopping(
   }
   return result;
 }
+
+export type ShoppingBlockedChange =
+  NonNullable<ShoppingList["blockedChanges"]>[number] | "unavailable";
+
+// Free can apply independent check-offs, even when a mixed queue also contains
+// paid edits or one check-off needs the customer to review the latest amount.
+export function stageFreeShopping(
+  latest: ShoppingList,
+  queue: QueuedShoppingEdit[],
+  reviewed = false,
+) {
+  let desired = latest;
+  const review: QueuedShoppingEdit[] = [];
+  const blockedItems = new Set<string>();
+  const newlyAdded = new Set(
+    queue.flatMap(({ edit }) => (edit.kind === "extra" ? [edit.id] : [])),
+  );
+  const blocked = new Set<ShoppingBlockedChange>();
+  let applied = 0;
+  for (const op of queue) {
+    const { edit } = op;
+    if (edit.kind !== "state") {
+      blocked.add(edit.kind === "meal" ? "meals" : "extras");
+      continue;
+    }
+    if (!desired.items.some((item) => item.id === edit.id)) {
+      blocked.add(newlyAdded.has(edit.id) ? "extras" : "unavailable");
+      continue;
+    }
+    if (blockedItems.has(edit.id)) {
+      review.push(op);
+      continue;
+    }
+    try {
+      desired = replayShopping(desired, [op], reviewed);
+      applied++;
+    } catch (error) {
+      if (!(error instanceof ShoppingConflict)) throw error;
+      blockedItems.add(edit.id);
+      review.push(op);
+    }
+  }
+  return { desired, review, blocked: [...blocked], applied };
+}

@@ -1,5 +1,6 @@
 import UserNotifications
 import Foundation
+import StoreKit
 import Security
 import Capacitor
 import UIKit
@@ -100,14 +101,25 @@ public class MyChefNativePlugin: CAPPlugin, CAPBridgedPlugin, URLSessionDataDele
         CAPPluginMethod(name: "publicImage", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "cancelMedia", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "request", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "cancelRequest", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "cancelRequest", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "billingPrepare", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "billingQuotes", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "billingPurchase", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "billingUnfinished", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "billingRestore", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "billingFinish", returnType: CAPPluginReturnPromise)
     ]
     private let storageQueue = DispatchQueue(label: "com.gkldevelopment.mychef.native-storage")
     private var refresh: ProtectedRefresh?
     private var shopping: ProtectedShopping?
     private var media: NativeMedia?
     private var runtimeObserver: NSObjectProtocol?
+    private var purchaseObserver: Task<Void, Never>?
+    private var purchaseUpdated = false
     private var origin: String?
+    #if targetEnvironment(simulator) && MYCHEF_BILLING_SIMULATOR
+    fileprivate var billingFixtureOrigin: Bool { origin == "https://localhost:8977" }
+    #endif
     private let lock = NSLock()
     private var pending: [Int: NativeRequestState] = [:]
     private let maximumResponse = 32 * 1024 * 1024
@@ -136,6 +148,10 @@ public class MyChefNativePlugin: CAPPlugin, CAPBridgedPlugin, URLSessionDataDele
         DispatchQueue.main.async { [self] in
             guard let origin = origin else { call.reject("App state is unavailable", "native_runtime"); return }
             var snapshot = NativeRuntime.shared.snapshot(origin: origin)
+            if purchaseUpdated {
+                snapshot["billingChanged"] = true
+                purchaseUpdated = false
+            }
             let traits = bridge?.webView?.traitCollection
             let scaled = UIFontMetrics(forTextStyle: .body).scaledValue(for: 16, compatibleWith: traits)
             snapshot["textScale"] = Double(scaled / 16)
@@ -320,6 +336,59 @@ public class MyChefNativePlugin: CAPPlugin, CAPBridgedPlugin, URLSessionDataDele
             }
         } catch { call.reject("This link could not be opened", "native_media") }
     }
+    @objc func billingQuotes(_ call: CAPPluginCall) {
+        Task { @MainActor in
+            do { nativeReply(call, ["quotes": try await NativeSubscriptions.quotes(call)]) }
+            catch { call.reject("Subscription offers are unavailable", "native_billing") }
+        }
+    }
+    @objc func billingPrepare(_ call: CAPPluginCall) {
+        Task { @MainActor in
+            do { nativeReply(call, ["ready": try await NativeSubscriptions.prepare(call, origin: self.origin)]) }
+            catch { nativeReply(call, ["ready": false]) }
+        }
+    }
+    @objc func billingPurchase(_ call: CAPPluginCall) {
+        Task { @MainActor in
+            do { nativeReply(call, try await NativeSubscriptions.purchase(call, origin: self.origin)) }
+            catch { call.reject("The store result is unavailable", "native_billing") }
+        }
+    }
+    @objc func billingUnfinished(_ call: CAPPluginCall) {
+        Task { @MainActor in
+            observePurchases()
+            do { nativeReply(call, ["receipts": try await NativeSubscriptions.receipts(restore: false)]) }
+            catch { call.reject("Purchase status is unavailable", "native_billing") }
+        }
+    }
+    @MainActor private func observePurchases() {
+        guard purchaseObserver == nil else { return }
+        // Only start after the authenticated server status allows recovery.
+        // Treat updates as wakeups. Proof is pulled through the guarded bridge.
+        purchaseObserver = Task { @MainActor [weak self] in
+            for await update in StoreKit.Transaction.updates {
+                guard !Task.isCancelled else { return }
+                guard case .verified(let transaction) = update,
+                      transaction.productType == .autoRenewable,
+                      transaction.appAccountToken != nil,
+                      let self = self else { continue }
+                self.purchaseUpdated = true
+                self.notifyListeners("runtime", data: [:])
+            }
+        }
+    }
+    @objc func billingRestore(_ call: CAPPluginCall) {
+        Task { @MainActor in
+            do { nativeReply(call, ["receipts": try await NativeSubscriptions.receipts(restore: true)]) }
+            catch { call.reject("The store could not restore the purchase", "native_billing") }
+        }
+    }
+    @objc func billingFinish(_ call: CAPPluginCall) {
+        Task { @MainActor in
+            do { try await NativeSubscriptions.finish(call); nativeReply(call) }
+            catch { call.reject("The store could not finish the purchase", "native_billing") }
+        }
+    }
     @objc func publicImage(_ call: CAPPluginCall) {
         guard let http = http, let value = call.getString("url"), value.count <= 4096, let parts = URLComponents(string: value),
               parts.scheme == "https", parts.host == "res.cloudinary.com", parts.user == nil, parts.password == nil,
@@ -350,6 +419,7 @@ public class MyChefNativePlugin: CAPPlugin, CAPBridgedPlugin, URLSessionDataDele
     func shutdown() {
         if let runtimeObserver = runtimeObserver { NotificationCenter.default.removeObserver(runtimeObserver) }
         runtimeObserver = nil;
+        purchaseObserver?.cancel(); purchaseObserver = nil
         http?.invalidateAndCancel()
         DispatchQueue.main.async { [media = self.media] in media?.cancel { _ in } }
     }
@@ -403,6 +473,11 @@ final class MyChefBridgeViewController: CAPBridgeViewController {
         #if targetEnvironment(simulator)
         if nativePlugin.isReminderFixture && ProcessInfo.processInfo.arguments.contains("--mychef-reminder-fixture") {
             runReminderFixture()
+        }
+        #endif
+        #if targetEnvironment(simulator) && MYCHEF_BILLING_SIMULATOR
+        if ProcessInfo.processInfo.arguments.contains("--mychef-billing-fixture") {
+            runBillingFixture(remaining: 120)
         }
         #endif
     }
@@ -499,5 +574,106 @@ final class MyChefBridgeViewController: CAPBridgeViewController {
     }
     #endif
 
+
+
+    #if targetEnvironment(simulator) && MYCHEF_BILLING_SIMULATOR
+    private func reportBillingFixtureStage(_ stage: String) {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("mychef-ios-billing-stage.txt")
+        try? Data(stage.utf8).write(to: url, options: .atomic)
+    }
+
+    private func runBillingFixture(remaining: Int) {
+        let fixtureOrigin = nativePlugin.billingFixtureOrigin
+        func retry(_ stage: String) {
+            if remaining == 0 {
+                if fixtureOrigin { reportBillingFixtureStage(stage) }
+                return
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+                self?.runBillingFixture(remaining: remaining - 1)
+            }
+        }
+        if remaining == 120 && fixtureOrigin { reportBillingFixtureStage("waiting-for-webview") }
+        guard fixtureOrigin, let view = webView,
+              view.url?.scheme == "capacitor", view.url?.host == "localhost" else {
+            retry("waiting-for-webview")
+            return
+        }
+        guard view.traitCollection.preferredContentSizeCategory.isAccessibilityCategory else {
+            retry("waiting-for-system-text")
+            return
+        }
+        // A URL can be visible while WebKit is still replacing the document.
+        // Keep the one-use input on disk until the correct form and bridge load.
+        view.evaluateJavaScript("""
+            document.readyState === "complete" &&
+              !!document.querySelector("#sign-in-email")?.form &&
+              typeof window.Capacitor?.nativePromise === "function"
+            """) { [weak self, weak view] value, error in
+            guard let self, let view else { return }
+            guard error == nil, value as? Bool == true,
+                  view.url?.scheme == "capacitor", view.url?.host == "localhost" else {
+                retry("waiting-for-sign-in")
+                return
+            }
+            self.executeBillingFixture(in: view)
+        }
+    }
+
+    private func executeBillingFixture(in view: WKWebView) {
+        let directory = FileManager.default.temporaryDirectory
+        let file = directory.appendingPathComponent("mychef-ios-billing-input.json")
+        reportBillingFixtureStage("fixture-input")
+        guard let attributes = try? file.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey]),
+              attributes.isRegularFile == true, attributes.isSymbolicLink == false,
+              let size = attributes.fileSize, size > 0, size <= 1024,
+              let data = try? Data(contentsOf: file),
+              let input = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              Set(input.keys) == ["email", "password", "proofKey", "expiresAt"],
+              let email = input["email"] as? String, email.hasSuffix("@example.test"),
+              let password = input["password"] as? String, !password.isEmpty,
+              let key = input["proofKey"] as? String,
+              key.range(of: "^[A-Za-z0-9_-]{43}$", options: .regularExpression) != nil,
+              let expiry = input["expiresAt"] as? NSNumber,
+              Date(timeIntervalSince1970: expiry.doubleValue / 1000) > Date(),
+              let asset = Bundle.main.url(forResource: "mychef-ios-billing-fixture", withExtension: "js", subdirectory: "public/app"),
+              let source = try? String(contentsOf: asset, encoding: .utf8),
+              let inputJSON = String(data: data, encoding: .utf8) else { return }
+        do { try FileManager.default.removeItem(at: file) } catch { return }
+        reportBillingFixtureStage("web-script")
+        view.callAsyncJavaScript(source, arguments: ["fixtureJSON": inputJSON], in: nil, in: .page) { [weak self] result in
+            let value: Any
+            switch result {
+            case .success(let raw):
+                guard let json = raw as? String, json.utf8.count <= 256,
+                      let parsed = try? JSONSerialization.jsonObject(with: Data(json.utf8)) else {
+                    self?.reportBillingFixtureStage("web-result")
+                    return
+                }
+                value = parsed
+            case .failure(let error):
+                let nsError = error as NSError
+                let stage = nsError.domain == WKErrorDomain && (1...99).contains(nsError.code)
+                    ? "webkit-\(nsError.code)" : "web-error"
+                self?.reportBillingFixtureStage(stage)
+                return
+            }
+            if let failure = value as? [String: String], Set(failure.keys) == ["failedStage"],
+               let stage = failure["failedStage"], [
+                "sign-in-form", "fake-store", "sign-in", "terms", "system-text", "checkout", "restore"
+               ].contains(stage) {
+                self?.reportBillingFixtureStage(stage)
+                return
+            }
+            guard let proof = value as? [String: Bool],
+                  Set(proof.keys) == ["terms", "systemTextSize", "checkout", "restore"], proof.values.allSatisfy({ $0 }),
+                  let output = try? JSONSerialization.data(withJSONObject: proof) else {
+                self?.reportBillingFixtureStage("web-result")
+                return
+            }
+            try? output.write(to: directory.appendingPathComponent("mychef-ios-billing-result.json"), options: .atomic)
+        }
+    }
+    #endif
     deinit { nativePlugin.shutdown() }
 }

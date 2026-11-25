@@ -6,6 +6,7 @@ export type RuntimeSnapshot = {
   active: boolean;
   online: boolean;
   back: boolean;
+  billingChanged?: boolean;
   link?: string;
   invalidLink?: boolean;
   reminder?: string;
@@ -16,7 +17,7 @@ type RuntimeEvent =
   | { type: "connection"; active: boolean; online: boolean }
   | { type: "text-size"; percent: number }
   | { type: "proof"; entry: NativeProof }
-  | { type: "back" | "invalid-link" | "unavailable" };
+  | { type: "back" | "invalid-link" | "unavailable" | "billing-changed" };
 export function validateNativeProof(
   value: string,
   origin: string,
@@ -90,6 +91,7 @@ export function createNativeRuntime(
         publish(entry ? { type: "proof", entry } : { type: "invalid-link" });
       }
       if (value.reminder !== undefined) captureReminderOpen(value.reminder);
+      if (value.billingChanged === true) publish({ type: "billing-changed" });
       if (value.back) publish({ type: "back" });
     } catch {
       if (!stopped) publish({ type: "unavailable" });
@@ -119,6 +121,8 @@ export function createNativeRuntime(
 }
 let proof: NativeProof | null = null;
 let active = true;
+let online = false;
+export const nativeStoreReachable = () => active && online;
 export const nativeAppActive = () => active;
 export const peekNativeProof = () => proof;
 export function takeNativeProof() {
@@ -132,6 +136,8 @@ export function forgetNativeProof() {
 export const nativeProofEvent = "mychef-native-account-link";
 export const nativeBackEvent = "mychef-native-back";
 export const nativeResumeEvent = "mychef-native-resume";
+export const nativePurchaseEvent = "mychef-native-purchase";
+export const nativeStoreForegroundEvent = "mychef-native-store-foreground";
 export async function installNativeRuntime(
   bridge: NativeRuntimeBridge,
   origin: string,
@@ -147,6 +153,8 @@ export async function installNativeRuntime(
       window.dispatchEvent(new Event("mychef-native-link-error"));
     else if (event.type === "back")
       window.dispatchEvent(new Event(nativeBackEvent));
+    else if (event.type === "billing-changed")
+      window.dispatchEvent(new Event(nativePurchaseEvent));
     else if (event.type === "text-size") {
       document.documentElement.style.setProperty(
         "--native-text-size",
@@ -154,6 +162,9 @@ export async function installNativeRuntime(
       );
     } else if (event.type === "connection") {
       active = event.active;
+      online = event.online;
+      if (nativeStoreReachable())
+        window.dispatchEvent(new Event(nativeStoreForegroundEvent));
       if (active) {
         window.dispatchEvent(new Event(event.online ? "online" : "offline"));
       }

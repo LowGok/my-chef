@@ -4,6 +4,7 @@ import {
   type SignupAnalyticsChoice,
 } from "./AnalyticsPreferences";
 import {
+  useEffect,
   useId,
   useLayoutEffect,
   useRef,
@@ -13,6 +14,7 @@ import {
 } from "react";
 import {
   APIError,
+  accountDeletionAdvice,
   deleteOwnAccount,
   requestAccountExport,
   saveAccountDownload,
@@ -25,6 +27,7 @@ import {
   type Profile,
   type ProfileUpdate,
   type Session,
+  type BillingStore,
 } from "./api";
 import { Alert, Brand, Field, Icon } from "./components";
 import { AllergenPicker } from "./Choices";
@@ -36,6 +39,7 @@ import { PasswordChange } from "./PasswordChange";
 import { EmailChangeForm } from "./EmailVerification";
 
 import { RecoveryLink, recoveryRequestURL } from "./PasswordRecovery";
+import { Subscriptions } from "./Subscriptions";
 
 export function Welcome({
   onSession,
@@ -215,6 +219,7 @@ export function ProfileForm({
   active,
   favorites,
   personalRecipes,
+  planningSettings,
   user,
   onSave,
   onLogout,
@@ -224,6 +229,7 @@ export function ProfileForm({
   active: boolean;
   favorites?: ReactNode;
   personalRecipes?: ReactNode;
+  planningSettings?: ReactNode;
   user: Profile;
   onSave: (profile: Profile) => void;
   onLogout: () => void;
@@ -450,6 +456,16 @@ export function ProfileForm({
           </button>
         </details>
         <PlanningReminders key={user.accountInstance} />
+        {planningSettings && (
+          <details className="account-details">
+            <summary>Planning calendar</summary>
+            {planningSettings}
+          </details>
+        )}
+        <Subscriptions
+          key={`${user.id}/${sessionEpoch()}`}
+          onHelp={onFeedback}
+        />
         {favorites}
         {personalRecipes}
       </section>
@@ -497,6 +513,9 @@ export function AccountLifecycle({
     field?: string;
   } | null>(null);
   const [notice, setNotice] = useState("");
+  const [billingStores, setBillingStores] = useState<BillingStore[] | null>(
+    null,
+  );
   const dialog = useRef<HTMLDialogElement>(null);
   const form = useRef<HTMLFormElement>(null);
   const trigger = useRef<HTMLElement | null>(null);
@@ -541,6 +560,22 @@ export function AccountLifecycle({
     if (input instanceof HTMLInputElement) input.focus();
   }, [busy, problem]);
 
+  useEffect(() => {
+    if (mode !== "delete" || !active) return;
+    const controller = new AbortController();
+    void accountDeletionAdvice(controller.signal).then(
+      ({ stores }) => {
+        if (!controller.signal.aborted) setBillingStores(stores);
+      },
+      (error) => {
+        if (!controller.signal.aborted && !isStale(error)) {
+          setBillingStores(["apple", "play"]);
+        }
+      },
+    );
+    return () => controller.abort();
+  }, [mode, active]);
+
   function open(next: "export" | "delete", source: HTMLElement) {
     trigger.current = source;
     operation.current = Array.from(
@@ -548,6 +583,7 @@ export function AccountLifecycle({
       (b) => b.toString(16).padStart(2, "0"),
     ).join("");
     setNotice("");
+    setBillingStores(null);
     setMode(next);
   }
   function showProblem(text: string, field?: string) {
@@ -685,6 +721,37 @@ export function AccountLifecycle({
                 recipes, shopping lists, favorites, feedback and private
                 ratings. This cannot be undone.
               </p>
+              {billingStores?.length !== 0 && (
+                <div className="account-data-explanation">
+                  <p>
+                    Deleting MyChef does not stop store charges. If you have a
+                    subscription, cancel it in the store that sold it before you
+                    continue. You can still delete your account now.
+                  </p>
+                  {billingStores?.includes("apple") && (
+                    <p>
+                      <a
+                        href="https://apps.apple.com/account/subscriptions"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        Open Apple subscriptions
+                      </a>
+                    </p>
+                  )}
+                  {billingStores?.includes("play") && (
+                    <p>
+                      <a
+                        href="https://play.google.com/store/account/subscriptions"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        Open Google Play subscriptions
+                      </a>
+                    </p>
+                  )}
+                </div>
+              )}
               <button
                 className="button secondary"
                 type="button"

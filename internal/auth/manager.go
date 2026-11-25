@@ -297,7 +297,17 @@ func (m *Manager) Update(ctx context.Context, id int64, p ProfileUpdate, tokens 
 			}
 			return err
 		}
-		updates := map[string]any{"firstname": p.FirstName, "lastname": p.LastName, "username": p.Username, "birthdate": p.Birthdate, "sex": p.Sex, "preferences_json": string(prefs), "haspref": true}
+		updates := map[string]any{
+			"firstname": p.FirstName,
+			"lastname":  p.LastName,
+			"username":  p.Username,
+			"birthdate": p.Birthdate,
+			"sex":       p.Sex,
+			"preferences_json": gorm.Expr(`json_patch(
+				CASE WHEN json_type(CASE WHEN json_valid(preferences_json) THEN preferences_json END)='object'
+				THEN preferences_json ELSE '{}' END, ?)`, string(prefs)),
+			"haspref": true,
+		}
 		if !before.IsNewsletterOnly && p.Username != before.Username {
 			key, err := reserveAppUsername(tx, p.Username, id)
 			if err != nil {

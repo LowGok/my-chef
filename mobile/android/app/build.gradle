@@ -59,6 +59,7 @@ dependencies {
 
     // Independent cookie jar: Capacitor installs a global Java CookieHandler.
     implementation 'com.squareup.okhttp3:okhttp:5.5.1'
+    implementation 'com.android.billingclient:billing:9.1.0'
     implementation fileTree(include: ['*.jar'], dir: 'libs')
     implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
     implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"

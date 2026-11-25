@@ -8,6 +8,8 @@ import re
 import threading
 import types
 from contextlib import closing
+import hashlib
+import os
 from email.message import Message
 import importlib.util
 import io
@@ -56,6 +58,168 @@ class NativeVerificationTest(unittest.TestCase):
             result.write_text('{"weekAndMeal":true,"scaledControls":true,"systemTextSize":true}')
             self.assertTrue(installed.ios_reminder_ui_passed(result))
 
+    def test_subscription_install_authorization_requires_public_pr_and_exact_artifact(self):
+        source = "b" * 40
+        repo = {"id": 1454481532, "full_name": "LowGok/my-chef", "private": False}
+        event = {
+            "action": "labeled", "number": 41, "repository": repo, "sender": {"login": "LowGok"},
+            "label": {"name": "native-subscription-fixture"},
+            "pull_request": {"number": 41, "base": {"ref": "main"},
+                             "head": {"ref": "feat/subscription-billing", "repo": repo, "sha": source}},
+        }
+        self.assertTrue(installed.subscription_authorized(event, "41", "ios-simulator", source))
+        self.assertTrue(installed.subscription_authorized(event, "41", "android", source))
+        self.assertFalse(installed.subscription_authorized(event, "41", "ios-device", source))
+        self.assertFalse(installed.subscription_authorized(event, "41", "android", "a" * 40))
+        self.assertFalse(installed.subscription_authorized(event, "", "android", source))
+        self.assertFalse(installed.subscription_authorized(event, "42", "android", source))
+        for changed in [
+            {**event, "repository": {**repo, "private": True}},
+            {**event, "sender": {"login": "another-owner"}},
+            {**event, "label": {"name": "native-reminder-fixture"}},
+            {**event, "pull_request": {**event["pull_request"], "number": 42}},
+            {**event, "pull_request": {**event["pull_request"], "head": {**event["pull_request"]["head"], "repo": {**repo, "id": 1}}}},
+        ]:
+            self.assertFalse(installed.subscription_authorized(changed, "41", "android", source))
+
+    def test_subscription_installed_run_dispatches_the_signed_in_journey(self):
+        source = "b" * 40
+        repo = {"id": 1454481532, "full_name": "LowGok/my-chef", "private": False}
+        event = {
+            "action": "labeled", "number": 41, "repository": repo, "sender": {"login": "LowGok"},
+            "label": {"name": "native-subscription-fixture"},
+            "pull_request": {"number": 41, "base": {"ref": "main"},
+                             "head": {"ref": "feat/subscription-billing", "repo": repo, "sha": source}},
+        }
+        for platform, name in (("android", "mychef-compile.apk"), ("ios-simulator", "mychef-compile-simulator.app.zip")):
+            with self.subTest(platform=platform), tempfile.TemporaryDirectory() as directory:
+                folder = Path(directory)
+                (folder / "event.json").write_text(json.dumps(event))
+                sample = b"disposable installed candidate"
+                (folder / name).write_bytes(sample)
+                (folder / "compilation.json").write_text(json.dumps({
+                    "candidate": {"sourceCommit": source}, "platform": platform,
+                    "artifact": name, "artifactSha256": hashlib.sha256(sample).hexdigest(),
+                }))
+                environment = {
+                    "GITHUB_ACTIONS": "true", "GITHUB_REPOSITORY": "LowGok/my-chef",
+                    "GITHUB_EVENT_NAME": "pull_request", "GITHUB_EVENT_PATH": str(folder / "event.json"),
+                    "NATIVE_SUBSCRIPTION_PR": "41", "NATIVE_ANDROID_JOURNEYS": "1",
+                }
+                noop = lambda: None
+                device = ({"fixture": True}, noop, noop, noop)
+                with patch.dict(os.environ, environment), patch.object(installed, "ARTIFACTS", folder), \
+                        patch.object(installed, "PLATFORM", platform), patch.object(installed, "command", return_value=source), \
+                        patch.object(installed, "fixture", return_value=("fake-ca", [], [])) as backend, \
+                        patch.object(installed, "android", return_value=device), \
+                        patch.object(installed, "ios", return_value=(*device, noop, noop)), \
+                        patch.object(installed, "verify_stage"), \
+                        patch.object(installed, "android_journeys") as android_check, \
+                        patch.object(installed, "ios_billing_journey") as ios_check, redirect_stdout(io.StringIO()):
+                    installed.main()
+                self.assertTrue(backend.call_args.kwargs["billing"])
+                if platform == "android":
+                    android_check.assert_called_once()
+                    self.assertIs(android_check.call_args.kwargs["billing"], True)
+                    ios_check.assert_not_called()
+                else:
+                    ios_check.assert_called_once()
+                    android_check.assert_not_called()
+
+    def test_public_billing_receipt_filters_raw_metadata_and_requires_both_journeys(self):
+        from verify_native_subscription_evidence import evidence
+
+        source = "b" * 40
+        candidate = {
+            "sourceCommit": source, "appId": "com.gkldevelopment.mychef.preview",
+            "environment": "preview", "version": "0.1.0", "build": 2,
+            "bundleSha256": "c" * 64, "dependenciesSha256": "d" * 64,
+            "nativeResolutionRecorded": True, "nativeResolutionVerified": False,
+        }
+        smoke_steps = ["install and launch", "native session over verified HTTPS", "refresh after process relaunch"]
+        for platform, name, model, checks in (
+            ("android", "mychef-compile.apk", {"api": "33", "privateNotes": "unused metadata"},
+             ["Android large text and Play purchase controls are accessible", "Play restores the lost simulated result before completion"]),
+            ("ios-simulator", "mychef-compile-simulator.app.zip",
+             {"runtime": "com.apple.CoreSimulator.SimRuntime.iOS-18-6", "model": "iPhone 16"},
+             ["iOS system large text and focusable subscription controls",
+              "verified simulated Apple purchase", "simulated Apple restore"]),
+        ):
+            with self.subTest(platform=platform), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                binary = b"synthetic fixture"
+                (root / name).write_bytes(binary)
+                digest = hashlib.sha256(binary).hexdigest()
+                compile_data = {"candidate": candidate, "platform": platform, "artifact": name,
+                                "artifactSha256": digest, "compilation": "passed",
+                                "dependencyVerification": "locked", "distribution": "not authorized",
+                                "tool": "unfiltered compiler information"}
+                run = {"source": candidate, "artifactSha256": digest, "device": model}
+                smoke = {**run, "platform": platform, "passed": smoke_steps}
+                journey = {**run, "groups": {"billing": checks}, "passed": checks}
+                for file, value in (("compilation.json", compile_data), ("installed-smoke.json", smoke),
+                                    ("installed-journeys.json", journey)):
+                    (root / file).write_text(json.dumps(value))
+                value = evidence(root, platform, source)
+                self.assertEqual(value["sourceCommit"], source)
+                self.assertEqual(value["artifactSha256"], digest)
+                self.assertEqual(value["billing"], checks)
+                self.assertNotIn("privateNotes", json.dumps(value))
+                self.assertNotIn("compiler information", json.dumps(value))
+                old_step = ("Play simulated purchase has accessible terms" if platform == "android"
+                            else "enlarged price controls")
+                old_checks = [old_step, *checks[1:]]
+                (root / "installed-journeys.json").write_text(json.dumps({
+                    **journey, "passed": old_checks, "groups": {"billing": old_checks},
+                }))
+                with self.assertRaises(ValueError):
+                    evidence(root, platform, source)
+                for invalid in (
+                    {**journey, "passed": checks[:-1]},
+                    {**journey, "artifactSha256": "a" * 64},
+                    {**journey, "notes": "test-account@example.test"},
+                    {**journey, "notes": "fixture." + "a" * 32 + "." + "b" * 43},
+                    {**journey, "notes": "https://private-preview.taildemo.ts.net:8977"},
+                    {**journey, "notes": "Authorization: Bearer syntheticprivate"},
+                ):
+                    (root / "installed-journeys.json").write_text(json.dumps(invalid))
+                    with self.assertRaises(ValueError):
+                        evidence(root, platform, source)
+                (root / "installed-journeys.json").write_text(json.dumps(journey))
+                with self.assertRaises(ValueError):
+                    evidence(root, platform, "a" * 40)
+                (root / name).write_bytes(binary + b"tampered")
+                with self.assertRaises(ValueError):
+                    evidence(root, platform, source)
+
+    def test_ios_billing_receipt_is_exact_and_never_accepts_proofs(self):
+        routes = [("POST", "billing/checkouts", 201), ("POST", "billing/launch", 204),
+                  ("POST", "billing/verify", 200), ("POST", "billing/restore", 200)]
+        accepted = {"terms": True, "systemTextSize": True, "checkout": True, "restore": True}
+        self.assertTrue(installed.ios_billing_verified(accepted, routes))
+        self.assertFalse(installed.ios_billing_verified({"terms": True, "checkout": True, "restore": True}, routes))
+        self.assertFalse(installed.ios_billing_verified({**accepted, "systemTextSize": False}, routes))
+        self.assertFalse(installed.ios_billing_verified({**accepted, "receipt": "synthetic"}, routes))
+        self.assertFalse(installed.ios_billing_verified({**accepted, "terms": False}, routes))
+        self.assertFalse(installed.ios_billing_verified({**accepted, "terms": 1}, routes))
+        self.assertFalse(installed.ios_billing_verified(accepted, routes[:-1]))
+        self.assertFalse(installed.ios_billing_verified(accepted, [routes[0], routes[2], routes[1], routes[3]]))
+
+    def test_ios_billing_timeout_diagnostics_omit_unrecognized_values(self):
+        with tempfile.TemporaryDirectory() as directory:
+            stage = Path(directory) / "mychef-ios-billing-stage.txt"
+            events = [("POST", "login", 200), ("POST", "billing/launch", 204),
+                      ("POST", "unexpected-private-route", 404)]
+            stage.write_text("system-text")
+            self.assertEqual(installed.ios_billing_timeout(stage, events),
+                             ("system-text", events[:2]))
+            stage.write_text("webkit-4")
+            self.assertEqual(installed.ios_billing_timeout(stage, events),
+                             ("webkit-4", events[:2]))
+            stage.write_text("unrecognized diagnostic")
+            self.assertEqual(installed.ios_billing_timeout(stage, events),
+                             ("unreported", events[:2]))
+
     def test_android_reminder_text_restores_the_emulator_setting_on_failure(self):
         for initial in ("null", "1.15"):
             with self.subTest(initial=initial):
@@ -71,7 +235,7 @@ class NativeVerificationTest(unittest.TestCase):
                     return ""
 
                 with self.assertRaisesRegex(RuntimeError, "synthetic journey failure"):
-                    with installed.android_reminder_text(adb):
+                    with installed.android_large_text(adb):
                         self.assertEqual(scale, "1.5")
                         raise RuntimeError("synthetic journey failure")
                 self.assertEqual(scale, initial)
@@ -80,6 +244,55 @@ class NativeVerificationTest(unittest.TestCase):
                     ("shell", "settings", "delete", "system", "font_scale") if initial == "null" else
                     ("shell", "settings", "put", "system", "font_scale", initial),
                 ])
+
+    def test_android_billing_journey_uses_and_restores_system_font_size(self):
+        events = []
+        scale = "1.15"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "fixture-inbox.json").write_text(json.dumps({"capability": "x" * 43}))
+
+            def command(*args, **kwargs):
+                nonlocal scale
+                if args[0] == "bun":
+                    self.assertEqual(args[-1], "billing")
+                    self.assertEqual(scale, "1.5")
+                    events.extend([("POST", "billing/checkouts", 201), ("POST", "billing/launch", 204),
+                                   ("POST", "billing/restore", 200)])
+                    (root / "native-android-journeys-billing.json").write_text(json.dumps({
+                        "group": "billing",
+                        "passed": ["Android large text and Play purchase controls are accessible",
+                                   "Play restores the lost simulated result before completion"],
+                    }))
+                elif args[-4:] == ("settings", "get", "system", "font_scale"):
+                    return scale
+                elif args[-5:-1] == ("settings", "put", "system", "font_scale"):
+                    scale = args[-1]
+                elif args[-3:-1] == ("pm", "clear"):
+                    return "Success"
+                return ""
+
+            receipt = {"candidate": {"sourceCommit": "a" * 40}, "artifactSha256": "b" * 64}
+            with patch.dict(installed.ENV, {"ANDROID_HOME": str(root)}), patch.object(installed, "command", command), \
+                    patch.object(probe, "build", return_value=root / "probe.apk"), \
+                    patch.object(native_fixture_account, "seed", return_value={}), redirect_stdout(io.StringIO()):
+                with patch.object(installed, "ARTIFACTS", root):
+                    installed.android_journeys(root, receipt, {"api": "33"}, events, billing=True)
+            self.assertEqual(scale, "1.15")
+            value = json.loads((root / "installed-journeys.json").read_text())
+            self.assertEqual(value["passed"][0], "Android large text and Play purchase controls are accessible")
+
+    def test_subscription_journey_can_use_the_probe_for_real_android_taps(self):
+        script = (ROOT / "scripts/native-android-journeys.ts").read_text()
+        journey = script.split("async function billingJourneys()", 1)[1].split("async function", 1)[0]
+        taps = set(re.findall(r'await activate\("([^"]+)"\)', journey))
+        self.assertEqual(taps, {"Subscribe monthly", "Restore purchases"})
+        java = (ROOT / "scripts/native-android/NativeJourneyProbe.java").read_text()
+        method = java.split("private void activate(String label)", 1)[1]
+        allowlist = re.search(r'Arrays\.asList\(([^)]+)\)\.contains\(label\)', method)
+        self.assertIsNotNone(allowlist)
+        self.assertEqual(taps - set(re.findall(r'"([^"]+)"', allowlist[1])), set(),
+                         "The installed walk-through would stop before sending these OS taps")
 
     def test_android_groups_continue_on_failure_without_issuing_a_full_receipt(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -350,7 +563,7 @@ class NativeFixtureProxyTest(unittest.TestCase):
                     server=http.server,
                     client=types.SimpleNamespace(HTTPConnection=Client)),
                 re=re, state=Path(scratch), closing=closing, events=[], PLATFORM="android",
-                journeys=False, json=json, shopping_lock=threading.Lock(),
+                journeys=False, billing=False, json=json, shopping_lock=threading.Lock(),
                 shopping_sync={})
             exec(compile(ast.Module(body=[proxy], type_ignores=[]),
                          'actual-installed-fixture-proxy', 'exec'), namespace)
@@ -416,6 +629,15 @@ class NativeFixtureProxyTest(unittest.TestCase):
             self.assertEqual(json.loads(upstream[-2][2])['items'][0]['name'], 'Native remote salt')
             self.assertEqual(upstream[-1][2], b'{}')
             self.assertEqual(sent, [409])
+
+            namespace['billing'] = True
+            Response.status = 200
+            handler.path = '/api/native/v1/billing/checkouts/' + 'd' * 36 + '/verify'
+            handler.command = 'POST'
+            handler.rfile = io.BytesIO(b'{}')
+            handler.forward()
+            self.assertEqual(namespace['events'][-1], ('POST', 'billing/verify', 200))
+            self.assertNotIn('d' * 36, repr(namespace['events']))
 
 
 class NativeSystemPickerTest(unittest.TestCase):

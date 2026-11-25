@@ -129,12 +129,20 @@ func (r RecipeContent) Validate(input MenuInput, prefs Preferences) error {
 			}
 		}
 	}
-	ingredients := make([]string, 0, len(r.Ingredients))
 	for _, i := range r.Ingredients {
 		if strings.TrimSpace(i.Name) == "" || len(i.Name) > 200 || i.Quantity != nil && !i.Quantity.Valid() || i.Unit != nil && len(*i.Unit) > 80 {
 			return errors.New("invalid ingredient")
 		}
-		ingredients = append(ingredients, strings.ToLower(i.Name))
+	}
+	return r.CheckExclusions(prefs)
+}
+
+// CheckExclusions checks declared recipe facts separately from completeness.
+// Older saved recipes can have usable ingredient data without generation metadata.
+func (r RecipeContent) CheckExclusions(prefs Preferences) error {
+	ingredients := make([]string, 0, len(r.Ingredients))
+	for _, ingredient := range r.Ingredients {
+		ingredients = append(ingredients, strings.ToLower(ingredient.Name))
 	}
 	exclusions := append(append([]string{}, prefs.Allergens...), prefs.Dislikes...)
 	for _, value := range prefs.Diet {

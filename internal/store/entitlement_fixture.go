@@ -20,7 +20,8 @@ type FixtureEntitlementOperation struct {
 	UserID                             int64
 }
 
-func fixtureSyntheticAccount(tx *gorm.DB, user int64, incarnation string) (bool, error) {
+// SyntheticFixtureAccount checks the verified owner before using a test billing grant.
+func SyntheticFixtureAccount(tx *gorm.DB, user int64, incarnation string) (bool, error) {
 	var email string
 	err := tx.Raw(`SELECT u.email FROM users u JOIN account_incarnations a ON a.user_id=u.user_id
 WHERE u.user_id=? AND a.incarnation=? AND u.email_verified_at>0`, user, incarnation).Row().Scan(&email)
@@ -30,8 +31,13 @@ WHERE u.user_id=? AND a.incarnation=? AND u.email_verified_at>0`, user, incarnat
 	if err != nil {
 		return false, err
 	}
+	return IsSyntheticFixtureEmail(email), nil
+}
+
+// IsSyntheticFixtureEmail applies the same reserved-domain rule to test data.
+func IsSyntheticFixtureEmail(email string) bool {
 	display, _, err := EmailIdentity(email)
-	return err == nil && strings.HasSuffix(strings.ToLower(display[strings.LastIndexByte(display, '@')+1:]), ".test"), nil
+	return err == nil && strings.HasSuffix(strings.ToLower(display[strings.LastIndexByte(display, '@')+1:]), ".test")
 }
 
 func retireFixtureEntitlements(tx *gorm.DB) error {
@@ -114,7 +120,7 @@ AND generation=? AND lease_id=? AND lease_expires_ns=?`, op.Generation, lease.ID
 		if err != nil {
 			return err
 		}
-		allowed, err := fixtureSyntheticAccount(tx, op.UserID, op.Incarnation)
+		allowed, err := SyntheticFixtureAccount(tx, op.UserID, op.Incarnation)
 		if err != nil {
 			return err
 		}

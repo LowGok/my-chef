@@ -25,6 +25,10 @@ func PublicMessage(code string) string {
 	switch code {
 	case "menu_exists":
 		return "Meals already exist for this week. Review your request to replace them."
+	case "correction_unavailable":
+		return "There is no confirmed issue to correct in this dinner. No meals were changed."
+	case "planning_limit":
+		return "This request is outside your planning allowance. No meals were changed."
 	case "provider_quota":
 		return "The recipe provider has no quota available. Try again when its quota is restored."
 	case "provider_timeout":

@@ -14,6 +14,7 @@ import { Alert, FoodPlaceholder, Icon } from "./components";
 import { addDays, dateLabel, monday, today } from "./dates";
 import { PersonalCopyAction } from "./PersonalRecipes";
 import { RecipeImage } from "./RecipeImage";
+import type { PlanningCalendar } from "./PlanningZone";
 export type FavoriteWeek = components["schemas"]["FavoriteWeek"];
 
 function DishImage({ recipe }: { recipe: Recipe }) {
@@ -196,7 +197,11 @@ export function Favorites({
   onOpen,
   onWeek,
   onCopy,
+  calendar,
+  canPlan = true,
 }: {
+  calendar?: PlanningCalendar;
+  canPlan?: boolean;
   onOpen: (r: Recipe) => void;
   onWeek: (week: string) => void;
   onCopy?: (recipe: Recipe) => void;
@@ -213,7 +218,8 @@ export function Favorites({
     [meals, setMeals] = useState<Recipe[]>([]),
     [choicesError, setChoicesError] = useState("");
   const [personalAllowed, setPersonalAllowed] = useState<boolean | null>(null);
-  const canAssign = !selected?.source || personalAllowed === true;
+  const canAssign = canPlan && (!selected?.source || personalAllowed === true);
+  const canQueue = canPlan && (calendar?.premium ?? true);
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [success, setSuccess] = useState("");
@@ -224,7 +230,7 @@ export function Favorites({
     pending = useRef(false),
     swapRequest = useRef<{ targetId: string; requestKey: string } | null>(null),
     loadVersion = useRef(0);
-  const current = monday(reference),
+  const current = calendar?.firstWeek ?? monday(reference),
     upcoming = addDays(current, 7);
   useEffect(() => {
     alive.current = true;
@@ -260,21 +266,27 @@ export function Favorites({
     else if (!selected && dialog.current?.open) dialog.current.close();
   }, [selected]);
   useEffect(() => {
-    if (!selected) return;
+    if (!selected || !canPlan) return;
     let active = true;
     setQueue(null);
     setMeals([]);
     setChoicesError("");
     setPersonalAllowed(null);
     Promise.all([
-      api<FavoriteWeek>(`/favorite-weeks/${upcoming}`),
+      canQueue
+        ? api<FavoriteWeek>(`/favorite-weeks/${upcoming}`)
+        : Promise.resolve(null),
       weekMeals(current),
       selected.source ? personalApi.permissions() : Promise.resolve(null),
     ])
       .then(([q, m, capability]) => {
         if (active) {
           setQueue(q);
-          setMeals(m);
+          setMeals(
+            calendar && !calendar.premium
+              ? m.filter((meal) => meal.date <= addDays(current, 2))
+              : m,
+          );
           setPersonalAllowed(capability?.canWrite ?? false);
         }
       })
@@ -285,7 +297,7 @@ export function Favorites({
     return () => {
       active = false;
     };
-  }, [selected?.id, current, upcoming, choiceRetry]);
+  }, [selected?.id, current, upcoming, choiceRetry, canQueue, canPlan]);
   function open(recipe: Recipe) {
     setReference(today());
     setSelected(recipe);
@@ -299,12 +311,12 @@ export function Favorites({
     if (!pending.current) setSelected(null);
   }
   async function act(kind: "queue" | "swap" | "remove") {
-    if (!selected || pending.current) return;
+    if (!selected || pending.current || (kind === "queue" && !canQueue)) return;
     if (kind !== "remove" && !canAssign) {
       setError("Premium is needed to add this personal recipe to a plan.");
       return;
     }
-    if (kind !== "remove" && monday(today()) !== current) {
+    if (!calendar && kind !== "remove" && monday(today()) !== current) {
       setReference(today());
       setTarget("");
       setMode("recap");
@@ -333,7 +345,10 @@ export function Favorites({
           `/favorites/${recipe.id}/queue`,
           {
             method: "POST",
-            body: JSON.stringify({ week: upcoming, today: reference }),
+            body: JSON.stringify({
+              week: upcoming,
+              today: calendar?.today ?? reference,
+            }),
           },
         );
         if (!alive.current || epoch !== sessionEpoch()) return;
@@ -350,7 +365,7 @@ export function Favorites({
           body: JSON.stringify({
             ...swapRequest.current,
             week: current,
-            today: reference,
+            today: calendar?.today ?? reference,
           }),
         });
         if (!alive.current || epoch !== sessionEpoch()) return;
@@ -560,6 +575,16 @@ export function Favorites({
                 </Alert>
               )}
               {error && <Alert>{error}</Alert>}
+              {!canPlan && (
+                <p className="notice">
+                  Confirm your household time zone to plan this recipe.
+                </p>
+              )}
+              {canPlan && !canQueue && (
+                <p className="notice">
+                  Adding recipes to next week requires Premium.
+                </p>
+              )}
               {selected.source && personalAllowed === false && (
                 <p className="notice">
                   This favorite stays linked to your personal recipe. Premium is
@@ -630,14 +655,16 @@ export function Favorites({
                 <>
                   <button
                     className="button primary"
-                    disabled={busy || !queue || added || full || !canAssign}
+                    disabled={
+                      busy || !canQueue || !queue || added || full || !canAssign
+                    }
                     onClick={() => void act("queue")}
                   >
                     {added ? "Added to next week" : "Add to next week"}
                   </button>
                   <button
                     className="button secondary"
-                    disabled={busy || !queue || !meals.length || !canAssign}
+                    disabled={busy || !meals.length || !canAssign}
                     onClick={() => {
                       setMode("swap");
                       setError("");

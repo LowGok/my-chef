@@ -12,6 +12,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -61,6 +63,7 @@ var accountExportParts = []exportPart{
 	{Name: "newsletter-proofs.json", Query: `SELECT purpose,created_unix AS createdUnix,expires_unix AS expiresUnix,consumed_unix AS consumedUnix FROM newsletter_proofs WHERE user_id=? ORDER BY created_unix,purpose`},
 	{Name: "analytics.json"},
 	{Name: "weekly-reminders.json", Query: `SELECT p.zone,p.current_enabled AS currentEnabled,p.advance_enabled AS advanceEnabled,p.advance_day AS advanceWeekday,p.advance_minute AS advanceMinute FROM reminder_preferences p JOIN account_incarnations a ON a.incarnation=p.incarnation WHERE a.user_id=?`},
+	{Name: "billing.json"},
 	{Name: "entitlements.json", Query: `SELECT CASE WHEN g.source='fixture' THEN 'fixture' ELSE 'other' END AS source,
 g.starts_ns AS startsNanoseconds,g.ends_ns AS endsNanoseconds,g.revoked_ns AS revokedNanoseconds
 FROM entitlement_grants g JOIN account_incarnations a ON a.incarnation=g.incarnation
@@ -170,7 +173,7 @@ func (m exportMapper) jsonValue(kind, value string) (any, error) {
 		}
 		return recipe, nil
 	case "preferences":
-		var p domain.Preferences
+		var p savedPlanningPreferences
 		err := json.Unmarshal([]byte(value), &p)
 		return p, err
 	case "content":
@@ -184,10 +187,11 @@ func (m exportMapper) jsonValue(kind, value string) (any, error) {
 		}
 		return m.recipe(r), nil
 	case "shopping":
-		var list domain.ShoppingList
-		if err := json.Unmarshal([]byte(value), &list); err != nil {
+		var stored storedShopping
+		if err := json.Unmarshal([]byte(value), &stored); err != nil {
 			return nil, err
 		}
+		list := stored.ShoppingList
 		list.SourceVersion = ""
 		for i := range list.Meals {
 			list.Meals[i].RecipeID = m.id("recipe", list.Meals[i].RecipeID)
@@ -198,7 +202,27 @@ func (m exportMapper) jsonValue(kind, value string) (any, error) {
 				list.Items[i].Contributions[k].RecipeID = m.id("recipe", list.Items[i].Contributions[k].RecipeID)
 			}
 		}
-		return list, nil
+		if len(stored.FullWeekChecks) == 0 {
+			return list, nil
+		}
+		type exportedCheck struct {
+			ID       string  `json:"id"`
+			Name     string  `json:"name"`
+			Quantity *string `json:"quantity"`
+			Unit     string  `json:"unit"`
+			State    string  `json:"state"`
+		}
+		out := struct {
+			domain.ShoppingList
+			FullWeekChecks []exportedCheck `json:"fullWeekChecks,omitempty"`
+		}{ShoppingList: list}
+		for _, id := range slices.Sorted(maps.Keys(stored.FullWeekChecks)) {
+			check := stored.FullWeekChecks[id]
+			out.FullWeekChecks = append(out.FullWeekChecks, exportedCheck{
+				ID: m.id("shopping-item", id), Name: check.Name, Quantity: check.Quantity, Unit: check.Unit, State: check.State,
+			})
+		}
+		return out, nil
 	case "planning":
 		var request domain.GenerationRequest
 		if err := json.Unmarshal([]byte(value), &request); err != nil {
@@ -261,6 +285,12 @@ func writeExportPart(ctx context.Context, tx *gorm.DB, part exportPart, user int
 		return e
 	}
 
+	if part.Name == "billing.json" {
+		if len(options) == 0 {
+			return writeBillingExport(ctx, m, w, AccountExportOptions{})
+		}
+		return writeBillingExport(ctx, m, w, options[0])
+	}
 	if part.Name == "recipe-import-drafts.json" {
 		var opts AccountExportOptions
 		if len(options) > 0 {
@@ -353,6 +383,20 @@ func (s *Store) WriteAccountExport(ctx context.Context, actor AccountActor, w io
 	}
 	opts.analytics = analyticsData
 	opts.now = now
+	if opts.Billing != nil {
+		if opts.Billing.app != s || opts.Billing.CheckAvailable(ctx) != nil {
+			return ErrAccountExport
+		}
+		if err := tx.Raw("SELECT incarnation FROM account_incarnations WHERE user_id=?", actor.UserID).Row().Scan(&opts.billingOwner); err != nil {
+			return ErrAccountExport
+		}
+		billingRead, err := opts.Billing.store.SQL.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+		if err != nil {
+			return ErrAccountExport
+		}
+		defer func() { _ = billingRead.Rollback() }()
+		opts.billingRead = billingRead
+	}
 	var mapper exportMapper
 	if _, err := rand.Read(mapper.key[:]); err != nil {
 		return ErrAccountExport
@@ -382,6 +426,9 @@ func (s *Store) WriteAccountExport(ctx context.Context, actor AccountActor, w io
 		return err
 	}
 	if _, err = io.WriteString(guide, "MyChef account data\n\nVersion 2. JSON files are arrays grouped by category.\nThis includes owned history, favorites, shopping choices, planning inputs, feedback and private ratings.\nPersonal recipes include every retained saved version, source links and queued snapshots. Deleted library sources may still be referenced by planned meals.\nRecipe imports include saved source attribution and still-retained private drafts. Source uploads and dispatch capabilities are excluded.\nRelated records use identifiers local to this download. Normalized uploaded photos are in photos/; personal-photos.json maps their identifiers to files. Existing generated images remain URL references.\nWeekly planning reminders include preferences and exclude push tokens.\nEntitlements include grant categories and dates; internal grant and fixture identifiers are excluded.\nNative installation metadata includes only its platform, expiry and export-local identifier. Passwords, session credentials, browser sessions, verification links, private provider targets, upload receipts, security logs and opaque legacy fields are excluded.\nKeep this archive private. MyChef does not retain a copy or send it by email.\n"); err != nil {
+		return err
+	}
+	if _, err := io.WriteString(guide, "Billing lists your store, plan interval, paid period and status when available. It excludes store receipts and transaction identifiers.\n"); err != nil {
 		return err
 	}
 	for _, part := range accountExportParts {

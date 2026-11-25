@@ -38,12 +38,14 @@ type ShoppingMeal struct {
 }
 
 type ShoppingList struct {
-	PrivateImports bool           `json:"privateImports,omitempty"`
-	Week           string         `json:"week"`
-	Revision       int64          `json:"revision"`
-	SourceVersion  string         `json:"sourceVersion"`
-	Meals          []ShoppingMeal `json:"meals"`
-	Items          []ShoppingItem `json:"items"`
+	CustomizationLocked bool           `json:"customizationLocked,omitempty"`
+	BlockedChanges      []string       `json:"blockedChanges,omitempty"`
+	PrivateImports      bool           `json:"privateImports,omitempty"`
+	Week                string         `json:"week"`
+	Revision            int64          `json:"revision"`
+	SourceVersion       string         `json:"sourceVersion"`
+	Meals               []ShoppingMeal `json:"meals"`
+	Items               []ShoppingItem `json:"items"`
 }
 
 func shoppingText(s string) string { return strings.ToLower(strings.Join(strings.Fields(s), " ")) }

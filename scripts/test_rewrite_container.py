@@ -117,7 +117,27 @@ def main() -> None:
                 "web/src/analytics-state.ts",
             }
             assert required_analytics_inputs.issubset(paths), "analytics runtime inputs were excluded"
+            required_billing_inputs = {
+                "cmd/mychef/billing_runtime.go", "cmd/mychef/billing_apple_runtime.go",
+                "internal/billing/journal.go", "internal/billing/apple_callback.go",
+                "internal/billing/play_worker.go", "internal/store/account_billing.go",
+                "internal/http/native_billing.go", "web/src/Subscriptions.tsx",
+            }
+            excluded_billing_fixtures = {
+                "cmd/mychef/billing_runtime_fixture.go", "internal/billing/fixture_provider.go",
+                "scripts/native-billing-webview.ts", "scripts/native-ios-billing.ts",
+            }
+            assert required_billing_inputs.issubset(paths), "billing runtime inputs were excluded"
+            assert excluded_billing_fixtures.isdisjoint(paths), "simulated purchase code entered the release context"
             assert not any(p.startswith("docs/") for p in paths), "private planning documents entered the app container context"
+            # Every production billing source must reach the build, without
+            # widening the explicit allowlist to include simulator code.
+            production_billing = {
+                p.relative_to(ROOT).as_posix() for p in (ROOT / "internal/billing").glob("*.go")
+                if p.name != "fixture_provider.go" and not p.name.endswith("_test.go")
+            }
+            missing_billing = production_billing.difference(paths)
+            assert not missing_billing, f"billing files excluded from the production context: {sorted(missing_billing)}"
             assert not any(p.startswith("mobile/") for p in paths), "native projects entered the app container context"
             assert not any(any(word in p for word in ("secret", "canary", "node_modules", "test-results", ".streamlit", ".git/", "mychefApp", "_test.go")) for p in paths), "private or generated file entered the build context"
         if "MYCHEF_CONTAINER_IMAGE" not in env:
@@ -147,6 +167,18 @@ def main() -> None:
         volume = output("volume", "create", f"mychef-rewrite-{suffix}")
         volumes.append(volume)
         mount = ["--mount", f"type=volume,src={volume},dst=/data"]
+        rejected_billing_fixture = subprocess.run(
+            docker + ["run", "--rm", *options, *mount, "--network=none",
+                      "--mount", f"type=bind,src={email['MYCHEF_FIXTURE_INBOX_FILE']},dst=/tmp/billing-inbox.json,readonly",
+                      "--env", "MYCHEF_ADDR=127.0.0.1:18138", "--env", "MYCHEF_ORIGIN=http://127.0.0.1:18138",
+                      "--env", "MYCHEF_DEV=1", "--env", "MYCHEF_E2E=1", "--env", "MYCHEF_PROVIDER=fixture",
+                      "--env", "MYCHEF_EMAIL_MODE=fake", "--env", "MYCHEF_FIXTURE_INBOX_FILE=/tmp/billing-inbox.json",
+                      "--env", "MYCHEF_DB=/data/app.db", "--env", "MYCHEF_LIFECYCLE_DB=/data/app.db.lifecycle",
+                      "--env", "MYCHEF_BILLING_FIXTURE_ROOT=/data", "--env", "MYCHEF_BILLING_FIXTURE=1", image],
+            env=env, capture_output=True, text=True, timeout=30)
+        assert rejected_billing_fixture.returncode == 1 and (
+            "invalid billing fixture configuration" in rejected_billing_fixture.stdout
+        ), "release image did not reject simulated purchase startup"
         run("run", "--rm", *options, *mount, "--entrypoint", "/app/mychef-migrate", image, "up", "--db", "/data/mychef.db")
         worker_volumes = {}
         for name, target in (("state", "/import-state"), ("policy", "/import-policy"), ("channel", "/import-channel")):
@@ -462,7 +494,7 @@ def main() -> None:
                 "aquasec/trivy:0.76.1@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c",
                 "image", "--exit-code", "1", "--severity", "HIGH,CRITICAL", "--scanners", "vuln", image)
         result = {"outcome":"passed", "image":image, "imageId":metadata["Id"], "version":expected_version,
-                  "checks":["dedicated newsletter role, paused vector, forbidden routes and restart", "newsletter SQL capture/fake delivery/confirm/restart/withdrawal", "context canaries", "offline worker served", "nonroot shell-free runtime", "read-only root", "writable tmpfs", "health", "browser menu", "personal versions/photos/export", "volume restart", "online backup/fresh-volume restore", "personal deletion replay", "active grant persists on restart", "restored grant is cleared", "normal runtime ignores stored grants", "separate worker UID", "protected ledger/policy", "ephemeral import sources", "import save/restart/restore/deletion", "independent admission replay", "SIGTERM"], "scan":args.scan}
+                  "checks":["dedicated newsletter role, paused vector, forbidden routes and restart", "newsletter SQL capture/fake delivery/confirm/restart/withdrawal", "context canaries", "release image rejects simulated billing and exposes no checkout by default", "offline worker served", "nonroot shell-free runtime", "read-only root", "writable tmpfs", "health", "browser menu", "personal versions/photos/export", "volume restart", "online backup/fresh-volume restore", "personal deletion replay", "active grant persists on restart", "restored grant is cleared", "normal runtime ignores stored grants", "separate worker UID", "protected ledger/policy", "ephemeral import sources", "import save/restart/restore/deletion", "independent admission replay", "SIGTERM"], "scan":args.scan}
         (artifacts / "result.json").write_text(json.dumps(result, indent=2))
         print(json.dumps(result))
     finally:

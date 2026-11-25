@@ -16,6 +16,7 @@ import {
 } from "./mobile-build";
 import { recordNativeCandidate } from "./mobile-delivery";
 import { nativeBuildPlan, verifyCopiedNativeAssets } from "./mobile-hosted";
+import { iosBillingFixtureSource } from "./native-ios-billing";
 
 type Platform = "android" | "ios-simulator" | "ios-device";
 // Build 1 is already installed through owner-only TestFlight.
@@ -27,7 +28,13 @@ const xcode = {
 const stop = () => {
   throw new Error("Compile-only authorization or source identity is invalid.");
 };
-export function compileInputs(value: unknown, platform: string | undefined, nativePR: string | undefined, reminderPR?: string) {
+export function compileInputs(
+  value: unknown,
+  platform: string | undefined,
+  nativePR: string | undefined,
+  reminderPR?: string,
+  subscriptionPR?: string,
+) {
   const event = value as {
     action?: string;
     number?: number;
@@ -35,6 +42,7 @@ export function compileInputs(value: unknown, platform: string | undefined, nati
     label?: { name?: string };
     repository?: { id?: number; full_name?: string; private?: boolean };
     pull_request?: {
+      number?: number;
       base?: { ref?: string };
       head?: { sha?: string; ref?: string; repo?: { id?: number; full_name?: string } };
     };
@@ -42,10 +50,14 @@ export function compileInputs(value: unknown, platform: string | undefined, nati
   const head = event?.pull_request?.head;
   const label = event?.label?.name;
   const reminder = label === "native-reminder-fixture";
-  const approvedPR = reminder ? reminderPR : nativePR;
-  const allowed = reminder
-    ? platform === "android" || platform === "ios-simulator"
-    : label === "native-compile" ||
+  const subscription = label === "native-subscription-fixture";
+  const approvedPR = subscription ? subscriptionPR : reminder ? reminderPR : nativePR;
+  const allowed = subscription
+    ? (platform === "android" || platform === "ios-simulator") &&
+      event.pull_request?.number === event.number
+    : reminder
+      ? platform === "android" || platform === "ios-simulator"
+      : label === "native-compile" ||
       (label === "native-installed" && platform !== "ios-device") ||
       (label === "native-installed-android" && platform === "android") ||
       (label === "native-installed-ios-simulator" && platform === "ios-simulator");
@@ -61,7 +73,7 @@ export function compileInputs(value: unknown, platform: string | undefined, nati
     event.pull_request?.base?.ref !== "main" ||
     head?.repo?.full_name !== "LowGok/my-chef" ||
     head.repo.id !== 1454481532 ||
-    head.ref !== (reminder ? "feat/weekly-reminders" : "feat/native-mobile") ||
+    head.ref !== (subscription ? "feat/subscription-billing" : reminder ? "feat/weekly-reminders" : "feat/native-mobile") ||
     !/^[a-f0-9]{40}$/.test(head.sha ?? "") ||
     !["android", "ios-simulator", "ios-device"].includes(platform ?? "")
   )
@@ -70,14 +82,17 @@ export function compileInputs(value: unknown, platform: string | undefined, nati
     platform: platform as Platform,
     commit: head!.sha!,
     installed:
-      reminder || label === "native-installed" || label === `native-installed-${platform}`,
+      reminder || subscription || label === "native-installed" || label === `native-installed-${platform}`,
   };
 }
 export function compilePlan(
   platform: Platform,
   bootstrap: boolean,
   simulatorEntitlements?: string,
+  iosBillingFixture = false,
 ) {
+  if (iosBillingFixture && (platform !== "ios-simulator" || !simulatorEntitlements))
+    stop();
   if (
     simulatorEntitlements &&
     (platform !== "ios-simulator" ||
@@ -102,6 +117,8 @@ export function compilePlan(
         0,
         `MYCHEF_SIMULATOR_LDFLAGS=-Wl,-sectcreate,__TEXT,__entitlements,${simulatorEntitlements}`,
       );
+    if (iosBillingFixture)
+      plan.splice(-1, 0, "SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) MYCHEF_BILLING_SIMULATOR");
     return plan;
   }
   if (platform !== "android") return stop();
@@ -138,12 +155,16 @@ async function compile() {
     process.env.GITHUB_REPOSITORY !== "LowGok/my-chef"
   )
     stop();
+  const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH!, "utf8"));
   const input = compileInputs(
-    JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH!, "utf8")),
+    event,
     process.env.NATIVE_PLATFORM,
     process.env.NATIVE_VERIFICATION_PR,
     process.env.NATIVE_REMINDER_PR,
+    process.env.NATIVE_SUBSCRIPTION_PR,
   );
+  const iosBillingFixture = input.platform === "ios-simulator" &&
+    event.label.name === "native-subscription-fixture";
   const root = resolve(import.meta.dir, ".."),
     mobile = join(root, "mobile"),
     generated = join(mobile, ".generated"),
@@ -239,8 +260,11 @@ async function compile() {
     run(["bun", "install", "--frozen-lockfile"], join(root, "web"));
     run(["bun", "install", "--frozen-lockfile"], mobile);
     run(["bun", "run", "build"], join(root, "web"));
+    const web = join(root, "web/dist/app");
+    if (iosBillingFixture)
+      await writeFile(join(web, "mychef-ios-billing-fixture.js"), iosBillingFixtureSource(), { mode: 0o600, flag: "wx" });
     await prepareMobileBundle(
-      join(root, "web/dist/app"),
+      web,
       generated,
       createMobileConfig("https://localhost:8977"),
       input.commit,
@@ -281,7 +305,7 @@ async function compile() {
         `<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0"><dict><key>application-identifier</key><string>${identity}</string><key>keychain-access-groups</key><array><string>${identity}</string></array></dict></plist>\n`,
       );
     }
-    const plan = compilePlan(input.platform, bootstrap, simulatorEntitlements);
+    const plan = compilePlan(input.platform, bootstrap, simulatorEntitlements, iosBillingFixture);
     run(plan, input.platform === "android" ? join(mobile, "android") : mobile);
     if (input.platform === "android") await retainDependencies();
     const artifact =

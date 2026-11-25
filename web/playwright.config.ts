@@ -13,6 +13,8 @@ const containerFixture =
 process.env.MYCHEF_TEST_INBOX_CAPABILITY ??=
   randomBytes(32).toString("base64url");
 
+const loopback = "http://127.0.0.1:" + (process.env.MYCHEF_E2E_PORT ?? "18137");
+
 export default defineConfig({
   testDir: "./tests",
   testIgnore: containerFixture ? [] : ["**/container/**"],
@@ -24,9 +26,7 @@ export default defineConfig({
   preserveOutput: "never",
   outputDir: "../test-results/rewrite",
   use: {
-    baseURL: containerFixture
-      ? "http://127.0.0.1:18138"
-      : "http://127.0.0.1:18137",
+    baseURL: containerFixture ? "http://127.0.0.1:18138" : loopback,
     trace: "off",
     screenshot: "off",
     video: "off",
@@ -36,9 +36,9 @@ export default defineConfig({
     ? undefined
     : {
         command: "python3 ../scripts/e2e_server.py",
-        url: "http://127.0.0.1:18137/healthz",
-        env: { MYCHEF_ADDR: "127.0.0.1:18137" },
+        url: loopback + "/healthz",
         reuseExistingServer: false,
+        timeout: process.env.MYCHEF_BILLING_UI_E2E === "1" ? 180_000 : 60_000,
         gracefulShutdown: { signal: "SIGTERM", timeout: 20_000 },
         stderr: "pipe",
         stdout: "pipe",

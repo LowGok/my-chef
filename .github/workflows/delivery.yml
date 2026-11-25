@@ -26,6 +26,7 @@ concurrency:
 jobs:
   checks:
     runs-on: ubuntu-24.04
+    # A cold race build and the browser suite can use 30 minutes before recovery tests start.
     timeout-minutes: 45
     env:
       CGO_ENABLED: '0'

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 	"time"
 
@@ -27,6 +28,22 @@ type shoppingRecord struct {
 
 func (shoppingRecord) TableName() string { return "shopping_lists" }
 
+// The persisted default list keeps the user's meal selections and extras.
+// Full-week check-offs with a different ingredient scope have their own
+// fingerprints and cannot overwrite a check-off for a different amount.
+type storedShopping struct {
+	domain.ShoppingList
+	FullWeekChecks map[string]shoppingCheck `json:"fullWeekChecks,omitempty"`
+}
+
+type shoppingCheck struct {
+	Item     string  `json:"item"`
+	State    string  `json:"state"`
+	Name     string  `json:"name"`
+	Quantity *string `json:"quantity"`
+	Unit     string  `json:"unit"`
+}
+
 func shoppingWeek(week string) (string, error) {
 	d, err := time.Parse(time.DateOnly, week)
 	if err != nil || d.Weekday() != time.Monday || d.Format(time.DateOnly) != week {
@@ -34,16 +51,16 @@ func shoppingWeek(week string) (string, error) {
 	}
 	return d.AddDate(0, 0, 7).Format(time.DateOnly), nil
 }
-func loadShopping(tx *gorm.DB, owner int64, week string) (domain.ShoppingList, error) {
+func loadShopping(tx *gorm.DB, owner int64, week string) (storedShopping, error) {
 	var row shoppingRecord
 	err := tx.Where("user_id = ? AND week = ?", owner, week).First(&row).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return domain.ShoppingList{Week: week, Meals: []domain.ShoppingMeal{}, Items: []domain.ShoppingItem{}}, nil
+		return storedShopping{ShoppingList: domain.ShoppingList{Week: week, Meals: []domain.ShoppingMeal{}, Items: []domain.ShoppingItem{}}}, nil
 	}
 	if err != nil {
-		return domain.ShoppingList{}, err
+		return storedShopping{}, err
 	}
-	var list domain.ShoppingList
+	var list storedShopping
 	err = json.Unmarshal([]byte(row.Body), &list)
 	return list, err
 }
@@ -107,14 +124,134 @@ func reconcileShopping(old domain.ShoppingList, recipes []domain.Recipe) domain.
 	}
 	return out
 }
-func persistShopping(tx *gorm.DB, owner int64, list domain.ShoppingList) error {
-	body, err := json.Marshal(list)
+func persistShopping(tx *gorm.DB, owner int64, list domain.ShoppingList, checks map[string]shoppingCheck) error {
+	body, err := json.Marshal(storedShopping{ShoppingList: list, FullWeekChecks: checks})
 	if err != nil {
 		return err
 	}
 	return tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "user_id"}, {Name: "week"}}, DoUpdates: clause.AssignmentColumns([]string{"revision", "body"})}).Create(&shoppingRecord{UserID: owner, Week: list.Week, Revision: list.Revision, Body: string(body)}).Error
 }
+func shoppingTier(ctx context.Context, tx *gorm.DB, owner int64, week string, policy *PlanningPolicy) (restricted bool, err error) {
+	window, err := policy.Window(ctx, tx, owner)
+	if err != nil {
+		return false, err
+	}
+	if !window.Includes(week) {
+		return false, gorm.ErrRecordNotFound
+	}
+	return window.Enabled() && !window.Premium, nil
+}
+
+func shoppingItemFingerprint(item domain.ShoppingItem) string {
+	encoded, _ := json.Marshal(struct {
+		Name     string
+		Quantity *string
+		Unit     string
+		Manual   bool
+	}{item.Name, item.Quantity, item.Unit, item.Manual})
+	return domain.ShoppingHash(string(encoded))
+}
+
+func fullWeekShopping(saved storedShopping, recipes []domain.Recipe) domain.ShoppingList {
+	unrestrictedSelection := saved.ShoppingList
+	unrestrictedSelection.Meals = slices.Clone(saved.Meals)
+	for i := range unrestrictedSelection.Meals {
+		unrestrictedSelection.Meals[i].Selected = true
+	}
+	result := reconcileShopping(unrestrictedSelection, recipes)
+	result.CustomizationLocked = true
+	// A late customized snapshot must not be accepted under a different scope.
+	result.SourceVersion = domain.ShoppingHash("full-week:" + result.SourceVersion)
+	restoreFullWeekChecks(&result, saved)
+	return result
+}
+
+func restoreFullWeekChecks(result *domain.ShoppingList, saved storedShopping) {
+	stored := make(map[string]domain.ShoppingItem, len(saved.Items))
+	for _, item := range saved.Items {
+		stored[item.ID] = item
+	}
+	for i, item := range result.Items {
+		if check, exists := saved.FullWeekChecks[item.ID]; !item.Manual && exists &&
+			check.Item == shoppingItemFingerprint(item) &&
+			check.Item != shoppingItemFingerprint(stored[item.ID]) &&
+			validShoppingState(check.State) {
+			result.Items[i].State = check.State
+			result.Items[i].Updated = false
+		}
+	}
+}
+
+func applyFullWeekChecks(saved storedShopping, recipes []domain.Recipe, desired domain.ShoppingList) (domain.ShoppingList, domain.ShoppingList, map[string]shoppingCheck, error) {
+	full := fullWeekShopping(saved, recipes)
+	if desired.Revision != saved.Revision || desired.SourceVersion != full.SourceVersion {
+		return domain.ShoppingList{}, domain.ShoppingList{}, nil, ErrShoppingConflict
+	}
+	canonical := reconcileShopping(saved.ShoppingList, recipes)
+	restoreFullWeekChecks(&canonical, saved)
+	previous := make(map[string]int, len(canonical.Items))
+	for i, item := range canonical.Items {
+		previous[item.ID] = i
+	}
+	approvals := make(map[string]domain.ShoppingItem, len(desired.Items))
+	order := make([]string, 0, len(desired.Items))
+	for _, item := range desired.Items {
+		if _, exists := approvals[item.ID]; exists || !validShoppingState(item.State) {
+			return domain.ShoppingList{}, domain.ShoppingList{}, nil, ErrShoppingInput
+		}
+		approvals[item.ID] = item
+		order = append(order, item.ID)
+	}
+	blockedExtras := false
+	coveredOrder := make([]string, 0, len(full.Items))
+	checks := make(map[string]shoppingCheck)
+	for index, item := range full.Items {
+		fingerprint := shoppingItemFingerprint(item)
+		if want, exists := approvals[item.ID]; exists {
+			coveredOrder = append(coveredOrder, item.ID)
+			delete(approvals, item.ID)
+			if shoppingItemFingerprint(want) != fingerprint {
+				blockedExtras = true
+			} else if item.State != want.State {
+				full.Items[index].State = want.State
+				full.Items[index].Updated = false
+				if i, stored := previous[item.ID]; stored && shoppingItemFingerprint(canonical.Items[i]) == fingerprint {
+					canonical.Items[i].State = want.State
+					canonical.Items[i].Updated = false
+				}
+			}
+		} else if item.Manual {
+			blockedExtras = true
+		}
+		canonicalIndex, shared := previous[item.ID]
+		if !item.Manual && full.Items[index].State != "buy" &&
+			(!shared || fingerprint != shoppingItemFingerprint(canonical.Items[canonicalIndex])) {
+			checks[item.ID] = shoppingCheck{Item: fingerprint, State: full.Items[index].State,
+				Name: item.Name, Quantity: item.Quantity, Unit: item.Unit}
+		}
+	}
+	if len(approvals) > 0 || blockedExtras {
+		full.BlockedChanges = append(full.BlockedChanges, "extras")
+	}
+	if !slices.EqualFunc(desired.Meals, full.Meals, func(a, b domain.ShoppingMeal) bool {
+		return a.Position == b.Position && a.Selected == b.Selected
+	}) {
+		full.BlockedChanges = append(full.BlockedChanges, "meals")
+	}
+	keptOrder := slices.DeleteFunc(order, func(id string) bool { _, unknown := approvals[id]; return unknown })
+	if !slices.Equal(keptOrder, coveredOrder) {
+		full.BlockedChanges = append(full.BlockedChanges, "order")
+	}
+	canonical.Revision++
+	full.Revision = canonical.Revision
+	return full, canonical, checks, nil
+}
+
 func (s *Store) Shopping(ctx context.Context, owner int64, week string, actors ...PersonalActor) (domain.ShoppingList, error) {
+	return s.ShoppingForPlan(ctx, owner, week, nil, actors...)
+}
+
+func (s *Store) ShoppingForPlan(ctx context.Context, owner int64, week string, policy *PlanningPolicy, actors ...PersonalActor) (domain.ShoppingList, error) {
 	end, err := shoppingWeek(week)
 	if err != nil {
 		return domain.ShoppingList{}, err
@@ -124,6 +261,10 @@ func (s *Store) Shopping(ctx context.Context, owner int64, week string, actors .
 		if err := nativeActorAuthority(tx, owner, actors...); err != nil {
 			return err
 		}
+		restricted, err := shoppingTier(ctx, tx, owner, week, policy)
+		if err != nil {
+			return err
+		}
 		old, err := loadShopping(tx, owner, week)
 		if err != nil {
 			return err
@@ -132,13 +273,15 @@ func (s *Store) Shopping(ctx context.Context, owner int64, week string, actors .
 		if err != nil {
 			return err
 		}
-		result = reconcileShopping(old, recipes)
-		if !reflect.DeepEqual(old, result) {
-			result.Revision++
-			if err := persistShopping(tx, owner, result); err != nil {
-				return err
-			}
+		if restricted {
+			result = fullWeekShopping(old, recipes)
 			return nil
+		}
+		result = reconcileShopping(old.ShoppingList, recipes)
+		restoreFullWeekChecks(&result, old)
+		if !reflect.DeepEqual(old.ShoppingList, result) {
+			result.Revision++
+			return persistShopping(tx, owner, result, old.FullWeekChecks)
 		}
 		return nil
 	})
@@ -148,6 +291,10 @@ func validShoppingState(state string) bool {
 	return state == "buy" || state == "basket" || state == "home"
 }
 func (s *Store) SaveShopping(ctx context.Context, owner int64, week string, input domain.ShoppingList, actors ...PersonalActor) (domain.ShoppingList, error) {
+	return s.SaveShoppingForPlan(ctx, owner, week, input, nil, actors...)
+}
+
+func (s *Store) SaveShoppingForPlan(ctx context.Context, owner int64, week string, input domain.ShoppingList, policy *PlanningPolicy, actors ...PersonalActor) (domain.ShoppingList, error) {
 	end, err := shoppingWeek(week)
 	if err != nil || input.Week != week || len(input.Items) > 1000 {
 		return domain.ShoppingList{}, ErrShoppingInput
@@ -155,6 +302,10 @@ func (s *Store) SaveShopping(ctx context.Context, owner int64, week string, inpu
 	var result domain.ShoppingList
 	err = s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := nativeActorAuthority(tx, owner, actors...); err != nil {
+			return err
+		}
+		restricted, err := shoppingTier(ctx, tx, owner, week, policy)
+		if err != nil {
 			return err
 		}
 		old, err := loadShopping(tx, owner, week)
@@ -165,7 +316,15 @@ func (s *Store) SaveShopping(ctx context.Context, owner int64, week string, inpu
 		if err != nil {
 			return err
 		}
-		current := reconcileShopping(old, recipes)
+		if restricted {
+			full, canonical, checks, err := applyFullWeekChecks(old, recipes, input)
+			if err != nil {
+				return err
+			}
+			result = full
+			return persistShopping(tx, owner, canonical, checks)
+		}
+		current := reconcileShopping(old.ShoppingList, recipes)
 		if input.Revision != old.Revision || input.SourceVersion != current.SourceVersion {
 			return ErrShoppingConflict
 		}
@@ -188,6 +347,7 @@ func (s *Store) SaveShopping(ctx context.Context, owner int64, week string, inpu
 		}
 		// Rebuild ingredients after changing selection. Source fields supplied by clients are never persisted.
 		result = reconcileShopping(current, recipes)
+		restoreFullWeekChecks(&result, old)
 		previous := map[string]domain.ShoppingItem{}
 		for _, item := range old.Items {
 			previous[item.ID] = item
@@ -225,10 +385,11 @@ func (s *Store) SaveShopping(ctx context.Context, owner int64, week string, inpu
 			}
 		}
 		result.Items = derived
-		before := reconcileShopping(old, recipes)
+		before := reconcileShopping(old.ShoppingList, recipes)
+		restoreFullWeekChecks(&before, old)
 		changed := materialShoppingChange(before, result)
 		result.Revision = old.Revision + 1
-		if err := persistShopping(tx, owner, result); err != nil {
+		if err := persistShopping(tx, owner, result, old.FullWeekChecks); err != nil {
 			return err
 		}
 		if changed {

@@ -28,18 +28,23 @@ jobs:
        (github.event.pull_request.head.ref == 'feat/weekly-reminders' &&
         vars.NATIVE_REMINDER_PR != '' &&
         github.event.pull_request.number == fromJSON(vars.NATIVE_REMINDER_PR) &&
-        github.event.label.name == 'native-reminder-fixture'))
+        github.event.label.name == 'native-reminder-fixture') ||
+       (github.event.pull_request.head.ref == 'feat/subscription-billing' &&
+        vars.NATIVE_SUBSCRIPTION_PR != '' &&
+        github.event.pull_request.number == fromJSON(vars.NATIVE_SUBSCRIPTION_PR) &&
+        github.event.label.name == 'native-subscription-fixture'))
     strategy:
       fail-fast: false
-      max-parallel: ${{ contains(fromJSON('["native-installed","native-reminder-fixture"]'), github.event.label.name) && 2 || 1 }}
+      max-parallel: ${{ contains(fromJSON('["native-installed","native-reminder-fixture","native-subscription-fixture"]'), github.event.label.name) && 2 || 1 }}
       matrix:
-        platform: ${{ fromJSON(contains(fromJSON('["native-installed","native-reminder-fixture"]'), github.event.label.name) && '["android","ios-simulator"]' || github.event.label.name == 'native-installed-android' && '["android"]' || github.event.label.name == 'native-installed-ios-simulator' && '["ios-simulator"]' || '["android","ios-simulator","ios-device"]') }}
+        platform: ${{ fromJSON(contains(fromJSON('["native-installed","native-reminder-fixture","native-subscription-fixture"]'), github.event.label.name) && '["android","ios-simulator"]' || github.event.label.name == 'native-installed-android' && '["android"]' || github.event.label.name == 'native-installed-ios-simulator' && '["ios-simulator"]' || '["android","ios-simulator","ios-device"]') }}
     runs-on: ${{ matrix.platform == 'android' && 'ubuntu-24.04' || matrix.platform == 'ios-simulator' && 'macos-15' || 'macos-26' }}
     timeout-minutes: 25
     env:
       CI: "1"
       NATIVE_VERIFICATION_PR: ${{ vars.NATIVE_VERIFICATION_PR }}
       NATIVE_REMINDER_PR: ${{ vars.NATIVE_REMINDER_PR }}
+      NATIVE_SUBSCRIPTION_PR: ${{ vars.NATIVE_SUBSCRIPTION_PR }}
       NATIVE_PLATFORM: ${{ matrix.platform }}
       NATIVE_ANDROID_JOURNEYS: "1"
     steps:
@@ -55,7 +60,7 @@ jobs:
       - name: Compile without tests or distribution
         run: bun scripts/mobile-compile.ts
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        if: startsWith(github.event.label.name, 'native-installed') || github.event.label.name == 'native-reminder-fixture'
+        if: startsWith(github.event.label.name, 'native-installed') || github.event.label.name == 'native-reminder-fixture' || github.event.label.name == 'native-subscription-fixture'
         with:
           go-version-file: go.mod
           cache: false
@@ -63,10 +68,10 @@ jobs:
         if: matrix.platform == 'android' && (startsWith(github.event.label.name, 'native-installed') || github.event.label.name == 'native-reminder-fixture')
         run: python3 scripts/rewrite.py bootstrap
       - name: Verify installed native session and relaunch
-        if: startsWith(github.event.label.name, 'native-installed') || github.event.label.name == 'native-reminder-fixture'
+        if: startsWith(github.event.label.name, 'native-installed') || github.event.label.name == 'native-reminder-fixture' || github.event.label.name == 'native-subscription-fixture'
         run: python3 scripts/test_native_installed.py
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: always()
+        if: always() && github.event.label.name != 'native-subscription-fixture'
         with:
           name: native-compile-${{ matrix.platform }}-${{ github.event.pull_request.head.sha }}
           path: |
@@ -76,3 +81,58 @@ jobs:
           if-no-files-found: warn
           retention-days: 1
           include-hidden-files: false
+
+      - name: Verify public subscription evidence
+        if: github.event.label.name == 'native-subscription-fixture'
+        env:
+          NATIVE_SUBSCRIPTION_SOURCE: ${{ github.event.pull_request.head.sha }}
+        run: python3 scripts/verify_native_subscription_evidence.py
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: github.event.label.name == 'native-subscription-fixture'
+        with:
+          name: native-subscription-${{ matrix.platform }}-${{ github.event.pull_request.head.sha }}
+          path: mobile/.generated/artifacts/subscription-evidence.json
+          if-no-files-found: error
+          retention-days: 1
+          include-hidden-files: false
+
+  apple-storekit:
+    if: >-
+      github.repository == 'LowGok/my-chef' &&
+      github.repository_id == '1454481532' &&
+      github.event.repository.private == false &&
+      github.event.pull_request.base.ref == 'main' &&
+      github.event.pull_request.head.repo.id == github.event.repository.id &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.sender.login == 'LowGok' &&
+      github.event.pull_request.head.ref == 'feat/subscription-billing' &&
+      vars.NATIVE_SUBSCRIPTION_PR != '' &&
+      github.event.pull_request.number == fromJSON(vars.NATIVE_SUBSCRIPTION_PR) &&
+      github.event.label.name == 'native-subscription-fixture'
+    runs-on: xcode-27
+    timeout-minutes: 15
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_27.0.app/Contents/Developer
+      EXPECTED_SOURCE: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Test purchases and restore with Xcode StoreKit on iOS 27
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SOURCE"
+          xcodebuild -version
+          xcodebuild -version | grep -Fx 'Build version 27A266a'
+          probe="$RUNNER_TEMP/storekit-probe"
+          python3 scripts/apple-storekit-ci/build_project.py "$probe"
+          plutil -lint "$probe/StoreKitProbe.xcodeproj/project.pbxproj"
+          xcodebuild test -project "$probe/StoreKitProbe.xcodeproj" -scheme StoreKitProbe \
+            -destination 'platform=iOS Simulator,OS=27.0,name=iPhone 17' \
+            -destination-timeout 90 -parallel-testing-enabled NO \
+            -test-timeouts-enabled YES -default-test-execution-time-allowance 180 \
+            -maximum-test-execution-time-allowance 240 \
+            -derivedDataPath "$RUNNER_TEMP/storekit-derived" \
+            -only-testing:PurchaseTests/PurchaseTests/testBelgianPurchaseAndRestoreWithStoreKit

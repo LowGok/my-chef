@@ -101,7 +101,7 @@ func (a *API) queueFavorite(w http.ResponseWriter, r *http.Request) {
 	if !a.decode(w, r, &input) {
 		return
 	}
-	if !validFavoriteWeek(input.Today, input.Week, true) {
+	if a.Config.Planning == nil && !validFavoriteWeek(input.Today, input.Week, true) {
 		a.favoriteError(w, r, store.ErrFavoriteInput)
 		return
 	}
@@ -122,7 +122,7 @@ func (a *API) swapFavorite(w http.ResponseWriter, r *http.Request) {
 	if !a.decode(w, r, &input) {
 		return
 	}
-	if !validFavoriteWeek(input.Today, input.Week, false) {
+	if a.Config.Planning == nil && !validFavoriteWeek(input.Today, input.Week, false) {
 		a.favoriteError(w, r, store.ErrFavoriteInput)
 		return
 	}

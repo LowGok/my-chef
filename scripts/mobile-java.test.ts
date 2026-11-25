@@ -132,3 +132,57 @@ public class TouchPointContract {
     await rm(output, { recursive: true, force: true });
   }
 }, 30_000);
+
+test("Android checkout quotes require one Belgian base-price phase at the approved total", async () => {
+  const source = resolve(
+    import.meta.dir,
+    "../mobile/android/app/src/main/java/com/gkldevelopment/mychef/preview",
+  );
+  const output = await mkdtemp(join(tmpdir(), "mychef-play-terms-"));
+  try {
+    const harness = join(output, "PlayTermsContract.java");
+    await writeFile(
+      harness,
+      `
+package com.gkldevelopment.mychef.preview;
+public class PlayTermsContract {
+  static void expect(boolean nativeResult, boolean eligible) {
+    if (nativeResult != eligible) throw new AssertionError("Incorrect checkout terms decision");
+  }
+  public static void main(String[] args) {
+    expect(PlaySubscriptionTerms.matches("monthly", "BE", "EUR", 6990000, "P1M", null, false, 1, true), true);
+    expect(PlaySubscriptionTerms.matches("annual", "BE", "EUR", 69900000, "P1Y", null, false, 1, true), true);
+    expect(PlaySubscriptionTerms.matches("annual", "FR", "EUR", 69900000, "P1Y", null, false, 1, true), false);
+    expect(PlaySubscriptionTerms.matches("annual", "BE", "USD", 69900000, "P1Y", null, false, 1, true), false);
+    expect(PlaySubscriptionTerms.matches("monthly", "BE", "EUR", 6990001, "P1M", null, false, 1, true), false);
+    expect(PlaySubscriptionTerms.matches("monthly", "BE", "EUR", 6990000, "P1Y", null, false, 1, true), false);
+    expect(PlaySubscriptionTerms.matches("monthly", "BE", "EUR", 6990000, "P1M", "coupon", false, 1, true), false);
+    expect(PlaySubscriptionTerms.matches("monthly", "BE", "EUR", 6990000, "P1M", null, true, 1, true), false);
+    expect(PlaySubscriptionTerms.matches("monthly", "BE", "EUR", 6990000, "P1M", null, false, 2, true), false);
+    expect(PlaySubscriptionTerms.matches("monthly", "BE", "EUR", 6990000, "P1M", null, false, 1, false), false);
+    expect(PlaySubscriptionTerms.matches("weekly", "BE", "EUR", 6990000, "P1M", null, false, 1, true), false);
+  }
+}
+`,
+    );
+    const compile = Bun.spawnSync([
+      "javac",
+      "-d",
+      output,
+      join(source, "PlaySubscriptionTerms.java"),
+      harness,
+    ]);
+    expect(compile.stderr.toString()).toBe("");
+    expect(compile.exitCode).toBe(0);
+    const run = Bun.spawnSync([
+      "java",
+      "-cp",
+      output,
+      "com.gkldevelopment.mychef.preview.PlayTermsContract",
+    ]);
+    expect(run.stderr.toString()).toBe("");
+    expect(run.exitCode).toBe(0);
+  } finally {
+    await rm(output, { force: true, recursive: true });
+  }
+});

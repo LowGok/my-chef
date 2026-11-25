@@ -387,12 +387,37 @@ public class MyChefNativePlugin extends Plugin {
         for (Call operation : calls.values()) if ("media".equals(operation.request().tag()) || operation.request().url().encodedPath().startsWith("/api/native/v1/personal-photos/")) operation.cancel();
         reply(call);
     }
+    private NativePlaySubscriptions subscriptions;
+    private NativePlaySubscriptions subscriptions() {
+        if (subscriptions == null) subscriptions = new NativePlaySubscriptions(getContext());
+        return subscriptions;
+    }
+    private void billingReply(PluginCall call, JSObject value) {
+        if (value == null) call.reject("Play Billing is unavailable", "native_billing");
+        else reply(call, value);
+    }
+    @PluginMethod public void billingQuotes(PluginCall call) {
+        getBridge().executeOnMainThread(() -> subscriptions().quotes(call.getArray("plans"), value -> billingReply(call, value)));
+    }
+    @PluginMethod public void billingPurchase(PluginCall call) {
+        getBridge().executeOnMainThread(() -> subscriptions().purchase(getActivity(), call.getData(), value -> billingReply(call, value)));
+    }
+    @PluginMethod public void billingUnfinished(PluginCall call) {
+        getBridge().executeOnMainThread(() -> subscriptions().receipts(true, value -> billingReply(call, value)));
+    }
+    @PluginMethod public void billingRestore(PluginCall call) {
+        getBridge().executeOnMainThread(() -> subscriptions().receipts(false, value -> billingReply(call, value)));
+    }
+    @PluginMethod public void billingFinish(PluginCall call) {
+        getBridge().executeOnMainThread(() -> subscriptions().finish(call.getString("id"), value -> billingReply(call, value)));
+    }
     // Private files, source URIs and export bytes are never activity-restorable.
     @Override protected Bundle saveInstanceState() { return null; }
     @PluginMethod public void cancelRequest(PluginCall call) {
         Call operation = calls.get(call.getString("requestId", "")); if (operation != null) operation.cancel(); reply(call);
     }
     @Override protected void handleOnDestroy() {
+        if (subscriptions != null) subscriptions.close();
         if (connectivity != null && networkCallback != null) connectivity.unregisterNetworkCallback(networkCallback);
         mediaEpoch++; clearExport(); mediaPending = null;
         for (Call call : calls.values()) call.cancel(); calls.clear();

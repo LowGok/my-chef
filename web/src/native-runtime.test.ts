@@ -98,6 +98,35 @@ test("runtime sanitizes bridge failures and suppresses replies after shutdown", 
   expect(events).toEqual([{ type: "unavailable" }]);
 });
 
+test("store update wakeups carry no transaction details", async () => {
+  const events: unknown[] = [];
+  let snapshot: RuntimeSnapshot = {
+    active: true,
+    online: true,
+    back: false,
+    billingChanged: true,
+    textScale: 1.75,
+  };
+  const runtime = createNativeRuntime(
+    {
+      async readRuntime() {
+        const value = snapshot;
+        snapshot = { active: true, online: true, back: false };
+        return value;
+      },
+    },
+    origin,
+    (event) => events.push(event),
+  );
+  await runtime.wake();
+  await runtime.wake();
+  expect(events).toEqual([
+    { type: "connection", active: true, online: true },
+    { type: "text-size", percent: 175 },
+    { type: "billing-changed" },
+  ]);
+});
+
 test("native text size follows legitimate changes without forwarding invalid preferences", async () => {
   let textScale: number | undefined = 1;
   const events: unknown[] = [];
