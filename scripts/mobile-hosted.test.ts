@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import {
   hostedInputs,
+  matchesHostedAndroidJavaVersion,
   nativeBuildPlan,
   verifyCopiedNativeAssets,
 } from "./mobile-hosted";
@@ -14,6 +15,20 @@ import {
   sanitizeCompilerLog,
   verifyCompiledIdentity,
 } from "./mobile-compile";
+
+test("hosted Android CI admits only the reviewed Temurin security patch", () => {
+  const hosted = [
+    'openjdk version "21.0.13.1" 2026-11-17 LTS',
+    "OpenJDK Runtime Environment Temurin-21.0.13.1+2 (build 21.0.13.1+2-LTS)",
+    "OpenJDK 64-Bit Server VM Temurin-21.0.13.1+2 (build 21.0.13.1+2-LTS, mixed mode, sharing)",
+  ].join("\n");
+  expect(matchesHostedAndroidJavaVersion(hosted)).toBe(true);
+  for (const version of ["21.0.13", "21.0.13.10", "21.0.14", "25.0.2"]) {
+    expect(matchesHostedAndroidJavaVersion(hosted.replaceAll("21.0.13.1", version))).toBe(false);
+  }
+  expect(matchesHostedAndroidJavaVersion(hosted.replaceAll("+2", "+20"))).toBe(false);
+  expect(matchesHostedAndroidJavaVersion(hosted.replaceAll("Temurin-", "Other-"))).toBe(false);
+});
 
 test("a clean checkout includes the empty Cordova module required by Android Gradle", () => {
   const result = Bun.spawnSync(

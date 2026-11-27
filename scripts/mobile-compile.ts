@@ -17,7 +17,7 @@ import {
   verifyMobileBundle,
 } from "./mobile-build";
 import { recordNativeCandidate } from "./mobile-delivery";
-import { nativeBuildPlan, verifyCopiedNativeAssets } from "./mobile-hosted";
+import { matchesHostedAndroidJavaVersion, nativeBuildPlan, verifyCopiedNativeAssets } from "./mobile-hosted";
 
 type Platform = "android" | "ios-simulator" | "ios-device";
 // Build 1 is already installed through owner-only TestFlight.
@@ -240,7 +240,7 @@ async function compile() {
     if (
       input.platform !== "android"
         ? tool !== `Xcode ${xcode[input.platform].version}\nBuild version ${xcode[input.platform].build}`
-        : !/version "21\.0\.13"/.test(tool)
+        : !matchesHostedAndroidJavaVersion(tool)
     )
       stop();
     const pkg = JSON.parse(

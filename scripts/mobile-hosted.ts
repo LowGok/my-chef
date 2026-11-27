@@ -23,6 +23,12 @@ import {
 const failure = () => {
   throw new Error("Native build prerequisites are not verified.");
 };
+export function matchesHostedAndroidJavaVersion(output: string): boolean {
+  const [version, runtime] = output.trim().split(/\r?\n/, 2);
+  return /^openjdk version "21\.0\.13\.1"(?: |$)/.test(version ?? "") &&
+    /^OpenJDK Runtime Environment Temurin-21\.0\.13\.1\+2(?: |$)/.test(runtime ?? "");
+}
+
 export function hostedInputs(env: Record<string, string | undefined>) {
   const platform = env.NATIVE_PLATFORM,
     commit = env.NATIVE_COMMIT,
@@ -216,7 +222,7 @@ async function hostedBuild() {
     if (tool !== "Xcode 26.6\nBuild version 17F113") failure();
   } else {
     tool = run(["java", "-version"]).trim();
-    if (!/version "21\.0\.13"/.test(tool)) failure();
+    if (!matchesHostedAndroidJavaVersion(tool)) failure();
   }
   run(["bun", "install", "--frozen-lockfile"], join(root, "web"));
   run(["bun", "install", "--frozen-lockfile"], mobile);

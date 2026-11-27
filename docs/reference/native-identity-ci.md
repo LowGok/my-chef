@@ -28,6 +28,11 @@ The module explicitly enables [resource value generation](https://developer.andr
 for the selected display name. The packaged receipt checks that name as well as
 the application ID, so a successful compile with a sibling label is rejected.
 
+Hosted Android checks use the runner's Java 21 home and require the reviewed
+Temurin `21.0.13.1+2` release before Gradle runs. A runner update to another
+version needs explicit verification; the CI worker does not fall back to a
+different JDK.
+
 Compilation inspects the produced Android manifest metadata or Xcode-built
 Info.plist, checks package, version and build, then binds `packagedAppId` into the
 receipt with the source commit and artifact digest. The installed harness
