@@ -83,6 +83,11 @@ func main() {
 		logger.Error("invalid configuration", "error", err)
 		os.Exit(1)
 	}
+	nativeAppIngress, err := nativeIdentityIngress(os.Getenv("MYCHEF_NATIVE_APP_INGRESS"))
+	if err != nil {
+		logger.Error("invalid native identity configuration")
+		os.Exit(1)
+	}
 	emailCfg, err := config.LoadEmail()
 	if err != nil {
 		logger.Error("invalid email configuration", "error", err)
@@ -139,6 +144,10 @@ func main() {
 	defer unlock()
 	if err = s.CheckSchema(context.Background()); err != nil {
 		logger.Error("database schema is not ready")
+		os.Exit(1)
+	}
+	if err = configureNativeIdentityFixture(context.Background(), s, cfg, os.Getenv("MYCHEF_E2E"), nativeAppIngress, os.Getenv("MYCHEF_NATIVE_IDENTITY_FIXTURE")); err != nil {
+		logger.Error("invalid native identity fixture configuration")
 		os.Exit(1)
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -395,7 +404,8 @@ func main() {
 		recoveryWorkers.Go(func() { runPushWorker(emailCtx, reminders, pushSender, logger) })
 	}
 	api := httpapi.New(s, service, httpapi.Config{
-		Newsletter: newsletterService, NewsletterSettings: newsletterSettings, NewsletterReady: func(ctx context.Context) bool {
+		NativeAppIngress: nativeAppIngress,
+		Newsletter:       newsletterService, NewsletterSettings: newsletterSettings, NewsletterReady: func(ctx context.Context) bool {
 			return newsletterReady(newsletterSettings, !lifecycleFailed.Load() && journal.CheckReady(ctx) == nil && s.SQL.PingContext(ctx) == nil, mailService.Ready(ctx), proofKeys != nil && len(proofSettings.RateKey) == 32, newsletterFailed.Load())
 		},
 		NewsletterChecks: func(ctx context.Context) map[string]bool {
@@ -415,6 +425,12 @@ func main() {
 		PersonalFixture: personalFixture, PersonalEntitlements: personalReader, Reminders: reminders,
 		PersonalRecipes: personalRecipes, PersonalPhotos: personalPhotos, RecipeImports: recipeImports,
 	}, logger)
+	closeNativeControl, err := startNativeIdentityControl(s, os.Getenv("MYCHEF_NATIVE_IDENTITY_CONTROL_SOCKET"), nativeAppIngress, logger)
+	if err != nil {
+		logger.Error("invalid native identity operator socket")
+		os.Exit(1)
+	}
+	defer closeNativeControl()
 	srv := &http.Server{Addr: cfg.Addr, Handler: api.Handler(webui.Handler()), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second, BaseContext: func(net.Listener) context.Context { return ctx }}
 	shutdownDone := make(chan struct{})
 	go func() {
@@ -426,6 +442,7 @@ func main() {
 	}()
 	logger.Info("mychef starting", "address", cfg.Addr, "version", version)
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		closeNativeControl()
 		logger.Error("server stopped", "error", err)
 		os.Exit(1)
 	}

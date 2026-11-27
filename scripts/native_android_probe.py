@@ -8,7 +8,9 @@ import time
 import xml.etree.ElementTree as ET
 import zipfile
 
-APP = "com.gkldevelopment.mychef.preview"
+from native_identity import application_id
+
+APP = application_id()
 SYSTEM_UI_ANR = "Application Not Responding: com.android.systemui"
 SYSTEM_PICKERS = ("com.android.documentsui", "com.google.android.documentsui")
 
@@ -19,12 +21,12 @@ def build(state, sdk, run):
     if not platform.is_file():
         platform = sdk / "platforms/android-37/android.jar"
     manifest = state / "probe-manifest.xml"
-    manifest.write_text('''<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-package="com.gkldevelopment.mychef.preview.test">
+    manifest.write_text(f'''<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+package="{APP}.test">
 <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="36"/>
 <application android:debuggable="true" android:hasCode="true" android:label="Disposable MyChef test probe"/>
 <instrumentation android:name="com.gkldevelopment.mychef.testing.NativeJourneyProbe"
-android:targetPackage="com.gkldevelopment.mychef.preview" android:functionalTest="true"/>
+android:targetPackage="{APP}" android:functionalTest="true"/>
 </manifest>''')
     classes, dex = state / "probe-classes", state / "probe-dex"
     classes.mkdir(); dex.mkdir()

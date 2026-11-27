@@ -1,3 +1,4 @@
+import {validAppOpeningLink,nativeIdentityLane,reportNativeLinkFailure,suspendNativeIdentity} from "./native-app-identity";
 import { captureReminderOpen } from "./reminder-device";
 import type { ProofEntry } from "./EmailVerification";
 import type { RecoveryEntry } from "./PasswordRecovery";
@@ -16,6 +17,7 @@ type RuntimeEvent =
   | { type: "connection"; active: boolean; online: boolean }
   | { type: "text-size"; percent: number }
   | { type: "proof"; entry: NativeProof }
+  | { type: "app-open" }
   | { type: "back" | "invalid-link" | "unavailable" };
 export function validateNativeProof(
   value: string,
@@ -46,6 +48,7 @@ export function createNativeRuntime(
   bridge: NativeRuntimeBridge,
   origin: string,
   publish: (event: RuntimeEvent) => void,
+  identityLane: "preview"|"app"="preview",
 ) {
   let stopped = false,
     work: Promise<void> | null = null,
@@ -87,7 +90,8 @@ export function createNativeRuntime(
           typeof value.link === "string"
             ? validateNativeProof(value.link, origin)
             : null;
-        publish(entry ? { type: "proof", entry } : { type: "invalid-link" });
+        if(validAppOpeningLink(value.link,identityLane))publish({type:"app-open"});
+        else publish(entry ? { type: "proof", entry } : { type: "invalid-link" });
       }
       if (value.reminder !== undefined) captureReminderOpen(value.reminder);
       if (value.back) publish({ type: "back" });
@@ -118,6 +122,10 @@ export function createNativeRuntime(
   };
 }
 let proof: NativeProof | null = null;
+let appOpen=false;
+export const nativeAppOpenEvent="mychef-native-app-open";
+export const peekNativeAppOpen=()=>appOpen;
+export function takeNativeAppOpen(){const pending=appOpen;appOpen=false;return pending;}
 let active = true;
 export const nativeAppActive = () => active;
 export const peekNativeProof = () => proof;
@@ -140,11 +148,14 @@ export async function installNativeRuntime(
   let initialFailure = false;
   const runtime = createNativeRuntime(bridge, origin, (event) => {
     if (event.type === "unavailable") initialFailure = true;
-    if (event.type === "proof") {
+    if(event.type==="app-open"){appOpen=true;window.dispatchEvent(new Event(nativeAppOpenEvent));}
+    else if (event.type === "proof") {
       proof = event.entry;
       window.dispatchEvent(new Event(nativeProofEvent));
-    } else if (event.type === "invalid-link")
+    } else if (event.type === "invalid-link") {
+      reportNativeLinkFailure();
       window.dispatchEvent(new Event("mychef-native-link-error"));
+    }
     else if (event.type === "back")
       window.dispatchEvent(new Event(nativeBackEvent));
     else if (event.type === "text-size") {
@@ -155,10 +166,11 @@ export async function installNativeRuntime(
     } else if (event.type === "connection") {
       active = event.active;
       if (active) {
+        suspendNativeIdentity();
         window.dispatchEvent(new Event(event.online ? "online" : "offline"));
       }
     }
-  });
+  },nativeIdentityLane());
   // Listener payloads are deliberately ignored. Pull through the nonce-bound
   // bridge so no proof can be delivered to an obsolete view's callback number.
   const listener = await subscribe(() => void runtime.wake());

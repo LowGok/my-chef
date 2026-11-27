@@ -2,10 +2,11 @@ import { createHash } from "node:crypto";
 import { readFile, lstat, readdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { verifyMobileBundle } from "./mobile-build";
-const appId = "com.gkldevelopment.mychef.preview";
+import {nativeIdentity,type NativeIdentityLane} from "./native-identity";
 const hex40 = /^[a-f0-9]{40}$/,
   hex64 = /^[a-f0-9]{64}$/;
 export type NativeCandidate = {
+  identityLane?: NativeIdentityLane;
   sourceCommit: string;
   bundleSha256: string;
   dependenciesSha256: string;
@@ -20,6 +21,8 @@ type Facts = {
   candidate: NativeCandidate;
   approval: {
     operation: string;
+    identityLane?: NativeIdentityLane;
+    appId?: string;
     sourceCommit: string;
     bundleSha256: string;
     artifactSha256?: string;
@@ -61,7 +64,7 @@ function identity(value: NativeCandidate) {
     !hex40.test(value.sourceCommit) ||
     !hex64.test(value.bundleSha256) ||
     !hex64.test(value.dependenciesSha256) ||
-    value.appId !== appId ||
+    value.appId !== nativeIdentity(value.identityLane ?? "preview").appId ||
     value.environment !== "preview" ||
     !/^\d+\.\d+\.\d+$/.test(value.version) ||
     !Number.isSafeInteger(value.build) ||
@@ -79,6 +82,8 @@ export function validateNativeDelivery(
   try {
     const { candidate: c, approval: a, capacity: b, apple } = input as Facts;
     identity(c);
+    const lane=c.identityLane ?? "preview";
+    if ((lane === "app" || a?.identityLane !== undefined || a?.appId !== undefined) && (a?.identityLane !== lane || a?.appId !== c.appId)) fail();
     if (
       !a ||
       !b ||
@@ -112,6 +117,7 @@ export function validateNativeDelivery(
     )
       fail();
     if (a.operation === "owner-testflight") {
+      if (lane !== "preview") fail();
       if (
         c.nativeResolutionVerified !== true ||
         !hex64.test(a.artifactSha256 ?? "") ||
@@ -215,7 +221,8 @@ export async function recordNativeCandidate(
     dependenciesSha256: createHash("sha256")
       .update(JSON.stringify(entries))
       .digest("hex"),
-    appId,
+    identityLane: bundle.identityLane,
+    appId: nativeIdentity(bundle.identityLane).appId,
     environment: "preview",
     ...version,
     nativeResolutionRecorded,

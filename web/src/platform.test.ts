@@ -7,6 +7,18 @@ import {
 } from "./platform";
 
 const originalFetch = globalThis.fetch;
+test("candidate policy renewal clears only credentials and preserves private device storage",async()=>{
+ const vault=credentialStore("b".repeat(64));let erased=0,starts=0;
+ const transport=new NativeTransport({platform:"ios",credentials:vault.store,now:()=>now,onForget:async()=>{erased++;},send:async(path)=>{
+  if(path.endsWith("/refresh"))return reply({error:{code:"native_identity_reauthenticate"}},403);
+  if(path.endsWith("/session")){starts++;return reply({native:tokens("c","d"),user:null});}
+  return reply({user:null});
+ }});
+ expect((await transport.request("/api/v1/session")).status).toBe(403);
+ expect(vault.value()).toBeNull();expect(erased).toBe(0);
+ expect((await transport.request("/api/v1/session")).status).toBe(200);
+ expect(starts).toBeGreaterThan(0);expect(erased).toBe(0);
+});
 afterEach(() => {
   setPlatformTransport(null);
   globalThis.fetch = originalFetch;

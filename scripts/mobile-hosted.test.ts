@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import {
   hostedInputs,
+  matchesHostedAndroidJavaVersion,
   nativeBuildPlan,
   verifyCopiedNativeAssets,
 } from "./mobile-hosted";
@@ -12,7 +13,22 @@ import {
   compileInputs,
   compilePlan,
   sanitizeCompilerLog,
+  verifyCompiledIdentity,
 } from "./mobile-compile";
+
+test("hosted Android CI admits only the reviewed Temurin security patch", () => {
+  const hosted = [
+    'openjdk version "21.0.13.1" 2026-11-17 LTS',
+    "OpenJDK Runtime Environment Temurin-21.0.13.1+2 (build 21.0.13.1+2-LTS)",
+    "OpenJDK 64-Bit Server VM Temurin-21.0.13.1+2 (build 21.0.13.1+2-LTS, mixed mode, sharing)",
+  ].join("\n");
+  expect(matchesHostedAndroidJavaVersion(hosted)).toBe(true);
+  for (const version of ["21.0.13", "21.0.13.10", "21.0.14", "25.0.2"]) {
+    expect(matchesHostedAndroidJavaVersion(hosted.replaceAll("21.0.13.1", version))).toBe(false);
+  }
+  expect(matchesHostedAndroidJavaVersion(hosted.replaceAll("+2", "+20"))).toBe(false);
+  expect(matchesHostedAndroidJavaVersion(hosted.replaceAll("Temurin-", "Other-"))).toBe(false);
+});
 
 test("a clean checkout includes the empty Cordova module required by Android Gradle", () => {
   const result = Bun.spawnSync(
@@ -209,4 +225,54 @@ test("copied assets must match all reviewed bytes and contain only the two empty
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+
+test("identity verification is public, owner-labelled, exact-PR and explicit-lane only",()=>{
+ const event={action:"labeled",number:44,sender:{login:"LowGok"},label:{name:"native-identity-compile"},repository:{id:1454481532,full_name:"LowGok/my-chef",private:false},pull_request:{base:{ref:"main"},head:{sha:"a".repeat(40),ref:"feat/native-app-identity",repo:{id:1454481532,full_name:"LowGok/my-chef"}}}};
+ for(const lane of ["preview","app"]){
+  for(const platform of ["android","ios-simulator","ios-device"]){
+   expect(compileInputs(event,platform,"2","11","44",lane)).toMatchObject({identityLane:lane,installed:false});
+  }
+  const installed={...event,label:{name:"native-identity-installed"}};
+  expect(compileInputs(installed,"android","2","11","44",lane).installed).toBe(true);
+  expect(compileInputs(installed,"ios-simulator","2","11","44",lane).installed).toBe(true);
+  expect(()=>compileInputs(installed,"ios-device","2","11","44",lane)).toThrow();
+  const androidOnly = {...event, label:{name:"native-identity-installed-android"}};
+  expect(compileInputs(androidOnly,"android","2","11","44",lane)).toMatchObject({identityLane:lane,installed:true});
+  expect(()=>compileInputs(androidOnly,"ios-simulator","2","11","44",lane)).toThrow();
+  expect(()=>compileInputs(androidOnly,"android","2","11","45",lane)).toThrow();
+ }
+ for(const lane of [undefined,"other",""])expect(()=>compileInputs(event,"android","2","11","44",lane)).toThrow();
+ expect(()=>compileInputs(event,"android","2","11","45","app")).toThrow();
+ expect(()=>compileInputs({...event,repository:{...event.repository,private:true}},"android","2","11","44","app")).toThrow();
+ expect(()=>compileInputs({...event,sender:{login:"another-user"}},"android","2","11","44","app")).toThrow();
+ const legacy={...event,label:{name:"native-compile"},number:2,pull_request:{...event.pull_request,head:{...event.pull_request.head,ref:"feat/native-mobile"}}};
+ expect(()=>compileInputs(legacy,"android","2","11","44","app")).toThrow();
+});
+
+test("compiled artifact metadata must match the selected identity, version and actual activity",()=>{
+ const version={version:"0.1.0",build:2};
+ for(const [lane,appId] of [["preview","com.gkldevelopment.mychef.preview"],["app","dev.mychef.app"]] as const){
+  const android=`package: name='${appId}' versionCode='2' versionName='0.1.0' platformBuildVersionName='17'
+launchable-activity: name='com.gkldevelopment.mychef.preview.MainActivity' label='MyChef' icon='res/mipmap/icon.png'
+application-label:'${lane==="app"?"MyChef":"MyChef Preview"}'
+`;
+  expect(verifyCompiledIdentity("android",android,lane,version)).toBe(appId);
+  expect(()=>verifyCompiledIdentity("android",android.replace(/application-label:[^\n]+/,"application-label:'Wrong name'"),lane,version)).toThrow();
+  const ios=JSON.stringify({CFBundleIdentifier:appId,CFBundleShortVersionString:"0.1.0",CFBundleVersion:"2",CFBundleDisplayName:lane==="app"?"MyChef":"MyChef Preview"});
+  expect(verifyCompiledIdentity("ios-device",ios,lane,version)).toBe(appId);
+  expect(()=>verifyCompiledIdentity("ios-device",JSON.stringify({...JSON.parse(ios),CFBundleDisplayName:"Wrong name"}),lane,version)).toThrow();
+  expect(()=>verifyCompiledIdentity("android",android,lane==="app"?"preview":"app",version)).toThrow();
+  expect(()=>verifyCompiledIdentity("ios-simulator",ios,lane,{...version,build:3})).toThrow();
+  expect(()=>verifyCompiledIdentity("android",android.replace("com.gkldevelopment.mychef.preview.MainActivity","dev.mychef.app.MainActivity"),lane,version)).toThrow();
+ }
+});
+
+test("hosted inputs carry an explicit app lane without changing its private environment",()=>{
+ const now=Math.floor(Date.now()/1000),commit="a".repeat(40),hash="b".repeat(64);
+ const facts={candidate:{identityLane:"app",appId:"dev.mychef.app",sourceCommit:commit,bundleSha256:hash,dependenciesSha256:hash,version:"0.1.0",build:2,environment:"preview"},approval:{operation:"unsigned-build",identityLane:"app",appId:"dev.mychef.app",sourceCommit:commit,bundleSha256:hash,expiresUnix:now+100},capacity:{verifiedAtUnix:now,expiresUnix:now+100,includedComputeRemainingUSD:10,estimatedComputeUSD:1,artifactStorageRemainingBytes:1000000,estimatedArtifactBytes:10000,paidOveragesDisabled:true,standardRunner:true}};
+ const env={NATIVE_PLATFORM:"android",NATIVE_COMMIT:commit,NATIVE_ORIGIN:"https://localhost:8977",NATIVE_IDENTITY_LANE:"app",NATIVE_BUILD_FACTS:JSON.stringify(facts)};
+ expect(hostedInputs(env)).toMatchObject({identityLane:"app",origin:"https://localhost:8977"});
+ expect(()=>hostedInputs({...env,NATIVE_IDENTITY_LANE:"preview"})).toThrow();
 });

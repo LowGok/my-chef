@@ -1,3 +1,4 @@
+import {installNativeIdentity} from "./native-app-identity";
 import { forgetReminderDevice, setReminderBridge, syncReminderDevice, type NativeReminderBridge } from "./reminder-device";
 import {
   Capacitor,
@@ -35,7 +36,7 @@ export type NativeRequest = {
   body?: string;
 };
 export type NativeBridge = {
-  configuration(): Promise<{ platform: string; apiOrigin: string }>;
+  configuration(): Promise<{ platform: string; apiOrigin: string; identityLane?: "preview"|"app" }>;
   readRefresh(): Promise<{ value: string | null }>;
   writeRefresh(value: { value: string | null }): Promise<void>;
   request(
@@ -77,6 +78,7 @@ export async function createNativeTransport(
   const origin = new URL(config.apiOrigin);
   if (
     config.platform !== platform ||
+    (config.identityLane !== undefined && config.identityLane !== "preview" && config.identityLane !== "app") ||
     config.apiOrigin !== origin.origin ||
     origin.protocol !== "https:" ||
     !(
@@ -240,6 +242,8 @@ export async function initializeNativePlatform() {
   const transport = await runNativeStartupStep("configuration", () =>
     createNativeTransport(bridge, platform),
   );
+  const identityLane=(await bridge.configuration()).identityLane ?? "preview";
+  await installNativeIdentity(bridge,identityLane);
   const stored = await runNativeStartupStep("storage", async () => {
     const stored = await bridge.readRefresh();
     if (
@@ -252,7 +256,7 @@ export async function initializeNativePlatform() {
     return stored;
   });
   await runNativeStartupStep("shopping", async () => {
-    if (stored.value === null) await bridge.clearShopping();
+    if (stored.value === null && identityLane === "preview") await bridge.clearShopping();
     setShoppingStorage(await openNativeShoppingStorage(bridge));
   });
   setPlatformTransport(transport);

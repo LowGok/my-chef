@@ -17,10 +17,12 @@ const (
 
 // Delivery values are private and must never be used as diagnostics.
 type Delivery struct {
-	Provider  string
-	Token     string
-	Reference string
-	Deadline  time.Time
+	IdentityLane string
+	Environment  string
+	Provider     string
+	Token        string
+	Reference    string
+	Deadline     time.Time
 }
 
 type Result struct {

@@ -29,16 +29,16 @@ func (s blockedSender) send(ctx context.Context, _ string, _ []byte) deliveryRes
 }
 
 func TestEnqueueWhileProviderIsBlocked(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
 	s, err := store.Open(filepath.Join(t.TempDir(), "db"), true)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = s.Close() }()
-	if err := s.Migrate(ctx); err != nil {
+	if err := s.Migrate(t.Context()); err != nil {
 		t.Fatal(err)
 	}
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+	defer cancel()
 	q := Queue{Store: s}
 	request := Request{Key: "first", Recipient: "delivered@resend.dev", Template: "provider-smoke-test/v1", Fields: map[string]string{"testID": "test", "timestamp": "2026-11-06T12:00:00Z"}}
 	if _, err := q.Enqueue(ctx, nil, request); err != nil {

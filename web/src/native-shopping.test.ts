@@ -319,3 +319,31 @@ test("a delayed background reader cannot remember the old account after erasure"
   await flushShoppingCache();
   expect(os.stored()).toBeNull();
 });
+
+test("each installation retains only its own pending edits for the same account", async () => {
+  const preview = fixture();
+  const candidate = fixture();
+  const week = "2026-11-09";
+  async function open(os: ReturnType<typeof fixture>) {
+    setShoppingStorage(await openNativeShoppingStorage(os.bridge));
+    rememberShoppingOwner(profile, week);
+  }
+  async function save(key: string) {
+    const changes = packet(week);
+    changes.queue[0].key = key;
+    saveShoppingCache(profile.id, week, changes);
+    await flushShoppingCache();
+  }
+
+  await open(preview);
+  await save("preview-pending-edit");
+  await open(candidate);
+  expect(loadShoppingCache(profile.id, week)).toBeNull();
+  await save("candidate-pending-edit");
+  await open(preview);
+  expect(loadShoppingCache(profile.id, week)?.queue.map(({ key }) => key))
+    .toEqual(["preview-pending-edit"]);
+  await open(candidate);
+  expect(loadShoppingCache(profile.id, week)?.queue.map(({ key }) => key))
+    .toEqual(["candidate-pending-edit"]);
+});

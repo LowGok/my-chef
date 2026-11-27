@@ -1,3 +1,4 @@
+import {nativeIdentityEvent,refreshNativeIdentity,nativeIdentityLane} from "./native-app-identity";
 import { clearReminderOpen, enableReminderDevice, hasReminderBridge, peekReminderOpen, reminderDeviceActive } from "./reminder-device";
 import {
   takeNativeProof,
@@ -6,6 +7,7 @@ import {
   nativeProofEvent,
   nativeBackEvent,
   nativeResumeEvent,
+  nativeAppOpenEvent,peekNativeAppOpen,takeNativeAppOpen,
 } from "./native-runtime";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
@@ -109,7 +111,7 @@ export function App() {
     [error, setError] = useState("");
   const activeAccount = useRef<Profile | null>(null);
   useEffect(() => {
-    const failed = () => setError("This link could not be opened.");
+    const failed = () => {if(nativeIdentityLane()!=="app")setError("This link could not be opened.");};
     window.addEventListener("mychef-native-link-error", failed);
     return () => window.removeEventListener("mychef-native-link-error", failed);
   }, []);
@@ -208,6 +210,21 @@ export function App() {
     setImagePolls(0);
     return true;
   }
+  useEffect(()=>{
+    if(!user || offlineOnly || proofEntry || verificationRequired)return;
+    let disposed=false,opening=false;
+    const open=()=>{
+      if(opening || !peekNativeAppOpen())return;
+      opening=true;
+      void refreshNativeIdentity().then(allowed=>{
+        if(!disposed && allowed && takeNativeAppOpen())navigate({});
+      }).finally(()=>{opening=false;});
+    };
+    window.addEventListener(nativeAppOpenEvent,open);
+    window.addEventListener(nativeIdentityEvent,open);
+    open();
+    return()=>{disposed=true;window.removeEventListener(nativeAppOpenEvent,open);window.removeEventListener(nativeIdentityEvent,open);};
+  },[user?.accountInstance,offlineOnly,proofEntry,verificationRequired]);
   useEffect(() => {
     if (!user || offlineOnly || !hasReminderBridge()) return;
     let live = true;

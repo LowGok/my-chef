@@ -28,6 +28,18 @@ func nativeActorAuthority(tx *gorm.DB, owner int64, actors ...PersonalActor) err
 		if count != 1 {
 			return ErrAccountAccess
 		}
+		if revision, checked := tx.Statement.Context.Value(nativeIdentityAuthorityKey{}).(int64); checked {
+			if err := tx.Raw(`SELECT count(*) FROM native_accesses a
+JOIN native_families f ON f.id=a.family_id JOIN native_identity_policy p ON p.id=1
+WHERE a.hash=? AND f.identity_lane='app' AND f.identity_revision=? AND
+((p.active=1 AND p.revision=f.identity_revision) OR
+(p.active=0 AND p.sync_revision=f.identity_revision AND p.sync_until>unixepoch()))`, actor.SessionHash, revision).Scan(&count).Error; err != nil {
+				return err
+			}
+			if count != 1 {
+				return ErrAccountAccess
+			}
+		}
 	}
 	return nil
 }

@@ -10,9 +10,11 @@ import { personalPhoto } from "./personal-photo";
 export async function fakeNative(
   context: BrowserContext,
   server: APIRequestContext,
-  options: { platform?: "ios" | "android" } = {},
+  options: { platform?: "ios" | "android"; identityLane?: "preview"|"app"; identityActive?: boolean } = {},
 ) {
   const platform = options.platform ?? "android";
+ const identityLane=options.identityLane??"preview";
+ let identityActive=options.identityActive??false;
   let refresh: string | null = null,
     value: NativeShoppingSnapshot | null = null;
   let generation = crypto.randomUUID(),
@@ -71,6 +73,7 @@ export async function fakeNative(
     if (method === "configuration")
       return {
         platform,
+        identityLane,
         apiOrigin: "https://fixture-node.tailtest.ts.net:8977",
       };
     if (method === "readRefresh") return { value: refresh };
@@ -113,6 +116,9 @@ export async function fakeNative(
       throw new Error("Synthetic native network offline");
     if (!input.path.startsWith("/api/native/v1/") || input.headers.cookie)
       throw new Error("Unsafe native request");
+    // UI policy fixture only: actual package/ingress isolation is verified by
+    // native compiler and HTTP tests, not by this browser model.
+    if(input.path==="/api/native/v1/identity-status")return {status:200,headers:{"content-type":"application/json"},body:Buffer.from(JSON.stringify({active:identityActive})).toString("base64")};
     if (input.headers.authorization) access = input.headers.authorization;
     const photoSave =
       input.path === "/api/native/v1/personal-recipes" &&
@@ -198,6 +204,7 @@ export async function fakeNative(
       for (const page of context.pages())
         await page.evaluate(() => (window as any).__mychefRuntimeWake?.({}));
     },
+    identityPolicy:(active:boolean)=>{identityActive=active;},
     network: (enabled: boolean) => {
       network = enabled;
     },

@@ -85,3 +85,12 @@ var NewsletterIdentityMinimisation string
 
 //go:embed 028_login_username_keys.sql
 var LoginUsernameKeys string
+
+//go:embed 029_native_identity_lanes.sql
+var NativeIdentityLanes string
+
+//go:embed 030_native_identity_policy.sql
+var NativeIdentityPolicy string
+
+//go:embed 031_notification_identity.sql
+var NotificationIdentity string

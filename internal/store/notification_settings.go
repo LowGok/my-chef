@@ -35,14 +35,15 @@ type ReminderPreferences struct {
 }
 
 type ReminderSettings struct {
-	store        *Store
-	key          []byte
-	vault        cipher.AEAD
-	read         PersonalEntitlementReader
-	now          func() time.Time
-	loadLocation func(string) (*time.Location, error)
-	supports     func(string) bool
-	zoneFailures atomic.Int64
+	identityRoutes map[string]reminderIdentityRoute
+	store          *Store
+	key            []byte
+	vault          cipher.AEAD
+	read           PersonalEntitlementReader
+	now            func() time.Time
+	loadLocation   func(string) (*time.Location, error)
+	supports       func(string) bool
+	zoneFailures   atomic.Int64
 }
 
 func NewReminderSettings(s *Store, key []byte, reader PersonalEntitlementReader, clock func() time.Time) (*ReminderSettings, error) {
@@ -255,7 +256,7 @@ JOIN sessions s ON s.hash=f.anchor_hash WHERE f.id=? AND f.platform=? AND a.hash
 }
 
 func (s *ReminderSettings) Register(ctx context.Context, actor PersonalActor, family, platform, provider, token string, osAllowed bool) error {
-	if !osAllowed || !s.providerEnabled(provider) {
+	if !osAllowed {
 		return ErrReminderPermission
 	}
 	validAPNs := platform == "ios" && provider == "apns" && apnsTokenShape.MatchString(token)
@@ -271,6 +272,17 @@ func (s *ReminderSettings) Register(ctx context.Context, actor PersonalActor, fa
 		}
 		if err := reminderFamily(tx, actor, family, platform, at); err != nil {
 			return err
+		}
+		var identity struct {
+			IdentityLane     string
+			IdentityRevision int64
+		}
+		if err := tx.Raw("SELECT identity_lane,identity_revision FROM native_families WHERE id=?", family).Scan(&identity).Error; err != nil {
+			return err
+		}
+		route, enabled := s.reminderRoute(identity.IdentityLane)
+		if !enabled || !route.supports(provider) {
+			return ErrReminderPermission
 		}
 		prefs, err := loadReminderPreferences(tx, owner)
 		if err != nil {
@@ -288,13 +300,27 @@ func (s *ReminderSettings) Register(ctx context.Context, actor PersonalActor, fa
 		mac := hmac.New(sha256.New, s.key)
 		_, _ = mac.Write([]byte("reminder-token:" + provider + ":" + token))
 		tag := mac.Sum(nil)
+		var crossLane int64
+		if err := tx.Raw("SELECT count(*) FROM reminder_installations WHERE token_tag=? AND (identity_lane<>? OR environment<>?)", tag, identity.IdentityLane, route.environment).Scan(&crossLane).Error; err != nil {
+			return err
+		}
+		if crossLane != 0 {
+			return ErrReminderPermission
+		}
+		if err := tx.Raw("SELECT count(*) FROM reminder_installations WHERE family_id=? AND (identity_lane<>? OR environment<>? OR identity_revision<>?)", family, identity.IdentityLane, route.environment, identity.IdentityRevision).Scan(&crossLane).Error; err != nil {
+			return err
+		}
+		if crossLane != 0 {
+			return ErrReminderPermission
+		}
+
 		ciphertext := s.vault.Seal(nil, nil, []byte(token), []byte(owner+":"+family+":"+provider))
 		if err := tx.Exec("DELETE FROM reminder_installations WHERE token_tag=? AND family_id<>?", tag, family).Error; err != nil {
 			return err
 		}
-		return tx.Exec(`INSERT INTO reminder_installations(family_id,incarnation,platform,provider,token_tag,token_cipher,refreshed_unix)
-VALUES(?,?,?,?,?,?,?) ON CONFLICT(family_id) DO UPDATE SET token_tag=excluded.token_tag,token_cipher=excluded.token_cipher,
-refreshed_unix=excluded.refreshed_unix`, family, owner, platform, provider, tag, ciphertext, at.Unix()).Error
+		return tx.Exec(`INSERT INTO reminder_installations(family_id,incarnation,platform,provider,token_tag,token_cipher,refreshed_unix,identity_lane,environment,identity_revision)
+VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(family_id) DO UPDATE SET token_tag=excluded.token_tag,token_cipher=excluded.token_cipher,
+refreshed_unix=excluded.refreshed_unix`, family, owner, platform, provider, tag, ciphertext, at.Unix(), identity.IdentityLane, route.environment, identity.IdentityRevision).Error
 	})
 }
 

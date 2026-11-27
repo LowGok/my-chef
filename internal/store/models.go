@@ -88,10 +88,12 @@ type Session struct {
 }
 
 type NativeFamily struct {
-	ID          string `gorm:"primaryKey"`
-	AnchorHash  string
-	Platform    string
-	ExpiresUnix int64
+	IdentityRevision int64
+	IdentityLane     string `gorm:"column:identity_lane;default:preview"`
+	ID               string `gorm:"primaryKey"`
+	AnchorHash       string
+	Platform         string
+	ExpiresUnix      int64
 }
 
 type NativeAccess struct {

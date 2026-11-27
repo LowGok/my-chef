@@ -85,6 +85,15 @@ test("private delivery accepts only the exact approved internal candidate with v
     expect(() => validateNativeDelivery(invalid, 1000)).toThrow();
   }
 });
+
+test("unsigned app-lane delivery needs its own identity approval and cannot reuse Preview distribution",()=>{
+ const value:any=facts();value.approval.operation="unsigned-build";value.candidate.appId="dev.mychef.app";value.candidate.identityLane="app";
+ expect(()=>validateNativeDelivery(value,1000)).toThrow();
+ value.approval.appId="dev.mychef.app";value.approval.identityLane="app";
+ expect(validateNativeDelivery(value,1000).operation).toBe("unsigned-build");
+ value.approval.operation="owner-testflight";
+ expect(()=>validateNativeDelivery(value,1000)).toThrow();
+});
 test("unsigned builds cannot authorize signing or store distribution", () => {
   const value: any = facts();
   value.approval.operation = "unsigned-build";

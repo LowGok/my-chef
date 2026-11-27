@@ -63,6 +63,7 @@ public class MyChefNativePlugin extends Plugin {
     private void traceNativeCheck(String path, String method, String result) {
         if (origin == null || !"localhost".equals(origin.getHost())
                 || (getContext().getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) == 0) return;
+        if (path.startsWith("/api/native/app/v1/")) path = "/api/native/v1/" + path.substring("/api/native/app/v1/".length());
         String operation;
         if ("/api/native/v1/session".equals(path) && ("GET".equals(method) || "POST".equals(method))) {
             operation = "session";
@@ -87,7 +88,10 @@ public class MyChefNativePlugin extends Plugin {
             result.put("back",activity.runtime.takeBack());
             String link = activity.runtime.takeLink(SystemClock.elapsedRealtime());
             if (link != null) {
-                try { result.put("link",NativeBoundary.accountLink(origin,link)); }
+                try {
+                    if (NativeAppIdentity.appOpeningLink(getConfig().getString("identityLane", "preview"), link)) result.put("link",link);
+                    else result.put("link",NativeBoundary.accountLink(origin,link));
+                }
                 catch (Exception ignored) { result.put("invalidLink",true); }
             }
             String reminder = ReminderNotifications.take(SystemClock.elapsedRealtime());
@@ -173,12 +177,15 @@ public class MyChefNativePlugin extends Plugin {
             @Override public void onLost(Network network) { runtimeChanged(); }
         };
         if (connectivity != null) connectivity.registerDefaultNetworkCallback(networkCallback);
-        try { origin = NativeBoundary.origin(getConfig().getString("apiOrigin", "")); }
+        try {
+            NativeAppIdentity.require(getContext().getPackageName(), getConfig().getString("identityLane", "preview"));
+            origin = NativeBoundary.origin(getConfig().getString("apiOrigin", ""));
+        }
         catch (Exception ignored) { origin = null; }
     }
     @PluginMethod public void configuration(PluginCall call) {
         if (origin == null) { call.reject("Private API configuration is unavailable", "native_configuration"); return; }
-        JSObject value = new JSObject(); value.put("platform", "android"); value.put("apiOrigin", origin.toString()); reply(call, value);
+        JSObject value = new JSObject(); value.put("platform", "android"); value.put("apiOrigin", origin.toString()); value.put("identityLane", getConfig().getString("identityLane", "preview")); reply(call, value);
     }
     @PluginMethod public void readRefresh(PluginCall call) {
         try { String value = refresh.read(); JSObject result = new JSObject(); result.put("value", value == null ? org.json.JSONObject.NULL : value); reply(call, result); }
@@ -213,7 +220,8 @@ public class MyChefNativePlugin extends Plugin {
         traceNativeCheck(path, method, "bridge");
         try {
             if (origin == null || !requestId.matches("[a-f0-9-]{36}") || calls.size() >= 32) throw new IllegalArgumentException();
-            URI target = NativeBoundary.target(origin, path);
+            NativeBoundary.target(origin, path);
+            URI target = new URI(origin + NativeAppIdentity.apiPath(getConfig().getString("identityLane", "preview"), path));
             if (!Arrays.asList("GET", "HEAD", "POST", "PUT", "PATCH", "DELETE").contains(method)) throw new IllegalArgumentException();
             JSObject input = call.getObject("headers", new JSObject());
             Map<String, String> raw = new HashMap<>();
@@ -384,7 +392,7 @@ public class MyChefNativePlugin extends Plugin {
     @PluginMethod public void cancelMedia(PluginCall call) {
         mediaEpoch++; PluginCall pending = mediaPending; mediaPending = null; clearExport();
         if (pending != null) pending.reject("The account changed", "native_cancelled");
-        for (Call operation : calls.values()) if ("media".equals(operation.request().tag()) || operation.request().url().encodedPath().startsWith("/api/native/v1/personal-photos/")) operation.cancel();
+        for (Call operation : calls.values()) if ("media".equals(operation.request().tag()) || (operation.request().url().encodedPath().startsWith("/api/native/v1/personal-photos/") || operation.request().url().encodedPath().startsWith("/api/native/app/v1/personal-photos/"))) operation.cancel();
         reply(call);
     }
     // Private files, source URIs and export bytes are never activity-restorable.
